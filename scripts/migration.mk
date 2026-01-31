@@ -17,9 +17,9 @@ MIGRATE_VERSION ?= latest
 # Build tags for migrate binary (postgres, mysql, sqlite3). Default: postgres.
 MIGRATE_TAGS ?= postgres
 
-# Default: localhost Postgres. Override with make migration-up DATABASE_URL=...
+# Default: localhost Postgres (matches docker-compose postgres service). Override with make migration-up DATABASE_URL=...
 # Example: postgres://user:pass@localhost:5432/dbname?sslmode=disable
-DATABASE_URL ?= postgres://postgres@localhost:5432/guest_management?sslmode=disable
+DATABASE_URL ?= postgres://postgres:postgres@localhost:5432/guest_management?sslmode=disable
 
 MIGRATE_BIN := $(GOPATH_BIN)$(PATH_SEP)migrate$(BIN_EXT)
 
@@ -128,4 +128,4 @@ help-migration: ## Show migration targets and descriptions
 	@echo "  make migration-goto VERSION=<v> ## Migrate to version V (up or down)"
 	@echo "  make migration-version    ## Show current migration version"
 	@echo "  make migration-force VERSION=<v> ## Force set version (recovery)"
-	@echo "  DB: DATABASE_URL (default: postgres://postgres@localhost:5432/guest_management?sslmode=disable)"
+	@echo "  DB: DATABASE_URL (default: postgres://postgres:postgres@localhost:5432/guest_management?sslmode=disable)"

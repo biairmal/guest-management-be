@@ -1,0 +1,3 @@
+ALTER TABLE guests DROP CONSTRAINT IF EXISTS fk_guests_ticket;
+DROP TABLE IF EXISTS tickets;
+DROP TABLE IF EXISTS guests;

@@ -1,0 +1,60 @@
+# Docker Compose for local development: PostgreSQL, Redis, and Redis Insight (GUI).
+# Run from this directory: docker compose up -d
+# Stop: docker compose down
+# Redis: username "default", password from REDIS_PASSWORD (default "redis").
+# Redis Insight: http://localhost:5540 — add Redis (host: redis, port: 6379, username: default, password: value of REDIS_PASSWORD).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: guest-management-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: guest_management
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d guest_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: guest-management-redis
+    restart: unless-stopped
+    environment:
+      # Username is Redis built-in "default"; password set below (default: redis).
+      REDIS_USERNAME: default
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis}
+    command: sh -c "redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: guest-management-redis-insight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    volumes:
+      - redis_insight_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  redis_insight_data:
