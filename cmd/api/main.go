@@ -3,15 +3,23 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"time"
+
+	"github.com/biairmal/go-sdk/logger"
 )
 
 func main() {
+	// Initialize logger
+	log := logger.NewZerolog(&logger.Options{
+		Level:  logger.LevelInfo,
+		Output: logger.OutputStdout,
+		Format: logger.FormatText,
+	})
+
 	// Initialize HTTP server
 	mux := http.NewServeMux()
 
@@ -26,7 +34,7 @@ func main() {
 
 	// Start server in a goroutine
 	wg.Go(func() {
-		log.Println("Starting server on port 8080")
+		log.Info("Starting server on port 8080")
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}
@@ -37,7 +45,7 @@ func main() {
 	case err := <-serverErr:
 		log.Fatalf("Failed to start server: %v", err)
 	case <-time.After(100 * time.Millisecond):
-		log.Println("Server started successfully")
+		log.Info("Server started successfully")
 	}
 
 	// Graceful shutdown
@@ -46,22 +54,22 @@ func main() {
 
 	select {
 	case <-ctx.Done():
-		log.Println("Shutdown signal received, initiating graceful shutdown...")
+		log.Info("Shutdown signal received, initiating graceful shutdown...")
 	case err := <-serverErr:
-		log.Printf("Server error occurred: %v, initiating shutdown...", err)
+		log.Infof("Server error occurred: %v, initiating shutdown...", err)
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Error during server shutdown: %v", err)
+		log.Infof("Error during server shutdown: %v", err)
 		if errors.Is(err, context.DeadlineExceeded) {
-			log.Println("Shutdown timeout exceeded, forcing server close...")
+			log.Info("Shutdown timeout exceeded, forcing server close...")
 			server.Close()
 		}
 	}
 
 	wg.Wait()
-	log.Println("Server shutdown completed")
+	log.Info("Server shutdown completed")
 }
