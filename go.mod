@@ -4,7 +4,10 @@ go 1.25.1
 
 replace github.com/biairmal/go-sdk => ../go-sdk
 
-require github.com/biairmal/go-sdk v0.0.1
+require (
+	github.com/biairmal/go-sdk v0.0.1
+	github.com/go-chi/chi/v5 v5.1.0
+)
 
 require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
