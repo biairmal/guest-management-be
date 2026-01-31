@@ -28,7 +28,9 @@ install-migration: ## Install golang-migrate CLI (Postgres driver by default; se
 	@echo "# Migration"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_RUN)Installing golang-migrate@$(MIGRATE_VERSION) (tags: $(MIGRATE_TAGS))..."
+	$(ECHO_EMPTY)
 	@go install -tags '$(MIGRATE_TAGS)' github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)
+	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)migrate installed: $(MIGRATE_BIN)"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)PROCESS COMPLETED SUCCESSFULLY"
@@ -40,7 +42,9 @@ migration-create: ## Create new migration files; requires NAME= (e.g. make migra
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_RUN)Creating migration '$(NAME)' in $(MIGRATIONS_DIR)..."
 	@mkdir -p $(MIGRATIONS_DIR)
+	$(ECHO_EMPTY)
 	@$(MIGRATE_BIN) create -ext sql -dir $(MIGRATIONS_DIR) -seq $(NAME)
+	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)Migration files created in $(MIGRATIONS_DIR)"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)PROCESS COMPLETED SUCCESSFULLY"
@@ -50,7 +54,9 @@ migration-up: ## Apply all pending migrations (DB: DATABASE_URL, default localho
 	@echo "# Migration"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_RUN)Applying all pending migrations (path: $(MIGRATIONS_DIR))..."
+	$(ECHO_EMPTY)
 	@$(MIGRATE_BIN) -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" up
+	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)Migrations applied"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)PROCESS COMPLETED SUCCESSFULLY"
@@ -61,7 +67,9 @@ migration-up-n: ## Apply N migrations; requires N= (e.g. make migration-up-n N=2
 	@echo "# Migration"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_RUN)Applying $(N) migration(s)..."
+	$(ECHO_EMPTY)
 	@$(MIGRATE_BIN) -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" up $(N)
+	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)Migrations applied"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)PROCESS COMPLETED SUCCESSFULLY"
@@ -71,7 +79,9 @@ migration-down: ## Rollback one migration
 	@echo "# Migration"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_RUN)Rolling back one migration..."
+	$(ECHO_EMPTY)
 	@$(MIGRATE_BIN) -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" down 1
+	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)Migration rolled back"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)PROCESS COMPLETED SUCCESSFULLY"
@@ -82,7 +92,9 @@ migration-down-n: ## Rollback N migrations; requires N= (e.g. make migration-dow
 	@echo "# Migration"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_RUN)Rolling back $(N) migration(s)..."
+	$(ECHO_EMPTY)
 	@$(MIGRATE_BIN) -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" down $(N)
+	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)Migrations rolled back"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)PROCESS COMPLETED SUCCESSFULLY"
@@ -93,7 +105,9 @@ migration-goto: ## Migrate to specific version (up or down); requires VERSION= (
 	@echo "# Migration"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_RUN)Migrating to version $(VERSION)..."
+	$(ECHO_EMPTY)
 	@$(MIGRATE_BIN) -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" goto $(VERSION)
+	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)Now at version $(VERSION)"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)PROCESS COMPLETED SUCCESSFULLY"
@@ -103,7 +117,9 @@ migration-version: ## Show current migration version
 	@echo "# Migration"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_RUN)Current version:"
+	$(ECHO_EMPTY)
 	@$(MIGRATE_BIN) -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" version
+	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)Done"
 
 migration-force: ## Force set schema version (recovery after failed migration); requires VERSION=
@@ -112,7 +128,9 @@ migration-force: ## Force set schema version (recovery after failed migration); 
 	@echo "# Migration"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_RUN)Forcing version to $(VERSION)..."
+	$(ECHO_EMPTY)
 	@$(MIGRATE_BIN) -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" force $(VERSION)
+	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)Version forced to $(VERSION)"
 	$(ECHO_EMPTY)
 	@echo "$(INDENT)$(PREFIX_OK)PROCESS COMPLETED SUCCESSFULLY"
