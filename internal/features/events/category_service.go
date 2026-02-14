@@ -30,6 +30,8 @@ func NewCategoryService(
 }
 
 // CreateInput is the input for creating an event category.
+//
+// swagger:model CreateInput
 type CreateInput struct {
 	Source   string     `json:"source"` // "app" or "tenant"
 	TenantID *uuid.UUID `json:"tenant_id,omitempty"`
@@ -37,6 +39,8 @@ type CreateInput struct {
 }
 
 // UpdateInput is the input for updating an event category.
+//
+// swagger:model UpdateInput
 type UpdateInput struct {
 	Source   *string    `json:"source,omitempty"`
 	TenantID *uuid.UUID `json:"tenant_id,omitempty"`
@@ -150,6 +154,8 @@ func (s *CategoryService) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 // ListResult holds paginated list and metadata.
+//
+// swagger:model ListResult
 type ListResult struct {
 	Items      []*EventCategory `json:"items"`
 	Total      int64            `json:"total"`

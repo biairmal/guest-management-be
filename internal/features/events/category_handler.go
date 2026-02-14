@@ -26,6 +26,21 @@ func NewCategoryHandler(options CategoryHandlerOptions, service *CategoryService
 }
 
 // List handles GET /event-categories with optional query: limit, offset, sort_field, sort_dir.
+//
+// List godoc
+//
+//	@Summary		List event categories
+//	@Description	Returns a paginated list of event categories with optional sort and pagination.
+//	@Tags			event-categories
+//	@Accept			json
+//	@Produce		json
+//	@Param			limit		query		int		false	"Maximum number of items to return (default 20, max 100)"
+//	@Param			offset		query		int		false	"Number of items to skip"
+//	@Param			sort_field	query		string	false	"Sort field (default: created_at)"
+//	@Param			sort_dir		query		string	false	"Sort direction: asc or desc"
+//	@Success		200			{object}	events.ListResult
+//	@Failure		500			{object}	object	"Internal server error"
+//	@Router			/api/v1/event-categories [get]
 func (h *CategoryHandler) List(r *http.Request) (any, error) {
 	ctx := r.Context()
 	limit, offset := parseLimitOffset(r)
@@ -39,6 +54,20 @@ func (h *CategoryHandler) List(r *http.Request) (any, error) {
 }
 
 // GetByID handles GET /event-categories/{id}.
+//
+// GetByID godoc
+//
+//	@Summary		Get event category by ID
+//	@Description	Returns a single event category by UUID.
+//	@Tags			event-categories
+//	@Accept			json
+//	@Produce		json
+//	@Param			id	path		string	true	"Event category UUID"
+//	@Success		200	{object}	events.EventCategory
+//	@Failure		400	{object}	object	"Invalid ID format"
+//	@Failure		404	{object}	object	"Event category not found"
+//	@Failure		500	{object}	object	"Internal server error"
+//	@Router			/api/v1/event-categories/{id} [get]
 func (h *CategoryHandler) GetByID(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
@@ -53,6 +82,21 @@ func (h *CategoryHandler) GetByID(r *http.Request) (any, error) {
 }
 
 // Create handles POST /event-categories.
+//
+// Create godoc
+//
+//	@Summary		Create event category
+//	@Description	Creates a new event category. Source must be "app" or "tenant"; tenant_id required when source is "tenant".
+//	@Tags			event-categories
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		events.CreateInput	true	"Event category payload"
+//	@Success		201		{object}	events.EventCategory
+//	@Failure		400		{object}	object	"Invalid request body or validation error"
+//	@Failure		409		{object}	object	"Conflict (e.g. already exists)"
+//	@Failure		422		{object}	object	"Unprocessable entity"
+//	@Failure		500		{object}	object	"Internal server error"
+//	@Router			/api/v1/event-categories [post]
 func (h *CategoryHandler) Create(r *http.Request) (any, error) {
 	var body CreateInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -66,6 +110,21 @@ func (h *CategoryHandler) Create(r *http.Request) (any, error) {
 }
 
 // Update handles PUT /event-categories/{id}.
+//
+// Update godoc
+//
+//	@Summary		Update event category
+//	@Description	Updates an existing event category by ID. Only provided fields are applied (partial update).
+//	@Tags			event-categories
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string				true	"Event category UUID"
+//	@Param			body	body		events.UpdateInput	true	"Fields to update"
+//	@Success		200		{object}	events.EventCategory
+//	@Failure		400		{object}	object	"Invalid ID or request body"
+//	@Failure		404		{object}	object	"Event category not found"
+//	@Failure		500		{object}	object	"Internal server error"
+//	@Router			/api/v1/event-categories/{id} [put]
 func (h *CategoryHandler) Update(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
@@ -84,6 +143,20 @@ func (h *CategoryHandler) Update(r *http.Request) (any, error) {
 }
 
 // Delete handles DELETE /event-categories/{id}.
+//
+// Delete godoc
+//
+//	@Summary		Delete event category
+//	@Description	Soft-deletes an event category by ID.
+//	@Tags			event-categories
+//	@Accept			json
+//	@Produce		json
+//	@Param			id	path		string	true	"Event category UUID"
+//	@Success		204	"No content"
+//	@Failure		400	{object}	object	"Invalid ID format"
+//	@Failure		404	{object}	object	"Event category not found"
+//	@Failure		500	{object}	object	"Internal server error"
+//	@Router			/api/v1/event-categories/{id} [delete]
 func (h *CategoryHandler) Delete(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)

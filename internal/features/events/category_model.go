@@ -16,6 +16,8 @@ const (
 
 // EventCategory represents a row in the event_categories table.
 // Supports soft delete via deleted_at.
+//
+// swagger:model EventCategory
 type EventCategory struct {
 	ID        uuid.UUID  `json:"id"`
 	Source    string     `json:"source"`

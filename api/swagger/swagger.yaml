@@ -1,0 +1,241 @@
+basePath: /
+definitions:
+  internal_features_events.CreateInput:
+    properties:
+      name:
+        type: string
+      source:
+        description: '"app" or "tenant"'
+        type: string
+      tenant_id:
+        type: string
+    type: object
+  internal_features_events.EventCategory:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      source:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_features_events.ListResult:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_features_events.EventCategory'
+        type: array
+      limit:
+        type: integer
+      offset:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  internal_features_events.UpdateInput:
+    properties:
+      name:
+        type: string
+      source:
+        type: string
+      tenant_id:
+        type: string
+    type: object
+externalDocs:
+  description: OpenAPI
+  url: https://swagger.io/resources/open-api/
+host: localhost:8080
+info:
+  contact: {}
+  description: This is a guest management server.
+  title: Guest Management API
+  version: "1.0"
+paths:
+  /api/v1/event-categories:
+    get:
+      consumes:
+      - application/json
+      description: Returns a paginated list of event categories with optional sort
+        and pagination.
+      parameters:
+      - description: Maximum number of items to return (default 20, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Number of items to skip
+        in: query
+        name: offset
+        type: integer
+      - description: 'Sort field (default: created_at)'
+        in: query
+        name: sort_field
+        type: string
+      - description: 'Sort direction: asc or desc'
+        in: query
+        name: sort_dir
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events.ListResult'
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: List event categories
+      tags:
+      - event-categories
+    post:
+      consumes:
+      - application/json
+      description: Creates a new event category. Source must be "app" or "tenant";
+        tenant_id required when source is "tenant".
+      parameters:
+      - description: Event category payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_events.CreateInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_events.EventCategory'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "409":
+          description: Conflict (e.g. already exists)
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Create event category
+      tags:
+      - event-categories
+  /api/v1/event-categories/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Soft-deletes an event category by ID.
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Event category not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Delete event category
+      tags:
+      - event-categories
+    get:
+      consumes:
+      - application/json
+      description: Returns a single event category by UUID.
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events.EventCategory'
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Event category not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Get event category by ID
+      tags:
+      - event-categories
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing event category by ID. Only provided fields
+        are applied (partial update).
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_events.UpdateInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events.EventCategory'
+        "400":
+          description: Invalid ID or request body
+          schema:
+            type: object
+        "404":
+          description: Event category not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Update event category
+      tags:
+      - event-categories
+swagger: "2.0"

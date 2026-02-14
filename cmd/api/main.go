@@ -13,11 +13,22 @@ import (
 	"github.com/biairmal/go-sdk/httpkit/middleware"
 	"github.com/biairmal/go-sdk/logger"
 	"github.com/biairmal/go-sdk/sqlkit"
+	_ "github.com/biairmal/guest-management-be/api/swagger"
 	"github.com/biairmal/guest-management-be/internal/app"
 	"github.com/go-chi/chi/v5"
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	_ "github.com/lib/pq"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
+// @title           Guest Management API
+// @version         1.0
+// @description     This is a guest management server.
+// @host            localhost:8080
+// @BasePath        /
+
+// @externalDocs.description  OpenAPI
+// @externalDocs.url          https://swagger.io/resources/open-api/
 func main() {
 	log := logger.NewZerolog(&logger.Options{
 		Level:  logger.LevelInfo,
@@ -51,6 +62,12 @@ func main() {
 
 	r.Get("/health", httpkit.Health())
 	r.Get("/ready", httpkit.Readiness(func(_ context.Context) error { return nil }))
+	r.Route("/swagger", func(r chi.Router) {
+		r.Use(chiMiddleware.BasicAuth("swagger", map[string]string{
+			"admin": "supersecret",
+		}))
+		r.Get("/*", httpSwagger.WrapHandler)
+	})
 
 	application := app.NewApp(app.Options{}, log, db, r)
 	application.Initialize()
