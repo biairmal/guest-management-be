@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -10,13 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/biairmal/go-sdk/errorz"
 	"github.com/biairmal/go-sdk/httpkit"
-	"github.com/biairmal/go-sdk/httpkit/handler"
 	"github.com/biairmal/go-sdk/httpkit/middleware"
-	"github.com/biairmal/go-sdk/httpkit/response"
 	"github.com/biairmal/go-sdk/logger"
+	"github.com/biairmal/go-sdk/sqlkit"
+	"github.com/biairmal/guest-management-be/internal/app"
 	"github.com/go-chi/chi/v5"
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -26,23 +25,38 @@ func main() {
 		Format: logger.FormatText,
 	})
 
+	ctx := context.Background()
+	db, err := sqlkit.New(ctx, &sqlkit.Config{
+		Leader: sqlkit.DBConfig{
+			Driver:         "postgres",
+			Host:           "localhost",
+			Port:           5432,
+			Database:       "guest_management",
+			Username:       "postgres",
+			Password:       "postgres",
+			SSLMode:        "disable",
+			ConnectTimeout: 5 * time.Second,
+			MaxRetries:     3,
+		},
+	})
+	if err != nil {
+		log.Fatalf("Database config failed: %v", err)
+	}
+	if db != nil {
+		defer func() { _ = db.Close() }()
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.Recover(), middleware.RequestID(), middleware.Logging(log, nil))
 
 	r.Get("/health", httpkit.Health())
 	r.Get("/ready", httpkit.Readiness(func(_ context.Context) error { return nil }))
-	r.Get("/api/v1/ping", handler.Handle(pingHandler))
 
-	r.Route("/api/v1/items", func(r chi.Router) {
-		r.Get("/", handler.Handle(listItems))
-		r.Get("/{id}", handler.Handle(getItem))
-		r.Post("/", handler.Handle(createItem))
-		r.Put("/{id}", handler.Handle(updateItem))
-		r.Delete("/{id}", handler.Handle(deleteItem))
-	})
+	application := app.NewApp(app.Options{}, log, db, r)
+	application.Initialize()
 
 	server := &http.Server{
-		Addr:              ":8080",
+		Addr:              "127.0.0.1:8080",
 		Handler:           r,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -51,9 +65,19 @@ func main() {
 	var wg sync.WaitGroup
 
 	wg.Add(1)
+
+	startServer(&wg, log, server, serverErr)
+	gracefulShutdown(log, serverErr, server)
+
+	wg.Wait()
+
+	log.Info("Server shutdown completed")
+}
+
+func startServer(wg *sync.WaitGroup, log logger.Logger, server *http.Server, serverErr chan error) {
 	go func() {
 		defer wg.Done()
-		log.Info("Starting server on port 8080")
+		log.Info("Starting server on port 127.0.0.1:8080")
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}
@@ -65,7 +89,9 @@ func main() {
 	case <-time.After(100 * time.Millisecond):
 		log.Info("Server started successfully")
 	}
+}
 
+func gracefulShutdown(log logger.Logger, serverErr chan error, server *http.Server) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer stop()
 
@@ -86,78 +112,4 @@ func main() {
 			_ = server.Close()
 		}
 	}
-
-	wg.Wait()
-	log.Info("Server shutdown completed")
-}
-
-func pingHandler(_ *http.Request) (any, error) {
-	return response.OK(map[string]string{"pong": "ok"}), nil
-}
-
-// Dummy CRUD: in-memory store for demo.
-var itemsStore = []item{
-	{ID: "1", Name: "Item One"},
-	{ID: "2", Name: "Item Two"},
-}
-
-type item struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-func listItems(r *http.Request) (any, error) {
-	limit := r.URL.Query().Get("limit")
-	_ = limit
-	return response.OK(itemsStore), nil
-}
-
-func getItem(r *http.Request) (any, error) {
-	id := chi.URLParam(r, "id")
-	for _, it := range itemsStore {
-		if it.ID == id {
-			return response.OK(it), nil
-		}
-	}
-	return nil, errorz.NotFound()
-}
-
-func createItem(r *http.Request) (any, error) {
-	var body struct {
-		Name string `json:"name"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		return nil, errorz.BadRequest()
-	}
-	created := item{ID: "3", Name: body.Name}
-	itemsStore = append(itemsStore, created)
-	return response.Created(created), nil
-}
-
-func updateItem(r *http.Request) (any, error) {
-	id := chi.URLParam(r, "id")
-	var body struct {
-		Name string `json:"name"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		return nil, errorz.BadRequest()
-	}
-	for i := range itemsStore {
-		if itemsStore[i].ID == id {
-			itemsStore[i].Name = body.Name
-			return response.OK(itemsStore[i]), nil
-		}
-	}
-	return nil, errorz.NotFound()
-}
-
-func deleteItem(r *http.Request) (any, error) {
-	id := chi.URLParam(r, "id")
-	for i := range itemsStore {
-		if itemsStore[i].ID == id {
-			itemsStore = append(itemsStore[:i], itemsStore[i+1:]...)
-			return response.NoContent(), nil
-		}
-	}
-	return nil, errorz.NotFound()
 }
