@@ -12,14 +12,17 @@ import (
 	"github.com/google/uuid"
 )
 
+type CategoryHandlerOptions struct{}
+
 // CategoryHandler exposes HTTP handlers for event category CRUD.
 type CategoryHandler struct {
+	options CategoryHandlerOptions
 	service *CategoryService
 }
 
 // NewCategoryHandler returns a CategoryHandler that uses the given service.
-func NewCategoryHandler(service *CategoryService) *CategoryHandler {
-	return &CategoryHandler{service: service}
+func NewCategoryHandler(options CategoryHandlerOptions, service *CategoryService) *CategoryHandler {
+	return &CategoryHandler{options: options, service: service}
 }
 
 // List handles GET /event-categories with optional query: limit, offset, sort_field, sort_dir.

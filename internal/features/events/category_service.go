@@ -11,15 +11,22 @@ import (
 	"github.com/google/uuid"
 )
 
+type CategoryServiceOptions struct{}
+
 // CategoryService provides application logic for event categories.
 type CategoryService struct {
-	repo   CategoryRepository
-	logger logger.Logger
+	repo    CategoryRepository
+	logger  logger.Logger
+	options CategoryServiceOptions
 }
 
 // NewCategoryService returns a CategoryService with the given dependencies.
-func NewCategoryService(logger logger.Logger, repo CategoryRepository) *CategoryService {
-	return &CategoryService{logger: logger, repo: repo}
+func NewCategoryService(
+	options CategoryServiceOptions,
+	logger logger.Logger,
+	repo CategoryRepository,
+) *CategoryService {
+	return &CategoryService{options: options, logger: logger, repo: repo}
 }
 
 // CreateInput is the input for creating an event category.

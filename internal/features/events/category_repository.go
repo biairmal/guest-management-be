@@ -24,13 +24,16 @@ type CategoryRepository interface {
 	Exists(ctx context.Context, id any) (bool, error)
 }
 
+type CategoryRepositoryOptions struct{}
+
 // categoryRepo implements CategoryRepository with soft-delete semantics.
 type categoryRepo struct {
-	repo repository.Repository[EventCategory]
+	repo    repository.Repository[EventCategory]
+	options CategoryRepositoryOptions
 }
 
 // NewCategoryRepository returns a CategoryRepository backed by the generic SQL repository.
-func NewCategoryRepository(db *sqlkit.DB) CategoryRepository {
+func NewCategoryRepository(options CategoryRepositoryOptions, db *sqlkit.DB) CategoryRepository {
 	generic := sql.NewGenericRepository(
 		db,
 		eventCategoriesTable,
@@ -41,7 +44,7 @@ func NewCategoryRepository(db *sqlkit.DB) CategoryRepository {
 			"id", "source", "tenant_id", "name", "created_at", "updated_at", "deleted_at",
 		}),
 	)
-	return &categoryRepo{repo: generic}
+	return &categoryRepo{repo: generic, options: options}
 }
 
 // mergeSoftDeleteFilter returns a filter that adds deleted_at IS NULL to the given filter.

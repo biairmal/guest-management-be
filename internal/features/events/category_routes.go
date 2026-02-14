@@ -5,7 +5,9 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func InitCategoryRoutes(r *chi.Mux, categoryH *CategoryHandler) {
+type CategoryRouterOptions struct{}
+
+func InitCategoryRoutes(_ CategoryRouterOptions, r *chi.Mux, categoryH *CategoryHandler) {
 	r.Route("/api/v1/event-categories", func(r chi.Router) {
 		r.Get("/", handler.Handle(categoryH.List))
 		r.Get("/{id}", handler.Handle(categoryH.GetByID))

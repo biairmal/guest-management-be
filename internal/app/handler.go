@@ -9,8 +9,12 @@ type handler struct {
 	categoryHandler *events.CategoryHandler
 }
 
-func (a *App) initializeHandler(_ logger.Logger, service *service) *handler {
+type HandlerOptions struct {
+	Category events.CategoryHandlerOptions
+}
+
+func (a *App) initializeHandler(_ logger.Logger, options HandlerOptions, service *service) *handler {
 	return &handler{
-		categoryHandler: events.NewCategoryHandler(&service.categoryService),
+		categoryHandler: events.NewCategoryHandler(options.Category, service.categoryService),
 	}
 }

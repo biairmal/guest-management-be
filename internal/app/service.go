@@ -6,11 +6,15 @@ import (
 )
 
 type service struct {
-	categoryService events.CategoryService
+	categoryService *events.CategoryService
 }
 
-func (a *App) initializeService(logger logger.Logger, domain *domain) *service {
+type ServiceOptions struct {
+	Category events.CategoryServiceOptions
+}
+
+func (a *App) initializeService(logger logger.Logger, options ServiceOptions, repository *repository) *service {
 	return &service{
-		categoryService: *events.NewCategoryService(logger, domain.categoryRepository),
+		categoryService: events.NewCategoryService(options.Category, logger, repository.categoryRepository),
 	}
 }

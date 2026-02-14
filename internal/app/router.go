@@ -6,6 +6,10 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func (a *App) initializeRoutes(_ logger.Logger, mux *chi.Mux, handler *handler) {
-	events.InitCategoryRoutes(mux, handler.categoryHandler)
+type RouterOptions struct {
+	Category events.CategoryRouterOptions
+}
+
+func (a *App) initializeRoutes(_ logger.Logger, options RouterOptions, mux *chi.Mux, handler *handler) {
+	events.InitCategoryRoutes(options.Category, mux, handler.categoryHandler)
 }
