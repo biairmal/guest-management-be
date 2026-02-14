@@ -1,0 +1,31 @@
+Logger:
+  Level: debug # debug, info, warn, error, fatal, panic
+  Output: stdout # stdout, stderr, file
+  Format: text # json, text
+  # ===== Rotation is only used if Output is file ===== # 
+  # Rotation:
+  #   MaxSize: 100MB
+  #   MaxAge: 7d
+  #   MaxBackups: 3
+  #   Compress: false
+  #   LocalTime: false
+  #   Filename: app.log
+
+Database:
+  Leader:
+    Driver: postgres
+    Host: ${DATABASE_HOST}
+    Port: ${DATABASE_PORT}
+    Database: ${DATABASE_DATABASE}
+    Username: ${DATABASE_USERNAME}
+    Password: ${DATABASE_PASSWORD}
+    SSLMode: ${DATABASE_SSL_MODE:disable}
+    ConnectTimeout: ${DATABASE_CONNECT_TIMEOUT:5s}
+    MaxRetries: ${DATABASE_MAX_RETRIES:3}
+
+Swagger:
+  Enabled: ${SWAGGER_ENABLED:true}
+  Username: ${SWAGGER_USERNAME}
+  Password: ${SWAGGER_PASSWORD}
+
+App:

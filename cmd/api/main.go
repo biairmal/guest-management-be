@@ -9,12 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/biairmal/go-sdk/config"
 	"github.com/biairmal/go-sdk/httpkit"
 	"github.com/biairmal/go-sdk/httpkit/middleware"
 	"github.com/biairmal/go-sdk/logger"
 	"github.com/biairmal/go-sdk/sqlkit"
 	_ "github.com/biairmal/guest-management-be/api/swagger"
 	"github.com/biairmal/guest-management-be/internal/app"
+	appconfig "github.com/biairmal/guest-management-be/internal/config"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	_ "github.com/lib/pq"
@@ -30,45 +32,41 @@ import (
 // @externalDocs.description  OpenAPI
 // @externalDocs.url          https://swagger.io/resources/open-api/
 func main() {
-	log := logger.NewZerolog(&logger.Options{
-		Level:  logger.LevelInfo,
-		Output: logger.OutputStdout,
-		Format: logger.FormatText,
-	})
+	// Load configurations
+	var cfg appconfig.Config
+	err := config.Load(&cfg,
+		config.EnvFile(".env"),
+		config.Files("configs/config.yaml"),
+	)
+	if err != nil {
+		panic("Failed to load configurations: " + err.Error())
+	}
 
 	ctx := context.Background()
-	db, err := sqlkit.New(ctx, &sqlkit.Config{
-		Leader: sqlkit.DBConfig{
-			Driver:         "postgres",
-			Host:           "localhost",
-			Port:           5432,
-			Database:       "guest_management",
-			Username:       "postgres",
-			Password:       "postgres",
-			SSLMode:        "disable",
-			ConnectTimeout: 5 * time.Second,
-			MaxRetries:     3,
-		},
-	})
+
+	// Initialize logger
+	log := logger.NewZerolog(&cfg.Logger)
+
+	// Initialize database
+	db, err := sqlkit.New(ctx, &cfg.Database)
 	if err != nil {
-		log.Fatalf("Database config failed: %v", err)
+		log.Panicf("Database config failed: %v", err)
 	}
 	if db != nil {
 		defer func() { _ = db.Close() }()
 	}
 
+	// Initialize router
 	r := chi.NewRouter()
 	r.Use(middleware.Recover(), middleware.RequestID(), middleware.Logging(log, nil))
 
 	r.Get("/health", httpkit.Health())
 	r.Get("/ready", httpkit.Readiness(func(_ context.Context) error { return nil }))
-	r.Route("/swagger", func(r chi.Router) {
-		r.Use(chiMiddleware.BasicAuth("swagger", map[string]string{
-			"admin": "supersecret",
-		}))
-		r.Get("/*", httpSwagger.WrapHandler)
-	})
 
+	// Setup Swagger
+	setupSwagger(&cfg, r)
+
+	// Initialize application
 	application := app.NewApp(app.Options{}, log, db, r)
 	application.Initialize()
 
@@ -89,6 +87,20 @@ func main() {
 	wg.Wait()
 
 	log.Info("Server shutdown completed")
+}
+
+func setupSwagger(cfg *appconfig.Config, r *chi.Mux) {
+	if cfg.Swagger.Enabled {
+		r.Route("/swagger", func(r chi.Router) {
+			r.Use(chiMiddleware.BasicAuth("swagger", map[string]string{
+				cfg.Swagger.Username: cfg.Swagger.Password,
+			}))
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "/swagger/index.html", http.StatusFound)
+			})
+			r.Get("/*", httpSwagger.WrapHandler)
+		})
+	}
 }
 
 func startServer(wg *sync.WaitGroup, log logger.Logger, server *http.Server, serverErr chan error) {

@@ -23,3 +23,10 @@
 # Makefile build artefacts
 bin/
 out/
+
+# Environment variables
+.env
+.env.dev
+.env.development
+.env.test
+.env.production
