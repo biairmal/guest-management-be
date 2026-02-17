@@ -3,50 +3,54 @@ package events
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/biairmal/go-sdk/errorz"
 	"github.com/biairmal/go-sdk/httpkit/response"
-	"github.com/biairmal/go-sdk/repository"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
+// CategoryHandlerOptions holds configuration for the category handler.
 type CategoryHandlerOptions struct{}
 
 // CategoryHandler exposes HTTP handlers for event category CRUD.
 type CategoryHandler struct {
 	options CategoryHandlerOptions
-	service *CategoryService
+	service CategoryService
 }
 
 // NewCategoryHandler returns a CategoryHandler that uses the given service.
-func NewCategoryHandler(options CategoryHandlerOptions, service *CategoryService) *CategoryHandler {
+// The service parameter is an interface, allowing easy testing and substitution.
+func NewCategoryHandler(options CategoryHandlerOptions, service CategoryService) *CategoryHandler {
 	return &CategoryHandler{options: options, service: service}
 }
 
-// List handles GET /event-categories with optional query: limit, offset, sort_field, sort_dir.
+// List handles GET /event-categories with query parameters.
+//
+// Query format: name=Event1&page=1&size=20&sort=column1,DESC&sort=column2,ASC
 //
 // List godoc
 //
 //	@Summary		List event categories
-//	@Description	Returns a paginated list of event categories with optional sort and pagination.
+//	@Description	Returns a paginated list of event categories. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (name, source, tenant_id).
 //	@Tags			event-categories
 //	@Accept			json
 //	@Produce		json
-//	@Param			limit		query		int		false	"Maximum number of items to return (default 20, max 100)"
-//	@Param			offset		query		int		false	"Number of items to skip"
-//	@Param			sort_field	query		string	false	"Sort field (default: created_at)"
-//	@Param			sort_dir		query		string	false	"Sort direction: asc or desc"
-//	@Success		200			{object}	events.ListResult
-//	@Failure		500			{object}	object	"Internal server error"
+//	@Param			page	query		int		false	"Page number (1-based)"
+//	@Param			size	query		int		false	"Page size (default 20, max 100)"
+//	@Param			sort	query		string	false	"Sort: field,dir (e.g. sort=name,ASC&sort=id,DESC)"
+//	@Param			name	query		string	false	"Filter by name (exact match)"
+//	@Param			source	query		string	false	"Filter by source (exact match)"
+//	@Success		200		{object}	common.PageResponse[events.EventCategory]
+//	@Failure		400		{object}	object	"Invalid query (e.g. invalid sort field)"
+//	@Failure		500		{object}	object	"Internal server error"
 //	@Router			/api/v1/event-categories [get]
 func (h *CategoryHandler) List(r *http.Request) (any, error) {
-	ctx := r.Context()
-	limit, offset := parseLimitOffset(r)
-	sort := parseSort(r)
-	filter := repository.Filter{} // Optional: parse from query e.g. source=app, tenant_id=...
-	result, err := h.service.List(ctx, filter, sort, limit, offset)
+	params, err := ParseEventCategoryListParams(r.URL.Query(), eventCategoryListConfig)
+	if err != nil {
+		return nil, errorz.BadRequest().WithMessage(err.Error())
+	}
+	result, err := h.service.List(r.Context(), params)
 	if err != nil {
 		return nil, err
 	}
@@ -167,35 +171,4 @@ func (h *CategoryHandler) Delete(r *http.Request) (any, error) {
 		return nil, err
 	}
 	return response.NoContent(), nil
-}
-
-func parseLimitOffset(r *http.Request) (limit, offset int) {
-	limit = 20
-	offset = 0
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-			if limit > 100 {
-				limit = 100
-			}
-		}
-	}
-	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			offset = n
-		}
-	}
-	return limit, offset
-}
-
-func parseSort(r *http.Request) repository.Sort {
-	field := r.URL.Query().Get("sort_field")
-	if field == "" {
-		field = "created_at"
-	}
-	dir := repository.SortAsc
-	if r.URL.Query().Get("sort_dir") == "desc" {
-		dir = repository.SortDesc
-	}
-	return repository.Sort{Field: field, Direction: dir}
 }

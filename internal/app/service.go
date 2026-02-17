@@ -6,7 +6,7 @@ import (
 )
 
 type service struct {
-	categoryService *events.CategoryService
+	categoryService events.CategoryService
 }
 
 type ServiceOptions struct {

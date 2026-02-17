@@ -1,0 +1,36 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug (pre-built binary)",
+      "type": "go",
+      "request": "launch",
+      "mode": "exec",
+      "program": "${workspaceFolder}/bin/app.exe",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "APP_ENV": "development"
+      },
+      "args": []
+    },
+    {
+      "name": "Debug (pre-built binary, Unix)",
+      "type": "go",
+      "request": "launch",
+      "mode": "exec",
+      "program": "${workspaceFolder}/bin/app",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "APP_ENV": "development"
+      },
+      "args": []
+    },
+    {
+      "name": "Attach to Delve (make debug)",
+      "type": "go",
+      "request": "attach",
+      "mode": "local",
+      "port": 2345
+    }
+  ]
+}

@@ -14,8 +14,8 @@ type RepositoryOptions struct {
 	Category events.CategoryRepositoryOptions
 }
 
-func (a *App) initializeRepository(_ logger.Logger, options RepositoryOptions, db *sqlkit.DB) *repository {
+func (a *App) initializeRepository(log logger.Logger, options RepositoryOptions, db *sqlkit.DB) *repository {
 	return &repository{
-		categoryRepository: events.NewCategoryRepository(options.Category, db),
+		categoryRepository: events.NewCategoryRepository(options.Category, log, db),
 	}
 }
