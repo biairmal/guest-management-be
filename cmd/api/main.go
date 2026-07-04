@@ -13,6 +13,7 @@ import (
 	"github.com/biairmal/go-sdk/httpkit"
 	"github.com/biairmal/go-sdk/httpkit/middleware"
 	"github.com/biairmal/go-sdk/logger"
+	"github.com/biairmal/go-sdk/redis"
 	"github.com/biairmal/go-sdk/sqlkit"
 	_ "github.com/biairmal/guest-management-be/api/swagger"
 	"github.com/biairmal/guest-management-be/internal/app"
@@ -41,6 +42,9 @@ func main() {
 	if err != nil {
 		panic("Failed to load configurations: " + err.Error())
 	}
+	if err := cfg.Server.Validate(); err != nil {
+		panic("Invalid server configuration: " + err.Error())
+	}
 
 	ctx := context.Background()
 
@@ -56,6 +60,13 @@ func main() {
 		defer func() { _ = db.Close() }()
 	}
 
+	// Initialize Redis
+	redisClient, err := redis.NewClient(&cfg.Redis)
+	if err != nil {
+		log.Panicf("Redis config failed: %v", err)
+	}
+	defer func() { _ = redisClient.Close() }()
+
 	// Initialize router
 	r := chi.NewRouter()
 	r.Use(middleware.Recover(), middleware.RequestID(), middleware.Logging(log, nil))
@@ -67,13 +78,15 @@ func main() {
 	setupSwagger(&cfg, r)
 
 	// Initialize application
-	application := app.NewApp(app.Options{}, log, db, r)
+	application := app.NewApp(log, db, r)
 	application.Initialize()
 
 	server := &http.Server{
-		Addr:              "127.0.0.1:8080",
+		Addr:              cfg.Server.Addr(),
 		Handler:           r,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
+		ReadTimeout:       cfg.Server.ReadTimeout,
+		WriteTimeout:      cfg.Server.WriteTimeout,
 	}
 
 	serverErr := make(chan error, 1)
@@ -81,8 +94,8 @@ func main() {
 
 	wg.Add(1)
 
-	startServer(&wg, log, server, serverErr)
-	gracefulShutdown(log, serverErr, server)
+	startServer(&wg, log, &cfg, server, serverErr)
+	gracefulShutdown(log, &cfg, serverErr, server)
 
 	wg.Wait()
 
@@ -103,10 +116,12 @@ func setupSwagger(cfg *appconfig.Config, r *chi.Mux) {
 	}
 }
 
-func startServer(wg *sync.WaitGroup, log logger.Logger, server *http.Server, serverErr chan error) {
+func startServer(
+	wg *sync.WaitGroup, log logger.Logger, cfg *appconfig.Config, server *http.Server, serverErr chan error,
+) {
 	go func() {
 		defer wg.Done()
-		log.Info("Starting server on port 127.0.0.1:8080")
+		log.Infof("Starting server on %s", cfg.Server.Addr())
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}
@@ -120,7 +135,7 @@ func startServer(wg *sync.WaitGroup, log logger.Logger, server *http.Server, ser
 	}
 }
 
-func gracefulShutdown(log logger.Logger, serverErr chan error, server *http.Server) {
+func gracefulShutdown(log logger.Logger, cfg *appconfig.Config, serverErr chan error, server *http.Server) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer stop()
 
@@ -131,7 +146,7 @@ func gracefulShutdown(log logger.Logger, serverErr chan error, server *http.Serv
 		log.Infof("Server error occurred: %v, initiating shutdown...", err)
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {

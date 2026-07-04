@@ -9,12 +9,8 @@ type service struct {
 	categoryService events.CategoryService
 }
 
-type ServiceOptions struct {
-	Category events.CategoryServiceOptions
-}
-
-func (a *App) initializeService(logger logger.Logger, options ServiceOptions, repository *repository) *service {
+func (a *App) initializeService(logger logger.Logger, repositories *repositories) *service {
 	return &service{
-		categoryService: events.NewCategoryService(options.Category, logger, repository.categoryRepository),
+		categoryService: events.NewCategoryService(logger, repositories.categoryRepository),
 	}
 }

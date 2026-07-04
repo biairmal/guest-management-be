@@ -33,7 +33,7 @@ Follow these steps in order when adding a feature vertical slice. The rules refe
 ## 7. Routes + list query
 
 - `<entity>_routes.go`: `InitXRoutes(r chi.Router, h *XHandler)` registering `handler.Handle(...)`.
-- For list endpoints, declare a `listParseConfig` with allowed sort/filter fields (reuse the shared parser once it lands in `internal/core`). Template: [PATTERNS.md#list-query--allow-list-parsing](PATTERNS.md#list-query--allow-list-parsing).
+- For list endpoints, declare a `query.ListParseConfig` with allowed sort/filter fields and call the shared `internal/core/query.ParseListParams` — do not reimplement parsing per feature. Template: [PATTERNS.md#list-query--allow-list-parsing](PATTERNS.md#list-query--allow-list-parsing).
 
 ## 8. Wire into the composition root
 
@@ -41,7 +41,7 @@ Follow these steps in order when adding a feature vertical slice. The rules refe
 
 ## 9. Tests
 
-- **Table-driven `*__test.go`** for the service (against a **generated `gomock` mock** repository — `mockrepository.MockRepository` for a go-sdk repo interface, or an app-generated mock) and the query parser. Cover error-translation branches (not-found → 404, conflict → 409, invalid → 422) and validation. If you added a new app interface, add a `//go:generate` directive and run `make mocks`. Live-DB tests go in `*_integration_test.go` guarded by `testing.Short()`. See [TESTING.md](TESTING.md).
+- **Table-driven `*__test.go`** for the service (against a **generated `gomock` mock** repository — `mockrepository.MockRepository` for a go-sdk repo interface, or an app-generated mock). The shared `internal/core/query` parser has its own tests; a feature only needs to cover its `ListParseConfig` if it adds custom behaviour. Cover error-translation branches (not-found → 404, conflict → 409, invalid → 422) and validation. If you added a new app interface, add a `//go:generate` directive and run `make mocks`. Live-DB tests go in `*_integration_test.go` guarded by `testing.Short()`. See [TESTING.md](TESTING.md).
 
 ## 10. Docs
 

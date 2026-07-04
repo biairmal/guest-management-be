@@ -15,10 +15,10 @@ internal/features/<feature>/
   <entity>_service.go      # business rules, input DTOs, error translation
   <entity>_handler.go      # func(*http.Request)(any,error) handlers + Swagger annotations
   <entity>_routes.go       # InitXRoutes(r, handler) route registration
-  <entity>_query.go        # list-query allow-list config (until lifted to internal/core)
   <entity>_service__test.go
-  <entity>_query__test.go
 ```
+
+List endpoints declare their `query.ListParseConfig` allow-list as a var in `<entity>_handler.go` (see [List query — allow-list parsing](#list-query--allow-list-parsing)); the shared parser lives in `internal/core/query`, so no per-feature `_query.go` file is needed.
 
 ## Model
 
@@ -165,17 +165,19 @@ The service then only enforces **cross-field business invariants** (e.g. "tenant
 
 ## List query — allow-list parsing
 
-List endpoints declare their allowed sort/filter fields as config and reject anything else with a 400. Modelled on [`events/category_query.go`](../internal/features/events/category_query.go):
+List endpoints declare their allowed sort/filter fields as config and reject anything else with a 400. The parser itself lives once in [`internal/core/query`](../internal/core/query/list.go) (`ListParseConfig` + `ParseListParams`); a feature only supplies its allow-lists — pagination defaults (`DefaultPage`/`DefaultSize`/`MaxSize`) fall back to the package-level defaults when left zero. Modelled on [`events/category_handler.go`](../internal/features/events/category_handler.go):
 
 ```go
-var eventCategoryListConfig = listParseConfig{
-    DefaultPage: 1, DefaultSize: 20, MaxSize: 100,
+var eventCategoryListConfig = query.ListParseConfig{
     AllowedSortFields:   []string{"id", "source", "tenant_id", "name", "created_at", "updated_at"},
     AllowedFilterFields: []string{"name", "source", "tenant_id"},
 }
+
+// in the handler:
+params, err := query.ParseListParams(r.URL.Query(), eventCategoryListConfig)
 ```
 
-The parser itself (`listParseConfig`, `ParseXxxListParams`) is being lifted to `internal/core` so every feature reuses one implementation. Until then, copy the shape but keep only the config per feature.
+`ParseListParams` returns `*query.ListParams` (embeds `common.BasePageRequest` + `Filters map[string]string`) directly — a feature does not need its own `XxxListParams` type or `ParseXxxListParams` wrapper function.
 
 ## Table-driven test
 

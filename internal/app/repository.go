@@ -2,20 +2,19 @@ package app
 
 import (
 	"github.com/biairmal/go-sdk/logger"
+	sdkrepository "github.com/biairmal/go-sdk/repository"
 	"github.com/biairmal/go-sdk/sqlkit"
 	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/google/uuid"
 )
 
-type repository struct {
-	categoryRepository events.CategoryRepository
+// repositories holds all feature repositories wired for the application.
+type repositories struct {
+	categoryRepository sdkrepository.Repository[events.EventCategory, uuid.UUID]
 }
 
-type RepositoryOptions struct {
-	Category events.CategoryRepositoryOptions
-}
-
-func (a *App) initializeRepository(log logger.Logger, options RepositoryOptions, db *sqlkit.DB) *repository {
-	return &repository{
-		categoryRepository: events.NewCategoryRepository(options.Category, log, db),
+func (a *App) initializeRepository(log logger.Logger, db *sqlkit.DB) *repositories {
+	return &repositories{
+		categoryRepository: events.NewCategoryRepository(log, db),
 	}
 }

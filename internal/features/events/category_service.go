@@ -9,6 +9,8 @@ import (
 	"github.com/biairmal/go-sdk/logger"
 	"github.com/biairmal/go-sdk/repository"
 	"github.com/google/uuid"
+
+	"github.com/biairmal/guest-management-be/internal/core/query"
 )
 
 // CategoryService defines the application-level operations for event categories.
@@ -17,26 +19,21 @@ type CategoryService interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*EventCategory, error)
 	Update(ctx context.Context, id uuid.UUID, in UpdateInput) (*EventCategory, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	List(ctx context.Context, params *EventCategoryListParams) (*common.PageResponse[EventCategory], error)
+	List(ctx context.Context, params *query.ListParams) (*common.PageResponse[EventCategory], error)
 }
-
-// CategoryServiceOptions holds configuration for the category service.
-type CategoryServiceOptions struct{}
 
 // categoryServiceImpl is the concrete implementation of CategoryService.
 type categoryServiceImpl struct {
-	repo    CategoryRepository
-	logger  logger.Logger
-	options CategoryServiceOptions
+	repo   repository.Repository[EventCategory, uuid.UUID]
+	logger logger.Logger
 }
 
 // NewCategoryService returns a CategoryService with the given dependencies.
 func NewCategoryService(
-	options CategoryServiceOptions,
 	logger logger.Logger,
-	repo CategoryRepository,
+	repo repository.Repository[EventCategory, uuid.UUID],
 ) CategoryService {
-	return &categoryServiceImpl{options: options, logger: logger, repo: repo}
+	return &categoryServiceImpl{logger: logger, repo: repo}
 }
 
 // CreateInput is the input for creating an event category.
@@ -97,7 +94,7 @@ func (s *categoryServiceImpl) Create(ctx context.Context, in CreateInput) (*Even
 
 // GetByID returns an event category by ID, or errorz.NotFound if not found or soft-deleted.
 func (s *categoryServiceImpl) GetByID(ctx context.Context, id uuid.UUID) (*EventCategory, error) {
-	entity, err := s.repo.GetByID(ctx, id.String())
+	entity, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, errorz.NotFound().WithMessage("event category not found")
@@ -111,7 +108,7 @@ func (s *categoryServiceImpl) GetByID(ctx context.Context, id uuid.UUID) (*Event
 // Update updates an event category. Only non-nil fields in UpdateInput are applied.
 // The updated_at field is set by the AuditableRepository.
 func (s *categoryServiceImpl) Update(ctx context.Context, id uuid.UUID, in UpdateInput) (*EventCategory, error) {
-	entity, err := s.repo.GetByID(ctx, id.String())
+	entity, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, errorz.NotFound().WithMessage("event category not found")
@@ -136,7 +133,7 @@ func (s *categoryServiceImpl) Update(ctx context.Context, id uuid.UUID, in Updat
 		entity.Name = *in.Name
 	}
 
-	if err := s.repo.Update(ctx, id.String(), entity); err != nil {
+	if err := s.repo.Update(ctx, id, entity); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, errorz.NotFound().WithMessage("event category not found")
 		}
@@ -151,7 +148,7 @@ func (s *categoryServiceImpl) Update(ctx context.Context, id uuid.UUID, in Updat
 // Delete soft-deletes an event category. The AuditableRepository handles
 // setting deleted_at and updated_at.
 func (s *categoryServiceImpl) Delete(ctx context.Context, id uuid.UUID) error {
-	if err := s.repo.Delete(ctx, id.String()); err != nil {
+	if err := s.repo.Delete(ctx, id); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return errorz.NotFound().WithMessage("event category not found")
 		}
@@ -162,8 +159,10 @@ func (s *categoryServiceImpl) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// List returns event categories with filter, sort, and pagination from EventCategoryListParams.
-func (s *categoryServiceImpl) List(ctx context.Context, params *EventCategoryListParams) (*common.PageResponse[EventCategory], error) {
+// List returns event categories with filter, sort, and pagination from query.ListParams.
+func (s *categoryServiceImpl) List(
+	ctx context.Context, params *query.ListParams,
+) (*common.PageResponse[EventCategory], error) {
 	opts := listParamsToListOptions(params)
 	items, total, err := s.repo.List(ctx, opts)
 	if err != nil {
@@ -173,8 +172,8 @@ func (s *categoryServiceImpl) List(ctx context.Context, params *EventCategoryLis
 	return common.NewPageResponse(items, total, params.Page, params.Size), nil
 }
 
-// listParamsToListOptions converts EventCategoryListParams to repository.ListOptions.
-func listParamsToListOptions(params *EventCategoryListParams) *repository.ListOptions {
+// listParamsToListOptions converts query.ListParams to repository.ListOptions.
+func listParamsToListOptions(params *query.ListParams) *repository.ListOptions {
 	if params == nil {
 		return &repository.ListOptions{}
 	}

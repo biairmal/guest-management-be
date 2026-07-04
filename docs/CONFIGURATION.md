@@ -19,8 +19,9 @@ The current root struct:
 ```go
 type Config struct {
     Logger   logger.Options   // go-sdk
+    Server   ServerConfig      // app-specific (host/port/timeouts)
     Database sqlkit.Config     // go-sdk
-    App      app.Options       // app-specific
+    Redis    redis.Config      // go-sdk
     Swagger  SwaggerConfig     // app-specific
 }
 ```
@@ -57,7 +58,7 @@ To make a new concern configurable:
 
 ## Rules & current gaps (see DEVELOPMENT_PLAN)
 
-- **No hardcoded runtime values.** Server host/port/timeouts currently live in `main.go` (`"127.0.0.1:8080"`, `ReadHeaderTimeout`) — these MUST move into a `Server` config section. Tracked in [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md).
-- **No dangling keys.** `config.yaml` has a trailing empty `App:` key — either populate `app.Options` with real fields or remove the block.
-- **Redis is documented but unwired.** `.env.example`, the README, and `docker-compose.yaml` mention Redis, but there is no `redis.Config` in the tree and it is never loaded. Either add a real `Redis redis.Config` section and use it, or remove the references — don't leave config that lies.
+- **No hardcoded runtime values.** Server host/port/timeouts live in `internal/config.ServerConfig` (`configs/config.yaml`'s `Server:` block), consumed via `cfg.Server.Addr()` in `main.go` — never hardcode `"127.0.0.1:8080"` or timeouts again.
+- **No dangling keys.** Every top-level `config.yaml` key maps to a real, populated struct.
+- **Redis is wired.** `internal/config.Config` embeds `redis.Config` (`Redis:` block in `config.yaml`); `main.go` constructs a client via `redis.NewClient(&cfg.Redis)`. No feature consumes it yet — that lands with the first caching/session need.
 - **Secrets stay in `.env`**, never committed; `configs/config.yaml` references them via `${VAR}`.

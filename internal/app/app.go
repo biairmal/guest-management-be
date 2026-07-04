@@ -6,30 +6,25 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// App is the composition root: it wires repositories, services, handlers, and routes.
 type App struct {
-	options    Options
-	logger     logger.Logger
-	db         *sqlkit.DB
-	router     *chi.Mux
-	repository *repository
-	service    *service
-	handler    *handler
+	logger       logger.Logger
+	db           *sqlkit.DB
+	router       *chi.Mux
+	repositories *repositories
+	service      *service
+	handler      *handler
 }
 
-type Options struct {
-	Repository RepositoryOptions
-	Service    ServiceOptions
-	Handler    HandlerOptions
-	Router     RouterOptions
+// NewApp returns an App ready to be Initialize()d.
+func NewApp(logger logger.Logger, db *sqlkit.DB, router *chi.Mux) *App {
+	return &App{logger: logger, db: db, router: router}
 }
 
-func NewApp(options Options, logger logger.Logger, db *sqlkit.DB, router *chi.Mux) *App {
-	return &App{options: options, logger: logger, db: db, router: router}
-}
-
+// Initialize wires repositories, services, handlers, and routes for every feature.
 func (a *App) Initialize() {
-	a.repository = a.initializeRepository(a.logger, a.options.Repository, a.db)
-	a.service = a.initializeService(a.logger, a.options.Service, a.repository)
-	a.handler = a.initializeHandler(a.logger, a.options.Handler, a.service)
-	a.initializeRoutes(a.logger, a.options.Router, a.router, a.handler)
+	a.repositories = a.initializeRepository(a.logger, a.db)
+	a.service = a.initializeService(a.logger, a.repositories)
+	a.handler = a.initializeHandler(a.logger, a.service)
+	a.initializeRoutes(a.logger, a.router, a.handler)
 }

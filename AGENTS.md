@@ -113,7 +113,7 @@ These are **MUST**-level unless stated otherwise. They are derived from the exis
 
 - Persistence uses `go-sdk`'s generic `repository.Repository[TEntity, TID]` + `repository/sql.NewSQLRepository`, wrapped by the `internal/core/audit` decorator for soft-delete/audit fields.
 - **A per-feature repository MUST NOT be a hand-written pass-through** that re-widens a typed `TID` back to `any` or swallows type assertions (`idStr, _ := id.(string)` is banned — it turns a bad ID into a silent empty-string lookup). Use the typed generic repository directly, or the shared base helper once it exists (see [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)). If you write a repository interface, keep the ID **typed** (`uuid.UUID` / `string`), not `any`.
-- **Filter/sort/pagination parsing MUST reuse the shared allow-list parser**, not be copy-pasted per feature. Every list endpoint declares its allowed sort/filter fields as config; it does not reimplement the parsing loop. (The parser is being lifted to `internal/core`; until then follow the shape in `events/category_query.go`.)
+- **Filter/sort/pagination parsing MUST reuse the shared allow-list parser** in `internal/core/query` (`ListParseConfig` + `ParseListParams`), not be copy-pasted per feature. Every list endpoint declares its allowed sort/filter fields as a `query.ListParseConfig`; pagination defaults fall back to the package-level defaults when left zero. See `events/category_handler.go` for the shape.
 
 ### Request validation
 

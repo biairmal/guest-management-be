@@ -105,7 +105,7 @@ Migrations live in `./migrations` and are applied with [golang-migrate](https://
 
 3. Other targets: `migration-down`, `migration-down-n N=n`, `migration-goto VERSION=v`, `migration-version`, `migration-force VERSION=v`, `migration-create NAME=your_migration_name`. See `make help-migration`.
 
-Copy `.env.example` to `.env` and set `DATABASE_URL` (and `REDIS_URL` if needed) so the app and migrations use the same credentials.
+Copy `.env.example` to `.env` and set `DATABASE_URL` (and `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD` if needed) so the app and migrations use the same credentials.
 
 ### Swagger
 
@@ -130,7 +130,7 @@ See `make help-swagger` for all Swagger-related targets.
 
 1. Ensure PostgreSQL (and Redis if used) are running (e.g. `docker compose up -d`).
 2. Apply migrations (see above).
-3. Copy `.env.example` to `.env` and adjust `DATABASE_*` and optionally `REDIS_*`, `SWAGGER_*`.
+3. Copy `.env.example` to `.env` and adjust `DATABASE_*`, `REDIS_*`, `SWAGGER_*`, and optionally `SERVER_*` (host/port/timeouts).
 4. Run the server:
 
    ```bash
@@ -143,7 +143,7 @@ See `make help-swagger` for all Swagger-related targets.
    go run ./cmd/api/main.go
    ```
 
-The server listens on `127.0.0.1:8080`. Build a binary with `make build` (output in `bin/app` or `bin/app.exe`). For debugging with Delve: `make install-delve` then `make debug` (listens on port 2345 by default).
+The server listens on the address configured by `Server.Host`/`Server.Port` in `configs/config.yaml` (default `127.0.0.1:8080`, overridable via `SERVER_HOST`/`SERVER_PORT`). Build a binary with `make build` (output in `bin/app` or `bin/app.exe`). For debugging with Delve: `make install-delve` then `make debug` (listens on port 2345 by default).
 
 ---
 

@@ -14,9 +14,9 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 
 | # | Track | Item | Depends on | Status |
 |---|---|---|---|---|
-| A1 | Foundations | Remove dead code + build artefacts | — | ⬜ |
-| A2 | Foundations | Kill empty-`Options` ceremony; fix pass-through repository | — | ⬜ |
-| A3 | Foundations | Config hardening (server section, Redis decision, empty `App:`) | — | ⬜ |
+| A1 | Foundations | Remove dead code + build artefacts | — | ✅ |
+| A2 | Foundations | Kill empty-`Options` ceremony; fix pass-through repository | — | ✅ |
+| A3 | Foundations | Config hardening (server section, Redis decision, empty `App:`) | — | ✅ |
 | A4 | Foundations | Real readiness (DB ping) | A3 | ⬜ |
 | A5 | Foundations | **Testing foundation** (generated-mock setup + first table-driven tests) | A2 | ⬜ |
 | A6 | Foundations | Shared building blocks in `internal/core` (base repo, list-query parser, validator) | A5, go-sdk `validator` | ⬜ |
@@ -86,8 +86,8 @@ Establish the generated-mock testing pattern from [TESTING.md](TESTING.md) — *
 - Add the first tests using generated mocks + `gomock.NewController(t)`:
   - `internal/features/events/category_service__test.go` — table-driven over a `mockrepository.MockRepository`,
     covering every sentinel→`errorz` branch and the source/tenant invariants.
-  - `internal/features/events/category_query__test.go` — allowed/rejected sort & filter fields, size clamping,
-    bad `page`/`size`, sort-direction parsing.
+  - `internal/core/query/list__test.go` — allowed/rejected sort & filter fields, size clamping,
+    bad `page`/`size`, sort-direction parsing (covers the shared parser once for every feature).
 - Make `make ci` **meaningful**: coverage reflects real tests, not vacuous 0%.
 - **Verify:** `make mocks` regenerates cleanly; `make test-unit` runs non-trivial tests; `make coverage` shows
   real numbers for the events package.
@@ -99,7 +99,7 @@ Build the reuse primitives the AGENTS.md rules assume. Document each with a pack
 | File | Provides |
 |---|---|
 | `internal/core/repository/base.go` | A thin typed constructor that composes `sql.NewSQLRepository` + `audit.NewAuditableRepository` so a feature repo is one call (`core.NewRepository[T, uuid.UUID](log, db, table, cols)`). No per-feature pass-through. |
-| `internal/core/query/list.go` | The generic `ListParseConfig` + `ParseListParams(url.Values, cfg)` lifted out of `events/category_query.go`; features supply only their allow-lists. |
+| `internal/core/query/list.go` | ✅ Done — the generic `ListParseConfig` + `ParseListParams(url.Values, cfg)`, lifted out of the old per-feature `events/category_query.go`; features supply only their allow-lists (pagination defaults fall back to package-level defaults). |
 | `internal/core/validation/validator.go` | Adapter over `go-sdk` `validator` (or `go-playground/validator` until the SDK phase lands) exposing `Struct(any) error` returning `errorz` field errors, injected into handlers. |
 
 - Migrate the `events` slice onto these (removes the last of its bespoke plumbing) as the reference migration.

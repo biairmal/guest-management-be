@@ -8,21 +8,27 @@ import (
 	"github.com/biairmal/go-sdk/httpkit/response"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-)
 
-// CategoryHandlerOptions holds configuration for the category handler.
-type CategoryHandlerOptions struct{}
+	"github.com/biairmal/guest-management-be/internal/core/query"
+)
 
 // CategoryHandler exposes HTTP handlers for event category CRUD.
 type CategoryHandler struct {
-	options CategoryHandlerOptions
 	service CategoryService
+}
+
+// eventCategoryListConfig declares the allow-listed sort/filter fields for event
+// category list queries. Pagination (page/size/max size) is not set here, so it
+// falls back to the shared defaults in internal/core/query.
+var eventCategoryListConfig = query.ListParseConfig{
+	AllowedSortFields:   []string{"id", "source", "tenant_id", "name", "created_at", "updated_at"},
+	AllowedFilterFields: []string{"name", "source", "tenant_id"},
 }
 
 // NewCategoryHandler returns a CategoryHandler that uses the given service.
 // The service parameter is an interface, allowing easy testing and substitution.
-func NewCategoryHandler(options CategoryHandlerOptions, service CategoryService) *CategoryHandler {
-	return &CategoryHandler{options: options, service: service}
+func NewCategoryHandler(service CategoryService) *CategoryHandler {
+	return &CategoryHandler{service: service}
 }
 
 // List handles GET /event-categories with query parameters.
@@ -46,7 +52,7 @@ func NewCategoryHandler(options CategoryHandlerOptions, service CategoryService)
 //	@Failure		500		{object}	object	"Internal server error"
 //	@Router			/api/v1/event-categories [get]
 func (h *CategoryHandler) List(r *http.Request) (any, error) {
-	params, err := ParseEventCategoryListParams(r.URL.Query(), eventCategoryListConfig)
+	params, err := query.ParseListParams(r.URL.Query(), eventCategoryListConfig)
 	if err != nil {
 		return nil, errorz.BadRequest().WithMessage(err.Error())
 	}
