@@ -8,7 +8,9 @@ import (
 )
 
 // Config is the root configuration tree for the application. It embeds go-sdk
-// config structs for each infrastructure concern plus app-specific sections.
+// config structs for each infrastructure concern, app-specific sections, and
+// App (FeatureConfig) — the aggregate of every registered feature's own
+// config, nested under the "app" YAML section.
 type Config struct {
 	Logger    logger.Options
 	Server    ServerConfig
@@ -16,4 +18,5 @@ type Config struct {
 	Redis     redis.Config
 	Validator validator.Config
 	Swagger   SwaggerConfig
+	App       FeatureConfig
 }

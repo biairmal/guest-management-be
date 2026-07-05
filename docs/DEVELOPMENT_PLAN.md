@@ -98,7 +98,7 @@ Build the reuse primitives the AGENTS.md rules assume. Document each with a pack
 
 | File | Provides |
 |---|---|
-| `internal/core/repository/base.go` | A thin typed constructor that composes `sql.NewSQLRepository` + `audit.NewAuditableRepository` so a feature repo is one call (`core.NewRepository[T, uuid.UUID](log, db, table, cols)`). No per-feature pass-through. |
+| `internal/core/repository/base.go` | ✅ Done — a thin typed constructor that composes `sql.NewSQLRepository` + `audit.NewAuditableRepository` + an optional `repository/cache` decorator so a feature repo is one call (`core.NewRepository[T, uuid.UUID](log, db, table, cols, cacheOpts)`). Also provides `CacheConfig` (YAML shape + `Validate`/`ResolveStrategy`/`ToOptions`), which each feature embeds per repository it wants configurable caching for (on by default) — see `events.Config`. No per-feature pass-through. |
 | `internal/core/query/list.go` | ✅ Done — the generic `ListParseConfig` + `ParseListParams(url.Values, cfg)`, lifted out of the old per-feature `events/category_query.go`; features supply only their allow-lists (pagination defaults fall back to package-level defaults). |
 | `internal/core/validation/validator.go` | Adapter over `go-sdk` `validator` (or `go-playground/validator` until the SDK phase lands) exposing `Struct(any) error` returning `errorz` field errors, injected into handlers. |
 

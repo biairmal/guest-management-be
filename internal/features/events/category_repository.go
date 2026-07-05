@@ -17,6 +17,10 @@ var eventCategoryColumns = []string{
 
 // NewCategoryRepository returns a soft-delete-aware repository for event categories.
 // TID is uuid.UUID — kept typed all the way through the service layer.
-func NewCategoryRepository(log logger.Logger, db *sqlkit.DB) repository.Repository[EventCategory, uuid.UUID] {
-	return corerepository.NewRepository[EventCategory, uuid.UUID](log, db, eventCategoriesTable, eventCategoryColumns)
+func NewCategoryRepository(
+	log logger.Logger, db *sqlkit.DB, cacheOpts corerepository.CacheOptions,
+) repository.Repository[EventCategory, uuid.UUID] {
+	return corerepository.NewRepository[EventCategory, uuid.UUID](
+		log, db, eventCategoriesTable, eventCategoryColumns, cacheOpts,
+	)
 }

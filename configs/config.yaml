@@ -46,3 +46,16 @@ swagger:
   enabled: ${SWAGGER_ENABLED:true}
   username: ${SWAGGER_USERNAME}
   password: ${SWAGGER_PASSWORD}
+
+# Per-feature config: app.<feature>.<layer>.*. Each feature's config is one
+# contiguous block (easy to lift out if the feature becomes its own service),
+# separated by layer inside it. Layers with nothing to configure yet (e.g.
+# events' service/handler) are omitted rather than stubbed out empty.
+app:
+  events:
+    repository:
+      category_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind

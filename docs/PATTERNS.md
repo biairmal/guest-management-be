@@ -44,23 +44,28 @@ func (EventCategory) TableName() string { return "event_categories" }
 
 ## Repository — thin, typed, no pass-through
 
-Construct the `go-sdk` generic SQL repository, wrap it in the audit decorator, and **return the typed generic interface directly**. Do **not** hand-write a wrapper that forwards every method and re-widens the ID to `any`.
+Construct the `go-sdk` generic SQL repository via `internal/core/repository.NewRepository`, which wraps it in the audit decorator and — when `cacheOpts.Enabled` and a Redis client are available — the go-sdk cache decorator too. **Return the typed generic interface directly**. Do **not** hand-write a wrapper that forwards every method and re-widens the ID to `any`.
 
 ```go
 const eventCategoriesTable = "event_categories"
 
-// NewCategoryRepository returns a soft-delete-aware repository for event categories.
-// TID is uuid.UUID — keep it typed; never widen to `any`.
-func NewCategoryRepository(log logger.Logger, db *sqlkit.DB) repository.Repository[EventCategory, uuid.UUID] {
-    sqlRepo := sql.NewSQLRepository[EventCategory, uuid.UUID](
+// NewCategoryRepository returns a soft-delete-aware, optionally cached
+// repository for event categories. TID is uuid.UUID — keep it typed; never
+// widen to `any`. cacheOpts is resolved and threaded through by
+// internal/app/repository.go, from Config.App.Events.Repository.CategoryCache
+// + the Redis client — this constructor and main.go don't know about config.
+func NewCategoryRepository(
+    log logger.Logger, db *sqlkit.DB, cacheOpts corerepository.CacheOptions,
+) repository.Repository[EventCategory, uuid.UUID] {
+    return corerepository.NewRepository[EventCategory, uuid.UUID](
         log, db, eventCategoriesTable,
-        sql.WithSelectColumns[EventCategory, uuid.UUID]([]string{
-            "id", "source", "tenant_id", "name", "created_at", "updated_at", "deleted_at",
-        }),
+        []string{"id", "source", "tenant_id", "name", "created_at", "updated_at", "deleted_at"},
+        cacheOpts,
     )
-    return audit.NewAuditableRepository[EventCategory, uuid.UUID](sqlRepo)
 }
 ```
+
+Caching is configured **per repository**, not with one app-wide switch: each feature embeds a `corerepository.CacheConfig` per repository on its `RepositoryConfig` (e.g. `events.Config.Repository.CategoryCache`), enabled by default. A feature's `Config` splits by layer the same way its code does (`RepositoryConfig` today; `ServiceConfig`/`HandlerConfig` get added only once one of those layers has a real field — an empty layer struct violates the no-empty-`Options{}` rule below). See [CONFIGURATION.md](CONFIGURATION.md#cache) for the full shape and the knobs (`enabled`, `ttl`, `prefix`, `strategy`).
 
 > **Anti-pattern (current `events/category_repository.go`, to be removed):** a `categoryRepo` struct whose methods are `return r.repo.X(...)` pass-throughs, with `idStr, _ := id.(string)` silently swallowing a bad ID type. Banned by [AGENTS.md](../AGENTS.md#repository-pattern--anti-duplication). When you need a shared CRUD base, use the `internal/core` base helper (see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)), not a per-feature forwarder.
 

@@ -47,6 +47,9 @@ func main() {
 	if err := cfg.Server.Validate(); err != nil {
 		panic("Invalid server configuration: " + err.Error())
 	}
+	if err := cfg.App.Validate(); err != nil {
+		panic("Invalid app configuration: " + err.Error())
+	}
 
 	ctx := context.Background()
 
@@ -82,9 +85,13 @@ func main() {
 	// Initialize boundary validator
 	val := validation.New(cfg.Validator)
 
-	// Initialize application
-	application := app.NewApp(log, db, r, val)
-	application.Initialize()
+	// Initialize application. cfg.App carries every registered feature's own
+	// config (app.<feature>.* in config.yaml); internal/app resolves each
+	// feature's section itself when it wires that feature's repositories.
+	application := app.NewApp(log, db, r, val, redisClient, cfg.App)
+	if err := application.Initialize(); err != nil {
+		panic("Failed to initialize application: " + err.Error())
+	}
 
 	server := &http.Server{
 		Addr:              cfg.Server.Addr(),
