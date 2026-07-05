@@ -12,7 +12,7 @@ import (
 
 // AuditableRepository wraps a repository.Repository and adds audit field management.
 //
-// Behaviour:
+// Behavior:
 //   - Create: sets created_at and updated_at to time.Now(), then delegates to inner repo.
 //   - Update: sets updated_at to time.Now(), then delegates to inner repo.
 //   - Delete: performs soft-delete by setting deleted_at and updated_at to time.Now(),
@@ -77,7 +77,9 @@ func (r *AuditableRepository[TEntity, TID]) Delete(ctx context.Context, id TID) 
 }
 
 // List merges a "deleted_at IS NULL" condition, then delegates to the inner repository.
-func (r *AuditableRepository[TEntity, TID]) List(ctx context.Context, opts *repository.ListOptions) ([]*TEntity, int64, error) {
+func (r *AuditableRepository[TEntity, TID]) List(
+	ctx context.Context, opts *repository.ListOptions,
+) (entities []*TEntity, total int64, err error) {
 	if opts == nil {
 		opts = &repository.ListOptions{}
 	}
@@ -130,7 +132,8 @@ func setTimeField[T any](entity *T, dbTag string, value time.Time) {
 	v := reflect.ValueOf(entity).Elem()
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
-		col := dbColumnName(t.Field(i))
+		sf := t.Field(i)
+		col := dbColumnName(&sf)
 		if col != dbTag {
 			continue
 		}
@@ -150,7 +153,8 @@ func setPtrTimeField[T any](entity *T, dbTag string, value *time.Time) {
 	v := reflect.ValueOf(entity).Elem()
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
-		col := dbColumnName(t.Field(i))
+		sf := t.Field(i)
+		col := dbColumnName(&sf)
 		if col != dbTag {
 			continue
 		}
@@ -170,7 +174,8 @@ func isSoftDeleted[T any](entity *T) bool {
 	v := reflect.ValueOf(entity).Elem()
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
-		col := dbColumnName(t.Field(i))
+		sf := t.Field(i)
+		col := dbColumnName(&sf)
 		if col != "deleted_at" {
 			continue
 		}
@@ -185,7 +190,7 @@ func isSoftDeleted[T any](entity *T) bool {
 
 // dbColumnName extracts the column name from a struct field's "db" tag.
 // Returns "" if the tag is absent or "-".
-func dbColumnName(f reflect.StructField) string {
+func dbColumnName(f *reflect.StructField) string {
 	tag := f.Tag.Get("db")
 	if tag == "" || tag == "-" {
 		return ""

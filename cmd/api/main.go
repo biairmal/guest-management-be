@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/biairmal/go-sdk/config"
+	"github.com/biairmal/go-sdk/errorz"
 	"github.com/biairmal/go-sdk/httpkit"
 	"github.com/biairmal/go-sdk/httpkit/middleware"
 	"github.com/biairmal/go-sdk/logger"
@@ -18,6 +19,7 @@ import (
 	_ "github.com/biairmal/guest-management-be/api/swagger"
 	"github.com/biairmal/guest-management-be/internal/app"
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
+	"github.com/biairmal/guest-management-be/internal/core/validation"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	_ "github.com/lib/pq"
@@ -72,13 +74,16 @@ func main() {
 	r.Use(middleware.Recover(), middleware.RequestID(), middleware.Logging(log, nil))
 
 	r.Get("/health", httpkit.Health())
-	r.Get("/ready", httpkit.Readiness(func(_ context.Context) error { return nil }))
+	r.Get("/ready", httpkit.Readiness(readinessCheck(db, redisClient)))
 
 	// Setup Swagger
 	setupSwagger(&cfg, r)
 
+	// Initialize boundary validator
+	val := validation.New(cfg.Validator)
+
 	// Initialize application
-	application := app.NewApp(log, db, r)
+	application := app.NewApp(log, db, r, val)
 	application.Initialize()
 
 	server := &http.Server{
@@ -100,6 +105,20 @@ func main() {
 	wg.Wait()
 
 	log.Info("Server shutdown completed")
+}
+
+// readinessCheck pings the leader database and Redis so /ready reflects real
+// dependency health instead of always returning 200.
+func readinessCheck(db *sqlkit.DB, redisClient redis.Client) func(context.Context) error {
+	return func(ctx context.Context) error {
+		if err := db.Leader().PingContext(ctx); err != nil {
+			return errorz.Wrap(err).WithCode(errorz.CodeServiceUnavailable).WithMessage("database not ready")
+		}
+		if err := redisClient.Ping(ctx); err != nil {
+			return errorz.Wrap(err).WithCode(errorz.CodeServiceUnavailable).WithMessage("redis not ready")
+		}
+		return nil
+	}
 }
 
 func setupSwagger(cfg *appconfig.Config, r *chi.Mux) {

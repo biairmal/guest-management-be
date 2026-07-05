@@ -10,11 +10,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/biairmal/guest-management-be/internal/core/query"
+	"github.com/biairmal/guest-management-be/internal/core/validation"
 )
 
 // CategoryHandler exposes HTTP handlers for event category CRUD.
 type CategoryHandler struct {
-	service CategoryService
+	service   CategoryService
+	validator validation.Validator
 }
 
 // eventCategoryListConfig declares the allow-listed sort/filter fields for event
@@ -25,10 +27,10 @@ var eventCategoryListConfig = query.ListParseConfig{
 	AllowedFilterFields: []string{"name", "source", "tenant_id"},
 }
 
-// NewCategoryHandler returns a CategoryHandler that uses the given service.
-// The service parameter is an interface, allowing easy testing and substitution.
-func NewCategoryHandler(service CategoryService) *CategoryHandler {
-	return &CategoryHandler{service: service}
+// NewCategoryHandler returns a CategoryHandler that uses the given service and
+// validator. Both are interfaces, allowing easy testing and substitution.
+func NewCategoryHandler(service CategoryService, validator validation.Validator) *CategoryHandler {
+	return &CategoryHandler{service: service, validator: validator}
 }
 
 // List handles GET /event-categories with query parameters.
@@ -112,6 +114,9 @@ func (h *CategoryHandler) Create(r *http.Request) (any, error) {
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return nil, errorz.BadRequest().WithMessage("invalid request body")
 	}
+	if err := h.validator.Struct(body); err != nil {
+		return nil, err
+	}
 	entity, err := h.service.Create(r.Context(), body)
 	if err != nil {
 		return nil, err
@@ -144,6 +149,9 @@ func (h *CategoryHandler) Update(r *http.Request) (any, error) {
 	var body UpdateInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return nil, errorz.BadRequest().WithMessage("invalid request body")
+	}
+	if err := h.validator.Struct(body); err != nil {
+		return nil, err
 	}
 	entity, err := h.service.Update(r.Context(), id, body)
 	if err != nil {

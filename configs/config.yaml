@@ -38,6 +38,10 @@ redis:
   password: ${REDIS_PASSWORD}
   db: ${REDIS_DB:0}
 
+validator:
+  tag_name: validate
+  field_name_tag: json # error field names match the JSON body, not Go field names
+
 swagger:
   enabled: ${SWAGGER_ENABLED:true}
   username: ${SWAGGER_USERNAME}

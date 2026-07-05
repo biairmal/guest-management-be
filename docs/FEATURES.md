@@ -27,7 +27,7 @@ Manages **event categories** — the taxonomy events are classified under. Categ
 - `name` is required and non-empty.
 - On update (partial), only provided fields change; the same source/tenant rules re-apply to the resulting record.
 
-> These are **business invariants** enforced in the service. Field-presence/format checks (`required`, `oneof`) should move to boundary validation on the input DTO (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the cross-field source/tenant rule stays in the service.
+> Field-presence/format checks (`required`, `oneof`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateInput`/`UpdateInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the cross-field source/tenant rule above stays in the service as a business invariant.
 
 ### Endpoints
 

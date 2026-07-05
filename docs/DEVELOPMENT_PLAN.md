@@ -17,9 +17,9 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | A1 | Foundations | Remove dead code + build artefacts | — | ✅ |
 | A2 | Foundations | Kill empty-`Options` ceremony; fix pass-through repository | — | ✅ |
 | A3 | Foundations | Config hardening (server section, Redis decision, empty `App:`) | — | ✅ |
-| A4 | Foundations | Real readiness (DB ping) | A3 | ⬜ |
-| A5 | Foundations | **Testing foundation** (generated-mock setup + first table-driven tests) | A2 | ⬜ |
-| A6 | Foundations | Shared building blocks in `internal/core` (base repo, list-query parser, validator) | A5, go-sdk `validator` | ⬜ |
+| A4 | Foundations | Real readiness (DB ping) | A3 | ✅ |
+| A5 | Foundations | **Testing foundation** (generated-mock setup + first table-driven tests) | A2 | ✅ |
+| A6 | Foundations | Shared building blocks in `internal/core` (base repo, list-query parser, validator) | A5, go-sdk `validator` | ✅ |
 | A7 | Foundations | Cross-cutting middleware/observability + go-sdk `lifecycle` shutdown | go-sdk phases | ⬜ |
 | B1 | Domain | `tenants` | A6 | ⬜ |
 | B2 | Domain | `users` | B1 | ⬜ |

@@ -5,13 +5,14 @@
 # make install-tools to install formatter, linter, govulncheck, and Delve.
 # Override MAIN_PATH, BUILD_DIR, BINARY_NAME, DEBUG_PORT, SWAGGER_OUTPUT_DIR as needed.
 
-.PHONY: help help-formatter help-linter help-test help-security help-deps help-build help-swagger help-migration
+.PHONY: help help-formatter help-linter help-test help-security help-deps help-build help-swagger help-migration help-mocks
 .PHONY: format format-check install-formatter lint lint-fix install-linter
 .PHONY: test test-unit test-integration test-race bench coverage coverage-view
 .PHONY: vulncheck install-govulncheck deps-tidy deps-verify deps deps-outdated deps-upgrade
 .PHONY: build clean generate run debug install-delve
 .PHONY: install-swagger swagger-generate swagger-serve
 .PHONY: install-migration migration-create migration-up migration-up-n migration-down migration-down-n migration-goto migration-version migration-force
+.PHONY: mocks
 .PHONY: check ci install-tools
 
 .DEFAULT_GOAL := help
@@ -29,6 +30,7 @@ include $(SCRIPTS_DIR)/deps.mk
 include $(SCRIPTS_DIR)/build.mk
 include $(SCRIPTS_DIR)/swagger.mk
 include $(SCRIPTS_DIR)/migration.mk
+include $(SCRIPTS_DIR)/mocks.mk
 
 help: ## Show all targets (aggregates help from all scripts)
 	@echo ">>>> guest-management-be Makefile targets <<<<"
@@ -48,6 +50,8 @@ help: ## Show all targets (aggregates help from all scripts)
 	@$(MAKE) -s help-swagger
 	$(ECHO_EMPTY)
 	@$(MAKE) -s help-migration
+	$(ECHO_EMPTY)
+	@$(MAKE) -s help-mocks
 	$(ECHO_EMPTY)
 	@echo "# Other"
 	@echo "  make ci            ## Run format-check, lint, test-unit, coverage, vulncheck, deps-verify (CI)"
