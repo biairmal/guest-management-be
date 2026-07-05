@@ -1,44 +1,44 @@
-Logger:
-  Level: debug # debug, info, warn, error, fatal, panic
-  Output: stdout # stdout, stderr, file
-  Format: text # json, text
+logger:
+  level: debug # debug, info, warn, error, fatal, panic
+  output: stdout # stdout, stderr, file
+  format: text # json, text
   # ===== Rotation is only used if Output is file ===== #
-  # Rotation:
-  #   MaxSize: 100MB
-  #   MaxAge: 7d
-  #   MaxBackups: 3
-  #   Compress: false
-  #   LocalTime: false
-  #   Filename: app.log
+  # rotation:
+  #   max_size: 100MB
+  #   max_age: 7d
+  #   max_backups: 3
+  #   compress: false
+  #   local_time: false
+  #   filename: app.log
 
-Server:
-  Host: ${SERVER_HOST:127.0.0.1}
-  Port: ${SERVER_PORT:8080}
-  ReadHeaderTimeout: ${SERVER_READ_HEADER_TIMEOUT:5s}
-  ReadTimeout: ${SERVER_READ_TIMEOUT:15s}
-  WriteTimeout: ${SERVER_WRITE_TIMEOUT:15s}
-  ShutdownTimeout: ${SERVER_SHUTDOWN_TIMEOUT:30s}
+server:
+  host: ${SERVER_HOST:127.0.0.1}
+  port: ${SERVER_PORT:8080}
+  read_header_timeout: ${SERVER_READ_HEADER_TIMEOUT:5s}
+  read_timeout: ${SERVER_READ_TIMEOUT:15s}
+  write_timeout: ${SERVER_WRITE_TIMEOUT:15s}
+  shutdown_timeout: ${SERVER_SHUTDOWN_TIMEOUT:30s}
 
-Database:
-  Leader:
-    Driver: postgres
-    Host: ${DATABASE_HOST}
-    Port: ${DATABASE_PORT}
-    Database: ${DATABASE_DATABASE}
-    Username: ${DATABASE_USERNAME}
-    Password: ${DATABASE_PASSWORD}
-    SSLMode: ${DATABASE_SSL_MODE:disable}
-    ConnectTimeout: ${DATABASE_CONNECT_TIMEOUT:5s}
-    MaxRetries: ${DATABASE_MAX_RETRIES:3}
+database:
+  leader:
+    driver: postgres
+    host: ${DATABASE_HOST}
+    port: ${DATABASE_PORT}
+    database: ${DATABASE_DATABASE}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+    ssl_mode: ${DATABASE_SSL_MODE:disable}
+    connect_timeout: ${DATABASE_CONNECT_TIMEOUT:5s}
+    max_retries: ${DATABASE_MAX_RETRIES:3}
 
-Redis:
-  Mode: standalone
-  Address: ${REDIS_HOST:localhost}:${REDIS_PORT:6379}
-  Username: ${REDIS_USERNAME:default}
-  Password: ${REDIS_PASSWORD}
-  DB: ${REDIS_DB:0}
+redis:
+  mode: standalone
+  address: ${REDIS_HOST:localhost}:${REDIS_PORT:6379}
+  username: ${REDIS_USERNAME:default}
+  password: ${REDIS_PASSWORD}
+  db: ${REDIS_DB:0}
 
-Swagger:
-  Enabled: ${SWAGGER_ENABLED:true}
-  Username: ${SWAGGER_USERNAME}
-  Password: ${SWAGGER_PASSWORD}
+swagger:
+  enabled: ${SWAGGER_ENABLED:true}
+  username: ${SWAGGER_USERNAME}
+  password: ${SWAGGER_PASSWORD}

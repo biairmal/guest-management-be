@@ -37,12 +37,12 @@ Because each embedded type is a `go-sdk` `Config`/`Options` with its own `mapstr
 Example (`configs/config.yaml`):
 
 ```yaml
-Database:
-  Leader:
-    Host: ${DATABASE_HOST}
-    Port: ${DATABASE_PORT}
-    SSLMode: ${DATABASE_SSL_MODE:disable}      # default when env unset
-    ConnectTimeout: ${DATABASE_CONNECT_TIMEOUT:5s}   # time.Duration decodes out of the box
+database:
+  leader:
+    host: ${DATABASE_HOST}
+    port: ${DATABASE_PORT}
+    ssl_mode: ${DATABASE_SSL_MODE:disable}      # default when env unset
+    connect_timeout: ${DATABASE_CONNECT_TIMEOUT:5s}   # time.Duration decodes out of the box
 ```
 
 `time.Duration` (`"5s"`) and comma-slices decode without extra wiring — `config.Load` uses Viper's default unmarshal hooks.
