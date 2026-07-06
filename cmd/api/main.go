@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/biairmal/go-sdk/config"
+	"github.com/biairmal/go-sdk/ctxkit"
 	"github.com/biairmal/go-sdk/errorz"
 	"github.com/biairmal/go-sdk/httpkit"
 	"github.com/biairmal/go-sdk/httpkit/middleware"
 	"github.com/biairmal/go-sdk/logger"
 	"github.com/biairmal/go-sdk/redis"
 	"github.com/biairmal/go-sdk/sqlkit"
+	"github.com/biairmal/go-sdk/tracer"
 	_ "github.com/biairmal/guest-management-be/api/swagger"
 	"github.com/biairmal/guest-management-be/internal/app"
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
@@ -50,11 +52,23 @@ func main() {
 	if err := cfg.App.Validate(); err != nil {
 		panic("Invalid app configuration: " + err.Error())
 	}
+	if err := cfg.Tracing.Validate(); err != nil {
+		panic("Invalid tracing configuration: " + err.Error())
+	}
 
 	ctx := context.Background()
 
-	// Initialize logger
+	// Initialize logger. ContextExtractor surfaces request_id/correlation_id/
+	// trace_id/user_id from context on every *WithContext log call.
+	cfg.Logger.ContextExtractor = ctxkit.LoggerExtractor()
 	log := logger.NewZerolog(&cfg.Logger)
+
+	// Initialize tracer
+	tr, err := newTracer(&cfg, log)
+	if err != nil {
+		log.Panicf("Tracer config failed: %v", err)
+	}
+	defer func() { _ = tr.Shutdown(context.Background()) }()
 
 	// Initialize database
 	db, err := sqlkit.New(ctx, &cfg.Database)
@@ -74,7 +88,7 @@ func main() {
 
 	// Initialize router
 	r := chi.NewRouter()
-	r.Use(middleware.Recover(), middleware.RequestID(), middleware.Logging(log, nil))
+	r.Use(middleware.Recover(), middleware.RequestID(), middleware.Tracing(tr), middleware.Logging(log, nil))
 
 	r.Get("/health", httpkit.Health())
 	r.Get("/ready", httpkit.Readiness(readinessCheck(db, redisClient)))
@@ -112,6 +126,15 @@ func main() {
 	wg.Wait()
 
 	log.Info("Server shutdown completed")
+}
+
+// newTracer returns a NoOp tracer when tracing is disabled, otherwise a real
+// OTel tracer shipping spans to cfg.Tracing.Tracer.Endpoint.
+func newTracer(cfg *appconfig.Config, log logger.Logger) (tracer.Tracer, error) {
+	if !cfg.Tracing.Enabled {
+		return tracer.NewNoOp(), nil
+	}
+	return tracer.NewOTel(cfg.Tracing.Tracer, tracer.WithLogger(log))
 }
 
 // readinessCheck pings the leader database and Redis so /ready reflects real

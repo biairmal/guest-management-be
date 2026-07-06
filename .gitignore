@@ -24,6 +24,9 @@
 bin/
 out/
 
+# App log output (LOG_OUTPUT=file)
+logs/
+
 # Environment variables
 .env
 .env.dev

@@ -1,15 +1,15 @@
 logger:
   level: debug # debug, info, warn, error, fatal, panic
-  output: stdout # stdout, stderr, file
+  output: ${LOG_OUTPUT:stdout} # stdout, stderr, file
   format: text # json, text
   # ===== Rotation is only used if Output is file ===== #
-  # rotation:
+  rotation:
+    filename: logs/app.log
   #   max_size: 100MB
   #   max_age: 7d
   #   max_backups: 3
   #   compress: false
   #   local_time: false
-  #   filename: app.log
 
 server:
   host: ${SERVER_HOST:127.0.0.1}
@@ -46,6 +46,15 @@ swagger:
   enabled: ${SWAGGER_ENABLED:true}
   username: ${SWAGGER_USERNAME}
   password: ${SWAGGER_PASSWORD}
+
+tracing:
+  enabled: ${TRACING_ENABLED:false}
+  tracer:
+    service_name: guest-management-be
+    service_version: ${APP_VERSION:0.0.0}
+    endpoint: ${TRACING_ENDPOINT:localhost:4317}
+    insecure: ${TRACING_INSECURE:true}
+    sample_rate: ${TRACING_SAMPLE_RATE:1.0}
 
 # Per-feature config: app.<feature>.<layer>.*. Each feature's config is one
 # contiguous block (easy to lift out if the feature becomes its own service),

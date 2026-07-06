@@ -1,8 +1,14 @@
-# Docker Compose for local development: PostgreSQL, Redis, and Redis Insight (GUI).
+# Docker Compose for local development: PostgreSQL, Redis, Redis Insight (GUI),
+# and an observability stack (Tempo, Prometheus, Loki/Promtail, Grafana) for go-sdk's
+# tracer and logger packages.
 # Run from this directory: docker compose up -d
 # Stop: docker compose down
 # Redis: username "default", password from REDIS_PASSWORD (default "redis").
 # Redis Insight: http://localhost:5540 — add Redis (host: redis, port: 6379, username: default, password: value of REDIS_PASSWORD).
+# Tracing: point tracer.Config.Endpoint at "localhost:4317" (Insecure: true) to ship spans here.
+# Logs: set logger.Options.Output=file (LOG_OUTPUT=file) so Promtail can tail ./logs/app.log -> Loki.
+# Grafana: http://localhost:3000 (anonymous admin access) — Explore -> Tempo/Loki; log lines
+# with a trace_id field get a "TraceID" derived-field link straight into the matching trace.
 
 services:
   postgres:
@@ -54,7 +60,75 @@ services:
       redis:
         condition: service_healthy
 
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: guest-management-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./docker/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "4317:4317" # OTLP gRPC — tracer.Config.Endpoint
+      - "4318:4318" # OTLP HTTP
+      - "3200:3200" # Tempo query API (used by Grafana)
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: guest-management-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  loki:
+    image: grafana/loki:3.7.3
+    container_name: guest-management-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./docker/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:3.6.8
+    container_name: guest-management-promtail
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/promtail.yaml"]
+    volumes:
+      - ./docker/promtail/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - ./logs:/var/log/app:ro
+    ports:
+      - "9080:9080"
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: guest-management-grafana
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - tempo
+      - prometheus
+      - loki
+
 volumes:
   postgres_data:
   redis_data:
   redis_insight_data:
+  tempo_data:
+  prometheus_data:
+  loki_data:
+  grafana_data:

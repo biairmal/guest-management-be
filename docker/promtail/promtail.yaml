@@ -1,0 +1,27 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: guest-management-be
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: guest-management-be
+          service_name: guest-management-be
+          __path__: /var/log/app/*.log
+    pipeline_stages:
+      # zerolog JSON output (Output: file always writes JSON regardless of Format).
+      # trace_id is deliberately NOT promoted to a label (unbounded cardinality);
+      # it stays in the log line for Grafana's Loki->Tempo derived-field link.
+      - json:
+          expressions:
+            level: level
+      - labels:
+          level:

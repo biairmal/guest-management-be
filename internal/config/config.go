@@ -18,5 +18,6 @@ type Config struct {
 	Redis     redis.Config
 	Validator validator.Config
 	Swagger   SwaggerConfig
+	Tracing   TracingConfig
 	App       FeatureConfig
 }
