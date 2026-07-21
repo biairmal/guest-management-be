@@ -4,7 +4,7 @@
 // (errorz.CodeBadRequest) with per-field detail, produced by go-sdk.
 package validation
 
-import gosdkvalidator "github.com/biairmal/go-sdk/validator"
+import gosdkvalidator "github.com/biairmal/go-sdk/lib/validator"
 
 //go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=../../../mocks/validation/mock_validator.go -package=mockvalidation github.com/biairmal/guest-management-be/internal/core/validation Validator
 

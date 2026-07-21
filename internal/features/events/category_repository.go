@@ -1,9 +1,9 @@
 package events
 
 import (
-	"github.com/biairmal/go-sdk/logger"
-	"github.com/biairmal/go-sdk/repository"
-	"github.com/biairmal/go-sdk/sqlkit"
+	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/repository"
+	"github.com/biairmal/go-sdk/lib/sqlkit"
 	corerepository "github.com/biairmal/guest-management-be/internal/core/repository"
 	"github.com/google/uuid"
 )

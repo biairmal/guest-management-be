@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/biairmal/go-sdk/errorz"
+	"github.com/biairmal/go-sdk/lib/errorz"
 )
 
 // ServerConfig holds HTTP server networking and timeout settings.

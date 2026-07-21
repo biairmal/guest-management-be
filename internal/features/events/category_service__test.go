@@ -6,10 +6,10 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/biairmal/go-sdk/errorz"
-	"github.com/biairmal/go-sdk/logger"
+	"github.com/biairmal/go-sdk/lib/errorz"
+	"github.com/biairmal/go-sdk/lib/logger"
 	mockrepository "github.com/biairmal/go-sdk/mocks/repository"
-	"github.com/biairmal/go-sdk/repository"
+	"github.com/biairmal/go-sdk/lib/repository"
 	"github.com/google/uuid"
 	"go.uber.org/mock/gomock"
 

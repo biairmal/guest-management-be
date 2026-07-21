@@ -1,10 +1,10 @@
 package config
 
 import (
-	"github.com/biairmal/go-sdk/logger"
-	"github.com/biairmal/go-sdk/redis"
-	"github.com/biairmal/go-sdk/sqlkit"
-	"github.com/biairmal/go-sdk/validator"
+	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/redis"
+	"github.com/biairmal/go-sdk/lib/sqlkit"
+	"github.com/biairmal/go-sdk/lib/validator"
 )
 
 // Config is the root configuration tree for the application. It embeds go-sdk

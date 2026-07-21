@@ -6,12 +6,12 @@ package repository
 import (
 	"time"
 
-	"github.com/biairmal/go-sdk/logger"
-	"github.com/biairmal/go-sdk/redis"
-	"github.com/biairmal/go-sdk/repository"
-	"github.com/biairmal/go-sdk/repository/cache"
-	"github.com/biairmal/go-sdk/repository/sql"
-	"github.com/biairmal/go-sdk/sqlkit"
+	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/redis"
+	"github.com/biairmal/go-sdk/lib/repository"
+	"github.com/biairmal/go-sdk/lib/repository/cache"
+	"github.com/biairmal/go-sdk/lib/repository/sql"
+	"github.com/biairmal/go-sdk/lib/sqlkit"
 	"github.com/biairmal/guest-management-be/internal/core/audit"
 )
 

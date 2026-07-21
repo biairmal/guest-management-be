@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	common "github.com/biairmal/go-sdk/common/dto"
+	common "github.com/biairmal/go-sdk/lib/common/dto"
 )
 
 // Default pagination values applied when a ListParseConfig leaves the

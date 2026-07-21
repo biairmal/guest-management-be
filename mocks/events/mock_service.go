@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	dto "github.com/biairmal/go-sdk/common/dto"
+	dto "github.com/biairmal/go-sdk/lib/common/dto"
 	query "github.com/biairmal/guest-management-be/internal/core/query"
 	events "github.com/biairmal/guest-management-be/internal/features/events"
 	uuid "github.com/google/uuid"

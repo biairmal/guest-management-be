@@ -8,7 +8,7 @@ Go backend for the Guest Management System. Supports multi-tenancy, events, gues
 
 ## Overview
 
-The application serves a REST API for managing tenants, events, event categories, guests, ticket types, workflow steps, and related data. All tenant-scoped data is isolated by `tenant_id`. The API exposes CRUD and listing operations for core domains; response format and error envelope are described in the [go-sdk httpkit README](../go-sdk/httpkit/README.md).
+The application serves a REST API for managing tenants, events, event categories, guests, ticket types, workflow steps, and related data. All tenant-scoped data is isolated by `tenant_id`. The API exposes CRUD and listing operations for core domains; response format and error envelope are described in the [go-sdk httpkit README](../go-sdk/lib/httpkit/README.md).
 
 ---
 
@@ -152,7 +152,7 @@ The server listens on the address configured by `Server.Host`/`Server.Port` in `
 | Document | Description |
 | -------- | ----------- |
 | [docs/DATABASE.md](docs/DATABASE.md) | PostgreSQL schema, tables, relationships, soft delete, and migration order. |
-| [go-sdk httpkit](../go-sdk/httpkit/README.md) | Response envelope, error handling, and middleware options. |
-| [go-sdk config](../go-sdk/config/README.md) | Configuration loading (files and env). |
+| [go-sdk httpkit](../go-sdk/lib/httpkit/README.md) | Response envelope, error handling, and middleware options. |
+| [go-sdk config](../go-sdk/lib/config/README.md) | Configuration loading (files and env). |
 
 For Make targets: run `make help` (and `make help-migration`, `make help-swagger`, `make help-build` as needed).

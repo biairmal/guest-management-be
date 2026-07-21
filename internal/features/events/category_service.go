@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	common "github.com/biairmal/go-sdk/common/dto"
-	"github.com/biairmal/go-sdk/errorz"
-	"github.com/biairmal/go-sdk/logger"
-	"github.com/biairmal/go-sdk/repository"
+	common "github.com/biairmal/go-sdk/lib/common/dto"
+	"github.com/biairmal/go-sdk/lib/errorz"
+	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/repository"
 	"github.com/google/uuid"
 
 	"github.com/biairmal/guest-management-be/internal/core/query"

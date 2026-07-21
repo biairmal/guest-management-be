@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/biairmal/go-sdk/errorz"
-	"github.com/biairmal/go-sdk/httpkit/response"
+	"github.com/biairmal/go-sdk/lib/errorz"
+	"github.com/biairmal/go-sdk/lib/httpkit/response"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 

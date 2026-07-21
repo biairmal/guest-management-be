@@ -1,6 +1,6 @@
 package config
 
-import "github.com/biairmal/go-sdk/tracer"
+import "github.com/biairmal/go-sdk/lib/tracer"
 
 // TracingConfig wraps go-sdk's tracer.Config with an app-level on/off switch.
 // tracer.Config has no zero-value way to fully disable tracing (Validate

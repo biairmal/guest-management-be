@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/biairmal/go-sdk/logger"
+	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/guest-management-be/internal/features/events"
 )
 

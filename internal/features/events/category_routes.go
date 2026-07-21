@@ -1,7 +1,7 @@
 package events
 
 import (
-	"github.com/biairmal/go-sdk/httpkit/handler"
+	"github.com/biairmal/go-sdk/lib/httpkit/handler"
 	"github.com/go-chi/chi/v5"
 )
 

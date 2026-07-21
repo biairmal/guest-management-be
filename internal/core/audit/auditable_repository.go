@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/biairmal/go-sdk/repository"
+	"github.com/biairmal/go-sdk/lib/repository"
 )
 
 // AuditableRepository wraps a repository.Repository and adds audit field management.

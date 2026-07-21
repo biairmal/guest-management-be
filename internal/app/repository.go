@@ -1,10 +1,10 @@
 package app
 
 import (
-	"github.com/biairmal/go-sdk/logger"
-	"github.com/biairmal/go-sdk/redis"
-	sdkrepository "github.com/biairmal/go-sdk/repository"
-	"github.com/biairmal/go-sdk/sqlkit"
+	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/redis"
+	sdkrepository "github.com/biairmal/go-sdk/lib/repository"
+	"github.com/biairmal/go-sdk/lib/sqlkit"
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
 	"github.com/biairmal/guest-management-be/internal/features/events"
 	"github.com/google/uuid"

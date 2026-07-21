@@ -53,7 +53,7 @@ For interfaces this service defines (feature **services**, and any app-specific 
 
 ## Unit test template
 
-Modelled on `go-sdk`'s `errorz/error__test.go`, using a generated mock for the repository. Assumes the
+Modelled on `go-sdk`'s `lib/errorz/error__test.go`, using a generated mock for the repository. Assumes the
 [A2 refactor](DEVELOPMENT_PLAN.md) so the service depends on `repository.Repository[EventCategory, uuid.UUID]`:
 
 ```go
@@ -63,8 +63,8 @@ import (
     "context"
     "testing"
 
-    "github.com/biairmal/go-sdk/logger"
-    "github.com/biairmal/go-sdk/repository"
+    "github.com/biairmal/go-sdk/lib/logger"
+    "github.com/biairmal/go-sdk/lib/repository"
     mockrepository "github.com/biairmal/go-sdk/mocks/repository"
     "github.com/google/uuid"
     "go.uber.org/mock/gomock"

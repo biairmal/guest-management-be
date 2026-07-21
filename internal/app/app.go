@@ -1,9 +1,9 @@
 package app
 
 import (
-	"github.com/biairmal/go-sdk/logger"
-	"github.com/biairmal/go-sdk/redis"
-	"github.com/biairmal/go-sdk/sqlkit"
+	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/redis"
+	"github.com/biairmal/go-sdk/lib/sqlkit"
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
 	"github.com/biairmal/guest-management-be/internal/core/validation"
 	"github.com/go-chi/chi/v5"

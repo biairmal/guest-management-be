@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	common "github.com/biairmal/go-sdk/common/dto"
+	common "github.com/biairmal/go-sdk/lib/common/dto"
 )
 
 func TestParseListParamsDefaults(t *testing.T) {

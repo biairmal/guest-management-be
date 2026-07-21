@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/biairmal/go-sdk/errorz"
-	"github.com/biairmal/go-sdk/redis"
-	"github.com/biairmal/go-sdk/repository/cache"
+	"github.com/biairmal/go-sdk/lib/errorz"
+	"github.com/biairmal/go-sdk/lib/redis"
+	"github.com/biairmal/go-sdk/lib/repository/cache"
 )
 
 // CacheConfig is the YAML/mapstructure-decodable shape for one repository's
