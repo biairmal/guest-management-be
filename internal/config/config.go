@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/biairmal/go-sdk/lib/lifecycle"
 	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/go-sdk/lib/redis"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
@@ -19,5 +20,8 @@ type Config struct {
 	Validator validator.Config
 	Swagger   SwaggerConfig
 	Tracing   TracingConfig
+	Metrics   MetricsConfig
+	RateLimit RateLimitConfig
+	Lifecycle lifecycle.Config
 	App       FeatureConfig
 }

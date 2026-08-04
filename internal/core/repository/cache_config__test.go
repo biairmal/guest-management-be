@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	mockredis "github.com/biairmal/go-sdk/mocks/redis"
 	"github.com/biairmal/go-sdk/lib/repository/cache"
+	mockredis "github.com/biairmal/go-sdk/mocks/redis"
 	"go.uber.org/mock/gomock"
 )
 

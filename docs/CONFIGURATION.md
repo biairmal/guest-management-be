@@ -18,15 +18,23 @@ The current root struct:
 
 ```go
 type Config struct {
-    Logger    logger.Options   // go-sdk
+    Logger    logger.Options    // go-sdk
     Server    ServerConfig      // app-specific (host/port/timeouts)
     Database  sqlkit.Config     // go-sdk
     Redis     redis.Config      // go-sdk
     Validator validator.Config  // go-sdk
     Swagger   SwaggerConfig     // app-specific
+    Tracing   TracingConfig     // app-specific on/off switch over go-sdk tracer.Config
+    Metrics   MetricsConfig     // app-specific on/off switch over go-sdk metrics.Config
+    RateLimit RateLimitConfig   // app-specific on/off switch over go-sdk ratelimit.Config
+    Lifecycle lifecycle.Config  // go-sdk — graceful shutdown timings
     App       FeatureConfig     // app.<feature>.* — every registered feature's own config
 }
+```
 
+`Tracing`/`Metrics`/`RateLimit` follow the same shape: an `Enabled bool` plus the embedded go-sdk `Config`, so a section can be switched off in an environment (e.g. local dev without a Tempo/Prometheus/Redis instance) without deleting its YAML block — `Validate()` short-circuits to `nil` when `Enabled` is `false`. `Lifecycle` has no such switch: graceful shutdown is unconditional, so it embeds `lifecycle.Config` directly.
+
+```go
 // FeatureConfig aggregates per-feature config, one field per feature.
 type FeatureConfig struct {
     Events events.Config `mapstructure:"events"` // internal/features/events

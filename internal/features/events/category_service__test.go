@@ -8,8 +8,8 @@ import (
 
 	"github.com/biairmal/go-sdk/lib/errorz"
 	"github.com/biairmal/go-sdk/lib/logger"
-	mockrepository "github.com/biairmal/go-sdk/mocks/repository"
 	"github.com/biairmal/go-sdk/lib/repository"
+	mockrepository "github.com/biairmal/go-sdk/mocks/repository"
 	"github.com/google/uuid"
 	"go.uber.org/mock/gomock"
 

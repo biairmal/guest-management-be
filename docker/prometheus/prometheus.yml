@@ -6,7 +6,6 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  # Uncomment once the app exposes a /metrics endpoint (go-sdk metrics package, planned):
-  # - job_name: guest-management-be
-  #   static_configs:
-  #     - targets: ["host.docker.internal:8080"]
+  - job_name: guest-management-be
+    static_configs:
+      - targets: ["host.docker.internal:8080"]

@@ -20,7 +20,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | A4 | Foundations | Real readiness (DB ping) | A3 | ✅ |
 | A5 | Foundations | **Testing foundation** (generated-mock setup + first table-driven tests) | A2 | ✅ |
 | A6 | Foundations | Shared building blocks in `internal/core` (base repo, list-query parser, validator) | A5, go-sdk `validator` | ✅ |
-| A7 | Foundations | Cross-cutting middleware/observability + go-sdk `lifecycle` shutdown | go-sdk phases | ⬜ |
+| A7 | Foundations | Cross-cutting middleware/observability + go-sdk `lifecycle` shutdown | go-sdk phases | ✅ |
 | B1 | Domain | `tenants` | A6 | ⬜ |
 | B2 | Domain | `users` | B1 | ⬜ |
 | B3 | Domain | `auth` (login + route protection) | B2, go-sdk `auth` | ⬜ |
@@ -106,17 +106,30 @@ Build the reuse primitives the AGENTS.md rules assume. Document each with a pack
 - **Depends on:** go-sdk `validator` phase (optional — can start on go-playground and swap later behind the adapter).
 - **Verify:** events uses only `internal/core` helpers + its own config; `make check` green.
 
-### A7. Cross-cutting middleware & lifecycle
+### A7. Cross-cutting middleware & lifecycle ✅
 
-As `go-sdk` phases land, adopt them here (config-first, via the middleware chain in
-[go-sdk DEVELOPMENT_PLAN "Recommended middleware chain"](../../go-sdk/docs/DEVELOPMENT_PLAN.md#recommended-middleware-chain)):
+Adopted the `go-sdk` middleware chain from
+[go-sdk DEVELOPMENT_PLAN "Recommended middleware chain"](../../go-sdk/docs/DEVELOPMENT_PLAN.md#recommended-middleware-chain)
+in `main.go` (split into `buildDependencies`/`buildRouter`/`runLifecycle` helpers to keep `main` under the
+cognitive-complexity lint cap):
 
-- `middleware.Correlation()` (already available) — add to the chain in `main.go`.
-- `metrics` → `middleware.Metrics(...)`; `tracer` → `middleware.Tracing(...)`; `ratelimit` →
-  `middleware.RateLimit(...)`; wrap outbound calls with `circuitbreaker`.
-- Replace the hand-rolled `startServer`/`gracefulShutdown` in `main.go` with `go-sdk` `lifecycle.Run(...)`
-  (signal trap → readiness drain → ordered closers under deadline).
-- **Verify:** metrics endpoint scrapes; traces appear; shutdown drains cleanly.
+- Chain order: `middleware.Metrics(rec, nil)` (outermost, counts panics) → `Recover` → `RequestID` →
+  `Correlation` → `Tracing(tr)` → `Logging` → `RateLimit(limiter, KeyByIP)`. No `Auth` yet — waits on B3.
+- `MetricsConfig`/`RateLimitConfig` (`internal/config/metrics.go` / `ratelimit.go`) wrap the go-sdk `Config`
+  with an app-level `Enabled` switch, mirroring `TracingConfig`: disabled → `metrics.NewNoOp()` /
+  nil `ratelimit.Limiter` (the `RateLimit` middleware treats nil as pass-through) and no `/metrics` route.
+  `Lifecycle lifecycle.Config` embeds directly (shutdown is unconditional, no switch).
+- `/metrics` (via `promhttp.Handler()`, only mounted when `cfg.Metrics.Enabled`), `/ready` now also honors an
+  `atomic.Bool` readiness flag that `lifecycle.Run` flips to `false` on the first shutdown signal, ahead of the
+  DB/Redis ping checks.
+- Replaced the hand-rolled `startServer`/`gracefulShutdown` with `lifecycle.Run(ctx, server, cfg.Lifecycle,
+  WithReadiness, WithLogger, WithCloser("tracer"/"redis"/"db"))` — registration order matches the go-sdk
+  README's least-recoverable-first guidance (tracer flush, then redis, then db last).
+- **Circuit breaker not wired**: this service makes no outbound calls today (grepped for `httpkit/client`/
+  `http.Client` — none), so there is nothing to wrap. Add `circuitbreaker.Do[T]` around the first outbound
+  dependency call when one is introduced (e.g. a future remote `auth` mode in B3).
+- New config: `configs/config.yaml` `metrics:`/`ratelimit:`/`lifecycle:` blocks, `.env.example`
+  `METRICS_*`/`RATELIMIT_*` vars. Tests: `internal/config/metrics__test.go`, `ratelimit__test.go`.
 
 ---
 

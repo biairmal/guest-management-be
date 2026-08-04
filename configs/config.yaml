@@ -4,7 +4,7 @@ logger:
   format: text # json, text
   # ===== Rotation is only used if Output is file ===== #
   rotation:
-    filename: logs/app.log
+  #   filename: logs/app.log
   #   max_size: 100MB
   #   max_age: 7d
   #   max_backups: 3
@@ -55,6 +55,25 @@ tracing:
     endpoint: ${TRACING_ENDPOINT:localhost:4317}
     insecure: ${TRACING_INSECURE:true}
     sample_rate: ${TRACING_SAMPLE_RATE:1.0}
+
+metrics:
+  enabled: ${METRICS_ENABLED:true}
+  metrics:
+    namespace: guest_management
+
+ratelimit:
+  enabled: ${RATELIMIT_ENABLED:true}
+  ratelimit:
+    backend: ${RATELIMIT_BACKEND:memory} # memory, redis
+    rate: ${RATELIMIT_RATE:10} # permits/sec (memory backend)
+    burst: ${RATELIMIT_BURST:20} # request cap (both backends)
+    window: ${RATELIMIT_WINDOW:1s} # sliding window length (redis backend)
+    max_keys: ${RATELIMIT_MAX_KEYS:10000} # tracked-key eviction cap (memory backend)
+
+lifecycle:
+  drain_delay: ${LIFECYCLE_DRAIN_DELAY:5s}
+  shutdown_timeout: ${LIFECYCLE_SHUTDOWN_TIMEOUT:15s}
+  closer_timeout: ${LIFECYCLE_CLOSER_TIMEOUT:15s}
 
 # Per-feature config: app.<feature>.<layer>.*. Each feature's config is one
 # contiguous block (easy to lift out if the feature becomes its own service),
