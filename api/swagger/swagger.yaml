@@ -1,14 +1,57 @@
 basePath: /
 definitions:
+  dto.PageResponse-internal_features_events_EventCategory:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_events.EventCategory'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  dto.PageResponse-internal_features_tenants_Tenant:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_tenants.Tenant'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
   internal_features_events.CreateInput:
     properties:
       name:
         type: string
       source:
-        description: '"app" or "tenant"'
+        enum:
+        - app
+        - tenant
         type: string
       tenant_id:
         type: string
+    required:
+    - name
+    - source
     type: object
   internal_features_events.EventCategory:
     properties:
@@ -27,28 +70,73 @@ definitions:
       updated_at:
         type: string
     type: object
-  internal_features_events.ListResult:
-    properties:
-      items:
-        items:
-          $ref: '#/definitions/internal_features_events.EventCategory'
-        type: array
-      limit:
-        type: integer
-      offset:
-        type: integer
-      total:
-        type: integer
-      total_pages:
-        type: integer
-    type: object
   internal_features_events.UpdateInput:
     properties:
       name:
+        minLength: 1
         type: string
       source:
+        enum:
+        - app
+        - tenant
         type: string
       tenant_id:
+        type: string
+    type: object
+  internal_features_tenants.CreateInput:
+    properties:
+      branding:
+        items:
+          type: integer
+        type: array
+      name:
+        type: string
+      settings:
+        items:
+          type: integer
+        type: array
+      type:
+        type: string
+    required:
+    - name
+    type: object
+  internal_features_tenants.Tenant:
+    properties:
+      branding:
+        items:
+          type: integer
+        type: array
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      settings:
+        items:
+          type: integer
+        type: array
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_features_tenants.UpdateInput:
+    properties:
+      branding:
+        items:
+          type: integer
+        type: array
+      name:
+        minLength: 1
+        type: string
+      settings:
+        items:
+          type: integer
+        type: array
+      type:
         type: string
     type: object
 externalDocs:
@@ -65,24 +153,28 @@ paths:
     get:
       consumes:
       - application/json
-      description: Returns a paginated list of event categories with optional sort
-        and pagination.
+      description: 'Returns a paginated list of event categories. Query: page, size,
+        sort=field,dir (repeatable), filter by allowed fields (name, source, tenant_id).'
       parameters:
-      - description: Maximum number of items to return (default 20, max 100)
+      - description: Page number (1-based)
         in: query
-        name: limit
+        name: page
         type: integer
-      - description: Number of items to skip
+      - description: Page size (default 20, max 100)
         in: query
-        name: offset
+        name: size
         type: integer
-      - description: 'Sort field (default: created_at)'
+      - description: 'Sort: field,dir (e.g. sort=name,ASC&sort=id,DESC)'
         in: query
-        name: sort_field
+        name: sort
         type: string
-      - description: 'Sort direction: asc or desc'
+      - description: Filter by name (exact match)
         in: query
-        name: sort_dir
+        name: name
+        type: string
+      - description: Filter by source (exact match)
+        in: query
+        name: source
         type: string
       produces:
       - application/json
@@ -90,7 +182,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_events.ListResult'
+            $ref: '#/definitions/dto.PageResponse-internal_features_events_EventCategory'
+        "400":
+          description: Invalid query (e.g. invalid sort field)
+          schema:
+            type: object
         "500":
           description: Internal server error
           schema:
@@ -238,4 +334,189 @@ paths:
       summary: Update event category
       tags:
       - event-categories
+  /api/v1/tenants:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns a paginated list of tenants. Query: page, size, sort=field,dir
+        (repeatable), filter by allowed fields (name, type).'
+      parameters:
+      - description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: size
+        type: integer
+      - description: 'Sort: field,dir (e.g. sort=name,ASC&sort=id,DESC)'
+        in: query
+        name: sort
+        type: string
+      - description: Filter by name (exact match)
+        in: query
+        name: name
+        type: string
+      - description: Filter by type (exact match)
+        in: query
+        name: type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PageResponse-internal_features_tenants_Tenant'
+        "400":
+          description: Invalid query (e.g. invalid sort field)
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: List tenants
+      tags:
+      - tenants
+    post:
+      consumes:
+      - application/json
+      description: Creates a new tenant. Settings and branding default to an empty
+        object when omitted.
+      parameters:
+      - description: Tenant payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_tenants.CreateInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_tenants.Tenant'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "409":
+          description: Conflict (e.g. already exists)
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Create tenant
+      tags:
+      - tenants
+  /api/v1/tenants/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Soft-deletes a tenant by ID.
+      parameters:
+      - description: Tenant UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Tenant not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Delete tenant
+      tags:
+      - tenants
+    get:
+      consumes:
+      - application/json
+      description: Returns a single tenant by UUID.
+      parameters:
+      - description: Tenant UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_tenants.Tenant'
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Tenant not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Get tenant by ID
+      tags:
+      - tenants
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing tenant by ID. Only provided fields are applied
+        (partial update).
+      parameters:
+      - description: Tenant UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_tenants.UpdateInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_tenants.Tenant'
+        "400":
+          description: Invalid ID or request body
+          schema:
+            type: object
+        "404":
+          description: Tenant not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Update tenant
+      tags:
+      - tenants
 swagger: "2.0"

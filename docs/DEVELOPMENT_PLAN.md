@@ -21,7 +21,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | A5 | Foundations | **Testing foundation** (generated-mock setup + first table-driven tests) | A2 | ✅ |
 | A6 | Foundations | Shared building blocks in `internal/core` (base repo, list-query parser, validator) | A5, go-sdk `validator` | ✅ |
 | A7 | Foundations | Cross-cutting middleware/observability + go-sdk `lifecycle` shutdown | go-sdk phases | ✅ |
-| B1 | Domain | `tenants` | A6 | ⬜ |
+| B1 | Domain | `tenants` | A6 | ✅ |
 | B2 | Domain | `users` | B1 | ⬜ |
 | B3 | Domain | `auth` (login + route protection) | B2, go-sdk `auth` | ⬜ |
 | B4 | Domain | `events` (events + workflow steps; extend existing slice) | B1, B2 | ⬜ |

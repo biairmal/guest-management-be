@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/api/v1/event-categories": {
             "get": {
-                "description": "Returns a paginated list of event categories with optional sort and pagination.",
+                "description": "Returns a paginated list of event categories. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (name, source, tenant_id).",
                 "consumes": [
                     "application/json"
                 ],
@@ -31,26 +31,32 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "Maximum number of items to return (default 20, max 100)",
-                        "name": "limit",
+                        "description": "Page number (1-based)",
+                        "name": "page",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "Number of items to skip",
-                        "name": "offset",
+                        "description": "Page size (default 20, max 100)",
+                        "name": "size",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Sort field (default: created_at)",
-                        "name": "sort_field",
+                        "description": "Sort: field,dir (e.g. sort=name,ASC\u0026sort=id,DESC)",
+                        "name": "sort",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Sort direction: asc or desc",
-                        "name": "sort_dir",
+                        "description": "Filter by name (exact match)",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by source (exact match)",
+                        "name": "source",
                         "in": "query"
                     }
                 ],
@@ -58,7 +64,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.ListResult"
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_EventCategory"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query (e.g. invalid sort field)",
+                        "schema": {
+                            "type": "object"
                         }
                     },
                     "500": {
@@ -277,18 +289,358 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/api/v1/tenants": {
+            "get": {
+                "description": "Returns a paginated list of tenants. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (name, type).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenants"
+                ],
+                "summary": "List tenants",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (1-based)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 20, max 100)",
+                        "name": "size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort: field,dir (e.g. sort=name,ASC\u0026sort=id,DESC)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by name (exact match)",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by type (exact match)",
+                        "name": "type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_tenants_Tenant"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query (e.g. invalid sort field)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Creates a new tenant. Settings and branding default to an empty object when omitted.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenants"
+                ],
+                "summary": "Create tenant",
+                "parameters": [
+                    {
+                        "description": "Tenant payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_tenants.CreateInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_tenants.Tenant"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body or validation error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict (e.g. already exists)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable entity",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/tenants/{id}": {
+            "get": {
+                "description": "Returns a single tenant by UUID.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenants"
+                ],
+                "summary": "Get tenant by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_tenants.Tenant"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID format",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Tenant not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Updates an existing tenant by ID. Only provided fields are applied (partial update).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenants"
+                ],
+                "summary": "Update tenant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_tenants.UpdateInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_tenants.Tenant"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID or request body",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Tenant not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Soft-deletes a tenant by ID.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenants"
+                ],
+                "summary": "Delete tenant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No content"
+                    },
+                    "400": {
+                        "description": "Invalid ID format",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Tenant not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "dto.PageResponse-internal_features_events_EventCategory": {
+            "type": "object",
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "has_prev": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events.EventCategory"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dto.PageResponse-internal_features_tenants_Tenant": {
+            "type": "object",
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "has_prev": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_features_tenants.Tenant"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
         "internal_features_events.CreateInput": {
             "type": "object",
+            "required": [
+                "name",
+                "source"
+            ],
             "properties": {
                 "name": {
                     "type": "string"
                 },
                 "source": {
-                    "description": "\"app\" or \"tenant\"",
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "app",
+                        "tenant"
+                    ]
                 },
                 "tenant_id": {
                     "type": "string"
@@ -321,39 +673,106 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_events.ListResult": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/internal_features_events.EventCategory"
-                    }
-                },
-                "limit": {
-                    "type": "integer"
-                },
-                "offset": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                },
-                "total_pages": {
-                    "type": "integer"
-                }
-            }
-        },
         "internal_features_events.UpdateInput": {
             "type": "object",
             "properties": {
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                 },
                 "source": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "app",
+                        "tenant"
+                    ]
                 },
                 "tenant_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_tenants.CreateInput": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "branding": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "settings": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_tenants.Tenant": {
+            "type": "object",
+            "properties": {
+                "branding": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "settings": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_tenants.UpdateInput": {
+            "type": "object",
+            "properties": {
+                "branding": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "settings": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "type": {
                     "type": "string"
                 }
             }

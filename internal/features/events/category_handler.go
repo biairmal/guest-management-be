@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	common "github.com/biairmal/go-sdk/lib/common/dto"
 	"github.com/biairmal/go-sdk/lib/errorz"
 	"github.com/biairmal/go-sdk/lib/httpkit/response"
 	"github.com/go-chi/chi/v5"
@@ -58,7 +59,10 @@ func (h *CategoryHandler) List(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, errorz.BadRequest().WithMessage(err.Error())
 	}
-	result, err := h.service.List(r.Context(), params)
+	// Explicitly typed (rather than :=) so this file imports common/dto — swag
+	// resolves the generic @Success type below against this file's imports.
+	var result *common.PageResponse[EventCategory]
+	result, err = h.service.List(r.Context(), params)
 	if err != nil {
 		return nil, err
 	}

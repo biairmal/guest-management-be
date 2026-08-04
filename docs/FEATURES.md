@@ -55,6 +55,49 @@ Base path `/api/v1/event-categories`:
 
 ---
 
+## tenants
+
+Source: `internal/features/tenants`. Table: `tenants` (see [DATABASE.md](DATABASE.md)).
+
+### Intent
+
+Manages **tenants** — the customer organizations that own staff users, events, categories, and templates. Almost every other table carries a `tenant_id`; this is the foundational, top-of-hierarchy slice everything else scopes to.
+
+### Invariants
+
+- `name` is required and non-empty.
+- `type` is free-form and optional (e.g. `default`, `enterprise`); no enum is enforced.
+- `settings` and `branding` are opaque JSON documents; when omitted on create, each defaults to an empty object (`{}`), matching the column default.
+- On update (partial), only provided fields change; omitted `settings`/`branding` leave the existing value untouched (they are not reset to `{}`).
+
+> Field-presence/format checks (`required`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateInput`/`UpdateInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)).
+
+### Endpoints
+
+Base path `/api/v1/tenants`:
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List (paginated, filtered, sorted) | 200 | 400 invalid query |
+| `GET` | `/{id}` | Get one by UUID | 200 | 400 bad UUID · 404 not found |
+| `POST` | `/` | Create | 201 | 400 invalid body · 409 conflict · 422 invalid entity |
+| `PUT` | `/{id}` | Partial update | 200 | 400 · 404 not found |
+| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 404 not found |
+
+**List query:** `?page=1&size=20&sort=name,ASC&sort=id,DESC&name=Acme&type=enterprise`.
+- `page` 1-based; `size` default 20, clamped to 100.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, name, type, created_at, updated_at`); unknown field → 400.
+- Filters: `name`, `type` (exact match); unknown keys ignored.
+
+### States & lifecycle
+
+- **Create** — service generates the `id` (UUID); `settings`/`branding` default to `{}` when omitted; `created_at`/`updated_at` are stamped by the audit repository decorator.
+- **Update** — partial; `updated_at` re-stamped by the decorator.
+- **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); unexpected errors become 500 and are logged with context.
+
+---
+
 ## Template for new features
 
 Copy this when adding a slice (and add a [feature-map](../AGENTS.md#feature-map) row):

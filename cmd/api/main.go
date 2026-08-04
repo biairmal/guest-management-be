@@ -63,7 +63,7 @@ func main() {
 	// Initialize application. cfg.App carries every registered feature's own
 	// config (app.<feature>.* in config.yaml); internal/app resolves each
 	// feature's section itself when it wires that feature's repositories.
-	application := app.NewApp(log, deps.db, r, val, deps.redisClient, cfg.App)
+	application := app.NewApp(log, deps.db, r, val, deps.redisClient, &cfg.App)
 	if err := application.Initialize(); err != nil {
 		panic("Failed to initialize application: " + err.Error())
 	}

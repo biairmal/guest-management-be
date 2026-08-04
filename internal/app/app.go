@@ -16,7 +16,7 @@ type App struct {
 	router        *chi.Mux
 	validator     validation.Validator
 	redisClient   redis.Client
-	featureConfig appconfig.FeatureConfig
+	featureConfig *appconfig.FeatureConfig
 	repositories  *repositories
 	service       *service
 	handler       *handler
@@ -29,7 +29,7 @@ type App struct {
 // section here, not changing this constructor's signature.
 func NewApp(
 	logger logger.Logger, db *sqlkit.DB, router *chi.Mux, validator validation.Validator,
-	redisClient redis.Client, featureConfig appconfig.FeatureConfig,
+	redisClient redis.Client, featureConfig *appconfig.FeatureConfig,
 ) *App {
 	return &App{
 		logger: logger, db: db, router: router, validator: validator,
