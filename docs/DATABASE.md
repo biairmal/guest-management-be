@@ -112,7 +112,7 @@ Users belonging to a tenant. Each user has one role (`role_id`); at most one use
 | ----------------- | ----------- | -------- | ----------- |
 | id                | UUID        | No       | Primary key. |
 | tenant_id         | UUID        | No       | Tenant this user belongs to (FK to tenants.id). |
-| email             | TEXT        | No       | Login email; unique per tenant. |
+| email             | TEXT        | No       | Login email; unique across all tenants (migration 000012). |
 | password_hash     | TEXT        | No       | Hashed password. |
 | role_id           | UUID        | No       | Role (FK to roles.id); determines permissions. |
 | is_tenant_master  | BOOLEAN     | No       | True if this user is the default/master for the tenant; at most one per tenant. |
@@ -120,7 +120,8 @@ Users belonging to a tenant. Each user has one role (`role_id`); at most one use
 | updated_at        | TIMESTAMPTZ | No       | When the row was last updated. |
 | deleted_at        | TIMESTAMPTZ | Yes      | When the row was soft-deleted; NULL if active. |
 
-**Constraints:** `UNIQUE (tenant_id, email)`; partial unique index on `(tenant_id) WHERE is_tenant_master = true`.
+**Constraints:** `UNIQUE (email)` (migration 000012; was `UNIQUE (tenant_id, email)` until B3 `auth` needed a
+tenant-agnostic login lookup); partial unique index on `(tenant_id) WHERE is_tenant_master = true`.
 
 ---
 
@@ -404,7 +405,7 @@ permissions, roles, role_permissions (system/reference data), scan_logs (audit t
 
 ## 6. Migrations
 
-Migrations are applied in order from `./migrations` using golang-migrate. Sequence: 000001 (tenants) → 000002 (permissions, roles, role_permissions) → 000003 (users) → 000004 (event_categories, workflow_step_templates) → 000005 (events, workflow_steps) → 000006 (message_templates) → 000007 (event_staff_assignments) → 000008 (ticket_types, ticket_type_workflow_steps) → 000009 (guests, tickets) → 000010 (scan_logs) → 000011 (indexes).
+Migrations are applied in order from `./migrations` using golang-migrate. Sequence: 000001 (tenants) → 000002 (permissions, roles, role_permissions) → 000003 (users) → 000004 (event_categories, workflow_step_templates) → 000005 (events, workflow_steps) → 000006 (message_templates) → 000007 (event_staff_assignments) → 000008 (ticket_types, ticket_type_workflow_steps) → 000009 (guests, tickets) → 000010 (scan_logs) → 000011 (indexes) → 000012 (users.email unique across tenants, for B3 `auth` login).
 
 To apply all pending migrations:
 

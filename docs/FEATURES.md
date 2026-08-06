@@ -111,10 +111,10 @@ Manages **users** — the members of a tenant who log in and act on its behalf (
 - `tenant_id`, `email`, `password`, and `role_id` are required on create; `email` must be a valid address.
 - `tenant_id` is **immutable** after creation — a user cannot move tenants; it is not part of `UpdateInput`.
 - `password` is never stored or returned in the clear: the service hashes it with bcrypt before persisting (`password_hash`), and the model tags `PasswordHash` `json:"-"` so it is never serialized in any response.
-- `(tenant_id, email)` is unique, and at most one user per tenant may have `is_tenant_master = true` — both enforced by database constraints (see [DATABASE.md](DATABASE.md#35-users)).
+- `email` is unique **across all tenants** (migration 000012 — see [DATABASE.md](DATABASE.md#35-users)), so [B3 `auth`](#auth) can look a user up at login by email alone. At most one user per tenant may have `is_tenant_master = true`, also DB-enforced.
 - On update (partial), only provided fields change; a provided `password` is re-hashed.
 
-> Field-presence/format checks (`required`, `email`, `min`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateInput`/`UpdateInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); tenant-id scoping is explicit in the request body until [B3 `auth`](DEVELOPMENT_PLAN.md) lands and it moves to the auth context.
+> Field-presence/format checks (`required`, `email`, `min`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateInput`/`UpdateInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)). `tenant_id` scoping stays explicit in the request body — [B3 `auth`](#auth) puts `user_id`/`tenant_id` in the authenticated request context (`auth.ClaimsFromContext`), but users' own endpoints don't yet consume it in place of the body field.
 
 ### Endpoints
 
@@ -139,6 +139,58 @@ Base path `/api/v1/users`:
 - **Update** — partial; a provided `password` is re-hashed, `tenant_id` cannot change; `updated_at` re-stamped by the decorator.
 - **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
 - **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); unexpected errors (including a bcrypt hashing failure) become 500 and are logged with context.
+
+---
+
+## auth
+
+Source: `internal/features/auth`. No table of its own — reads `users` rows directly off the shared `users`
+repository (see [ARCHITECTURE.md](ARCHITECTURE.md#feature-slice--future-service-boundary)).
+
+### Intent
+
+Verifies a user's email/password and issues the tokens every other protected endpoint requires: a
+stateless access/refresh JWT pair, built on `go-sdk`'s `auth` package (HS256 today; RS256/JWKS/remote available
+via config with no code change). This is also the seam that plugs `httpkit/middleware.Auth` into the app-wide
+middleware chain (`cmd/api/main.go`), so from B3 onward every route is protected unless explicitly marked public
+in the route policy (`configs/config.yaml` `auth.token.rules`).
+
+### Invariants
+
+- Login always returns the same generic `401 invalid email or password` for both an unknown email and a
+  wrong password — a caller cannot enumerate valid emails from the error alone.
+- Every issued token carries a `type` claim (`access` or `refresh`) and a `tenant_id` claim. The protected-route
+  middleware is wired with a validator wrapped in `AccessOnlyValidator`, which rejects any token whose `type`
+  isn't `access` — so a refresh token, despite being signed by the same issuer, cannot be used to call a
+  protected endpoint.
+- `POST /auth/refresh` validates the refresh token with the *unwrapped* validator, checks `type == "refresh"`
+  itself, and re-loads the user by the token's subject so a deleted account cannot refresh past its removal.
+- Access/refresh tokens are **stateless** — nothing is persisted server-side, so there is no logout/revocation
+  endpoint; a compromised token is only invalidated by its `exp`.
+- `email` is unique across all tenants (migration 000012 — see [users](#users) above), so login needs only an
+  email, not a tenant identifier.
+
+### Endpoints
+
+Base path `/api/v1/auth`:
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `POST` | `/login` | Verify credentials, issue a token pair | 200 | 400 invalid body · 401 invalid email or password |
+| `POST` | `/refresh` | Exchange a refresh token for a new pair | 200 | 400 invalid body · 401 invalid/expired/non-refresh token |
+
+Both routes are marked `public: true` in the route policy — otherwise the protected-route middleware would
+require a valid access token to reach the very endpoints that issue one.
+
+### States & lifecycle
+
+- **Login** — looks up the user by email (`errorz.NotFound` → generic 401, same as a password mismatch),
+  verifies the bcrypt hash, then issues a fresh access token (`auth.token.issuer.default_ttl`, default 15m)
+  and refresh token (`auth.refresh_ttl`, default 7d).
+- **Refresh** — validates the refresh token, re-loads the user, and issues a brand-new pair (rotation; the
+  presented refresh token is not itself invalidated, since nothing is stored server-side).
+- **Errors** — token validation failures resolve through `go-sdk`'s `auth` sentinels (all wrap
+  `errorz.ErrUnauthorized` → 401); unexpected repository/signing errors become 500 and are logged with context.
 
 ---
 

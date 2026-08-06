@@ -23,5 +23,6 @@ type Config struct {
 	Metrics   MetricsConfig
 	RateLimit RateLimitConfig
 	Lifecycle lifecycle.Config
+	Auth      AuthConfig
 	App       FeatureConfig
 }

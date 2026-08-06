@@ -7,9 +7,11 @@ import (
 )
 
 // User represents a row in the users table — a member of a tenant with a
-// role and login credentials. PasswordHash is never serialized to JSON;
-// only the service package computes and reads it. Supports soft delete via
-// deleted_at. Uses db tags for reflection-based scanning.
+// role and login credentials. Email is unique across all tenants (migration
+// 000012), so B3 auth can look a user up by email alone. PasswordHash is
+// never serialized to JSON; only the service package computes and reads it.
+// Supports soft delete via deleted_at. Uses db tags for reflection-based
+// scanning.
 //
 // swagger:model User
 type User struct {

@@ -20,6 +20,9 @@ import (
 type UserService interface {
 	Create(ctx context.Context, in CreateInput) (*User, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*User, error)
+	// GetByEmail returns a user by email (unique across all tenants), or
+	// errorz.NotFound if none exists. Used by the auth feature for login.
+	GetByEmail(ctx context.Context, email string) (*User, error)
 	Update(ctx context.Context, id uuid.UUID, in UpdateInput) (*User, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, params *query.ListParams) (*common.PageResponse[User], error)
@@ -112,6 +115,27 @@ func (s *userServiceImpl) GetByID(ctx context.Context, id uuid.UUID) (*User, err
 		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to get user")
 	}
 	return entity, nil
+}
+
+// GetByEmail returns a user by email, or errorz.NotFound if none exists.
+// Email is unique across all tenants (migration 000012), so no tenant scope
+// is needed to disambiguate.
+func (s *userServiceImpl) GetByEmail(ctx context.Context, email string) (*User, error) {
+	opts := &repository.ListOptions{
+		Filter: repository.Filter{Conditions: []repository.FilterCondition{
+			{Field: "email", Operator: repository.FilterOperatorEq, Value: email},
+		}},
+		Pagination: repository.Pagination{Limit: 1},
+	}
+	items, _, err := s.repo.List(ctx, opts)
+	if err != nil {
+		s.logger.ErrorWithContext(ctx, "user get by email failed", logger.F("error", err))
+		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to get user")
+	}
+	if len(items) == 0 {
+		return nil, errorz.NotFound().WithMessage("user not found")
+	}
+	return items[0], nil
 }
 
 // Update updates a user. Only non-nil fields in UpdateInput are applied; a

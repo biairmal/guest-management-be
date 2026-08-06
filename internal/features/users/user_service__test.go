@@ -108,6 +108,34 @@ func TestUserService_GetByID(t *testing.T) {
 	}
 }
 
+func TestUserService_GetByEmail(t *testing.T) {
+	tests := []struct {
+		name    string
+		repoRes []*User
+		repoErr error
+		wantErr string
+	}{
+		{name: "found", repoRes: []*User{{Email: "a@acme.com"}}},
+		{name: "no match maps to 404", repoRes: nil, wantErr: errorz.CodeNotFound},
+		{name: "unexpected error maps to 500", repoErr: errors.New("boom"), wantErr: errorz.CodeInternal},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repo := mockrepository.NewMockRepository[User, uuid.UUID](ctrl)
+			repo.EXPECT().List(gomock.Any(), gomock.Any()).Return(tt.repoRes, int64(len(tt.repoRes)), tt.repoErr)
+
+			svc := NewUserService(logger.NewNoOp(), repo)
+			got, err := svc.GetByEmail(context.Background(), "a@acme.com")
+			assertErrorzCode(t, err, tt.wantErr)
+			if tt.wantErr == "" && got.Email != "a@acme.com" {
+				t.Errorf("Email = %q, want %q", got.Email, "a@acme.com")
+			}
+		})
+	}
+}
+
 func TestUserService_Update(t *testing.T) {
 	tests := []struct {
 		name       string

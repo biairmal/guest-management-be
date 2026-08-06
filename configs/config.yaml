@@ -75,6 +75,36 @@ lifecycle:
   shutdown_timeout: ${LIFECYCLE_SHUTDOWN_TIMEOUT:15s}
   closer_timeout: ${LIFECYCLE_CLOSER_TIMEOUT:15s}
 
+auth:
+  refresh_ttl: ${AUTH_REFRESH_TTL:168h}
+  token:
+    mode: local
+    default_protected: true
+    cache_ttl: ${AUTH_CACHE_TTL:0s}
+    rules:
+      - pattern: /health
+        public: true
+      - pattern: /ready
+        public: true
+      - pattern: /metrics
+        public: true
+      - pattern: /swagger/**
+        public: true
+      - method: POST
+        pattern: /api/v1/auth/login
+        public: true
+      - method: POST
+        pattern: /api/v1/auth/refresh
+        public: true
+    local:
+      algorithm: HS256
+      hs256_secret: ${AUTH_HS256_SECRET}
+    issuer:
+      algorithm: HS256
+      hs256_secret: ${AUTH_HS256_SECRET}
+      default_ttl: ${AUTH_ACCESS_TTL:15m}
+      issuer: guest-management-be
+
 # Per-feature config: app.<feature>.<layer>.*. Each feature's config is one
 # contiguous block (easy to lift out if the feature becomes its own service),
 # separated by layer inside it. Layers with nothing to configure yet (e.g.

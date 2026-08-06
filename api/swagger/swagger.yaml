@@ -57,6 +57,34 @@ definitions:
       total_pages:
         type: integer
     type: object
+  internal_features_auth.LoginInput:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  internal_features_auth.RefreshInput:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  internal_features_auth.TokenPair:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      refresh_token:
+        type: string
+      token_type:
+        type: string
+    type: object
   internal_features_events.CreateInput:
     properties:
       name:
@@ -218,6 +246,76 @@ info:
   title: Guest Management API
   version: "1.0"
 paths:
+  /api/v1/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Verifies email and password, and issues an access + refresh token
+        pair.
+      parameters:
+      - description: Credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_auth.LoginInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_auth.TokenPair'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "401":
+          description: Invalid email or password
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Login
+      tags:
+      - auth
+  /api/v1/auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a valid refresh token for a new access + refresh token
+        pair.
+      parameters:
+      - description: Refresh token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_auth.RefreshInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_auth.TokenPair'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "401":
+          description: Invalid, expired, or non-refresh token
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Refresh access token
+      tags:
+      - auth
   /api/v1/event-categories:
     get:
       consumes:

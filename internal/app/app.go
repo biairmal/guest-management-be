@@ -1,6 +1,7 @@
 package app
 
 import (
+	sdkauth "github.com/biairmal/go-sdk/lib/auth"
 	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/go-sdk/lib/redis"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
@@ -17,6 +18,9 @@ type App struct {
 	validator     validation.Validator
 	redisClient   redis.Client
 	featureConfig *appconfig.FeatureConfig
+	authIssuer    sdkauth.Issuer
+	authValidator sdkauth.Validator
+	authConfig    *appconfig.AuthConfig
 	repositories  *repositories
 	service       *service
 	handler       *handler
@@ -26,14 +30,19 @@ type App struct {
 // app.<feature>.* config tree; redisClient feeds any feature repository that
 // opts into caching. Each feature's own config lives under featureConfig
 // (e.g. featureConfig.Events) — registering a new feature means reading its
-// section here, not changing this constructor's signature.
+// section here, not changing this constructor's signature. authIssuer/
+// authValidator/authConfig feed the auth feature's login/refresh flow; the
+// same authValidator (unwrapped) is used by main.go, wrapped in
+// appauth.AccessOnlyValidator, for the protected-route middleware.
 func NewApp(
 	logger logger.Logger, db *sqlkit.DB, router *chi.Mux, validator validation.Validator,
 	redisClient redis.Client, featureConfig *appconfig.FeatureConfig,
+	authIssuer sdkauth.Issuer, authValidator sdkauth.Validator, authConfig *appconfig.AuthConfig,
 ) *App {
 	return &App{
 		logger: logger, db: db, router: router, validator: validator,
 		redisClient: redisClient, featureConfig: featureConfig,
+		authIssuer: authIssuer, authValidator: authValidator, authConfig: authConfig,
 	}
 }
 
@@ -44,7 +53,7 @@ func (a *App) Initialize() error {
 		return err
 	}
 	a.repositories = repositories
-	a.service = a.initializeService(a.logger, a.repositories)
+	a.service = a.initializeService(a.logger, a.repositories, a.authIssuer, a.authValidator, a.authConfig)
 	a.handler = a.initializeHandler(a.logger, a.validator, a.service)
 	a.initializeRoutes(a.logger, a.router, a.handler)
 	return nil

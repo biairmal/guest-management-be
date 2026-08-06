@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sync/atomic"
 
+	"github.com/biairmal/go-sdk/lib/auth"
 	"github.com/biairmal/go-sdk/lib/config"
 	"github.com/biairmal/go-sdk/lib/ctxkit"
 	"github.com/biairmal/go-sdk/lib/errorz"
@@ -22,6 +23,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/app"
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
 	"github.com/biairmal/guest-management-be/internal/core/validation"
+	appauth "github.com/biairmal/guest-management-be/internal/features/auth"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	_ "github.com/lib/pq"
@@ -55,7 +57,7 @@ func main() {
 	var ready atomic.Bool
 	ready.Store(true)
 
-	r := buildRouter(&cfg, log, &ready, deps)
+	r := buildRouter(&cfg, log, &ready, &deps)
 
 	// Initialize boundary validator
 	val := validation.New(cfg.Validator)
@@ -63,7 +65,9 @@ func main() {
 	// Initialize application. cfg.App carries every registered feature's own
 	// config (app.<feature>.* in config.yaml); internal/app resolves each
 	// feature's section itself when it wires that feature's repositories.
-	application := app.NewApp(log, deps.db, r, val, deps.redisClient, &cfg.App)
+	application := app.NewApp(
+		log, deps.db, r, val, deps.redisClient, &cfg.App, deps.authIssuer, deps.authValidator, &cfg.Auth,
+	)
 	if err := application.Initialize(); err != nil {
 		panic("Failed to initialize application: " + err.Error())
 	}
@@ -83,7 +87,7 @@ func main() {
 		}
 	}()
 
-	runLifecycle(ctx, log, server, &cfg, &ready, deps)
+	runLifecycle(ctx, log, server, &cfg, &ready, &deps)
 }
 
 // loadConfig loads Config from configs/config.yaml + .env and validates
@@ -104,6 +108,7 @@ func loadConfig() appconfig.Config {
 		{"metrics", cfg.Metrics.Validate},
 		{"rate limit", cfg.RateLimit.Validate},
 		{"lifecycle", cfg.Lifecycle.Validate},
+		{"auth", cfg.Auth.Validate},
 	}
 	for _, v := range validators {
 		if err := v.fn(); err != nil {
@@ -116,11 +121,13 @@ func loadConfig() appconfig.Config {
 // dependencies bundles the infrastructure clients main wires once and
 // threads through router construction and lifecycle shutdown.
 type dependencies struct {
-	tracer      tracer.Tracer
-	db          *sqlkit.DB
-	redisClient redis.Client
-	recorder    metrics.Recorder
-	limiter     ratelimit.Limiter
+	tracer        tracer.Tracer
+	db            *sqlkit.DB
+	redisClient   redis.Client
+	recorder      metrics.Recorder
+	limiter       ratelimit.Limiter
+	authValidator auth.Validator
+	authIssuer    auth.Issuer
 }
 
 // buildDependencies constructs every infrastructure client the app needs,
@@ -151,14 +158,29 @@ func buildDependencies(ctx context.Context, cfg *appconfig.Config, log logger.Lo
 		log.Panicf("Rate limit config failed: %v", err)
 	}
 
-	return dependencies{tracer: tr, db: db, redisClient: redisClient, recorder: rec, limiter: limiter}
+	authValidator, err := auth.FromConfig(&cfg.Auth.Token)
+	if err != nil {
+		log.Panicf("Auth validator config failed: %v", err)
+	}
+
+	authIssuer, err := auth.IssuerFromConfig(&cfg.Auth.Token)
+	if err != nil {
+		log.Panicf("Auth issuer config failed: %v", err)
+	}
+
+	return dependencies{
+		tracer: tr, db: db, redisClient: redisClient, recorder: rec, limiter: limiter,
+		authValidator: authValidator, authIssuer: authIssuer,
+	}
 }
 
 // buildRouter wires the middleware chain, health/ready/metrics endpoints,
 // and Swagger UI onto a fresh chi.Mux. Middleware order: Metrics outermost
 // (counts every request incl. panics) -> Recover -> RequestID -> Correlation
-// -> Tracing -> Logging -> RateLimit (keyed by IP; no authenticated user yet).
-func buildRouter(cfg *appconfig.Config, log logger.Logger, ready *atomic.Bool, deps dependencies) *chi.Mux {
+// -> Tracing -> Logging -> RateLimit (keyed by IP) -> Auth (route policy
+// decides which paths require a bearer token; wrapped in AccessOnlyValidator
+// so a refresh token can't be used on a protected route).
+func buildRouter(cfg *appconfig.Config, log logger.Logger, ready *atomic.Bool, deps *dependencies) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.Metrics(deps.recorder, nil),
@@ -168,6 +190,7 @@ func buildRouter(cfg *appconfig.Config, log logger.Logger, ready *atomic.Bool, d
 		middleware.Tracing(deps.tracer),
 		middleware.Logging(log, nil),
 		middleware.RateLimit(deps.limiter, middleware.KeyByIP),
+		middleware.Auth(appauth.AccessOnlyValidator(deps.authValidator), middleware.WithPolicy(cfg.Auth.Token.Policy())),
 	)
 
 	r.Get("/health", httpkit.Health())
@@ -185,7 +208,7 @@ func buildRouter(cfg *appconfig.Config, log logger.Logger, ready *atomic.Bool, d
 // first) under their own deadlines.
 func runLifecycle(
 	ctx context.Context, log logger.Logger, server *http.Server, cfg *appconfig.Config,
-	ready *atomic.Bool, deps dependencies,
+	ready *atomic.Bool, deps *dependencies,
 ) {
 	err := lifecycle.Run(ctx, server, cfg.Lifecycle,
 		lifecycle.WithReadiness(ready),

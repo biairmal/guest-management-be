@@ -28,11 +28,12 @@ type Config struct {
     Metrics   MetricsConfig     // app-specific on/off switch over go-sdk metrics.Config
     RateLimit RateLimitConfig   // app-specific on/off switch over go-sdk ratelimit.Config
     Lifecycle lifecycle.Config  // go-sdk — graceful shutdown timings
+    Auth      AuthConfig        // app-specific: go-sdk auth.Config (token + route policy) + refresh TTL
     App       FeatureConfig     // app.<feature>.* — every registered feature's own config
 }
 ```
 
-`Tracing`/`Metrics`/`RateLimit` follow the same shape: an `Enabled bool` plus the embedded go-sdk `Config`, so a section can be switched off in an environment (e.g. local dev without a Tempo/Prometheus/Redis instance) without deleting its YAML block — `Validate()` short-circuits to `nil` when `Enabled` is `false`. `Lifecycle` has no such switch: graceful shutdown is unconditional, so it embeds `lifecycle.Config` directly.
+`Tracing`/`Metrics`/`RateLimit` follow the same shape: an `Enabled bool` plus the embedded go-sdk `Config`, so a section can be switched off in an environment (e.g. local dev without a Tempo/Prometheus/Redis instance) without deleting its YAML block — `Validate()` short-circuits to `nil` when `Enabled` is `false`. `Lifecycle` and `Auth` have no such switch: graceful shutdown and route protection are both unconditional (go-sdk's `Auth` middleware fails closed — 500 — on a nil validator, so there's no clean "off" story short of removing the middleware from the chain), so both embed their go-sdk `Config` directly. `Auth` additionally carries `RefreshTTL`, since go-sdk's `auth.Config` only has one token TTL (used for the access token) and the app's stateless dual-JWT scheme ([`internal/features/auth`](../internal/features/auth)) needs a second, longer one for the refresh token.
 
 ```go
 // FeatureConfig aggregates per-feature config, one field per feature.
