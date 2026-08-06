@@ -94,3 +94,10 @@ app:
         ttl: 5m
         prefix: guest-management
         strategy: write_around # write_around, write_through, write_behind
+  users:
+    repository:
+      user_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind

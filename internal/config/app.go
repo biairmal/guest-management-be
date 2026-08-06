@@ -3,6 +3,7 @@ package config
 import (
 	"github.com/biairmal/guest-management-be/internal/features/events"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
+	"github.com/biairmal/guest-management-be/internal/features/users"
 )
 
 // FeatureConfig aggregates configuration owned by individual features,
@@ -14,6 +15,7 @@ import (
 type FeatureConfig struct {
 	Events  events.Config  `mapstructure:"events"`
 	Tenants tenants.Config `mapstructure:"tenants"`
+	Users   users.Config   `mapstructure:"users"`
 }
 
 // Validate validates every registered feature's configuration.
@@ -21,5 +23,8 @@ func (c *FeatureConfig) Validate() error {
 	if err := c.Events.Validate(); err != nil {
 		return err
 	}
-	return c.Tenants.Validate()
+	if err := c.Tenants.Validate(); err != nil {
+		return err
+	}
+	return c.Users.Validate()
 }

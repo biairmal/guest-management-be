@@ -5,6 +5,7 @@ import (
 
 	"github.com/biairmal/guest-management-be/internal/features/events"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
+	"github.com/biairmal/guest-management-be/internal/features/users"
 )
 
 func TestFeatureConfigValidate(t *testing.T) {
@@ -14,8 +15,10 @@ func TestFeatureConfigValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "default events and tenants config is valid",
-			cfg:  FeatureConfig{Events: events.DefaultConfig(), Tenants: tenants.DefaultConfig()},
+			name: "default events, tenants and users config is valid",
+			cfg: FeatureConfig{
+				Events: events.DefaultConfig(), Tenants: tenants.DefaultConfig(), Users: users.DefaultConfig(),
+			},
 		},
 		{
 			name: "invalid events config is rejected",
@@ -23,7 +26,7 @@ func TestFeatureConfigValidate(t *testing.T) {
 				c := events.DefaultConfig()
 				c.Repository.CategoryCache.Strategy = "bogus"
 				return c
-			}(), Tenants: tenants.DefaultConfig()},
+			}(), Tenants: tenants.DefaultConfig(), Users: users.DefaultConfig()},
 			wantErr: true,
 		},
 		{
@@ -31,6 +34,15 @@ func TestFeatureConfigValidate(t *testing.T) {
 			cfg: FeatureConfig{Events: events.DefaultConfig(), Tenants: func() tenants.Config {
 				c := tenants.DefaultConfig()
 				c.Repository.TenantCache.Strategy = "bogus"
+				return c
+			}(), Users: users.DefaultConfig()},
+			wantErr: true,
+		},
+		{
+			name: "invalid users config is rejected",
+			cfg: FeatureConfig{Events: events.DefaultConfig(), Tenants: tenants.DefaultConfig(), Users: func() users.Config {
+				c := users.DefaultConfig()
+				c.Repository.UserCache.Strategy = "bogus"
 				return c
 			}()},
 			wantErr: true,

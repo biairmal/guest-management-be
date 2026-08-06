@@ -35,8 +35,9 @@ One row per feature slice. **When you add a feature, add a row here** (see [Auth
 |---|---|---|---|
 | `events` | `internal/features/events` | `/api/v1/event-categories` (CRUD + list) | [docs/FEATURES.md#events](docs/FEATURES.md#events) |
 | `tenants` | `internal/features/tenants` | `/api/v1/tenants` (CRUD + list) | [docs/FEATURES.md#tenants](docs/FEATURES.md#tenants) |
+| `users` | `internal/features/users` | `/api/v1/users` (CRUD + list) | [docs/FEATURES.md#users](docs/FEATURES.md#users) |
 
-> The domain is largely unbuilt — 11 migrations define ~16 tables (tenants, users, roles/permissions, events, guests, tickets, scans, templates) but only `event_categories` and `tenants` have code. The build order is specified in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
+> The domain is largely unbuilt — 11 migrations define ~16 tables (tenants, users, roles/permissions, events, guests, tickets, scans, templates) but only `event_categories`, `tenants`, and `users` have code. The build order is specified in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
 
 ---
 

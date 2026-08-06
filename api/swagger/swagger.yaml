@@ -38,6 +38,25 @@ definitions:
       total_pages:
         type: integer
     type: object
+  dto.PageResponse-internal_features_users_User:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_users.User'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
   internal_features_events.CreateInput:
     properties:
       name:
@@ -137,6 +156,56 @@ definitions:
           type: integer
         type: array
       type:
+        type: string
+    type: object
+  internal_features_users.CreateInput:
+    properties:
+      email:
+        type: string
+      is_tenant_master:
+        type: boolean
+      password:
+        minLength: 8
+        type: string
+      role_id:
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - email
+    - password
+    - role_id
+    - tenant_id
+    type: object
+  internal_features_users.UpdateInput:
+    properties:
+      email:
+        type: string
+      is_tenant_master:
+        type: boolean
+      password:
+        minLength: 8
+        type: string
+      role_id:
+        type: string
+    type: object
+  internal_features_users.User:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      is_tenant_master:
+        type: boolean
+      role_id:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
         type: string
     type: object
 externalDocs:
@@ -519,4 +588,201 @@ paths:
       summary: Update tenant
       tags:
       - tenants
+  /api/v1/users:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns a paginated list of users. Query: page, size, sort=field,dir
+        (repeatable), filter by allowed fields (tenant_id, email, role_id, is_tenant_master).'
+      parameters:
+      - description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: size
+        type: integer
+      - description: 'Sort: field,dir (e.g. sort=email,ASC&sort=id,DESC)'
+        in: query
+        name: sort
+        type: string
+      - description: Filter by tenant ID (exact match)
+        in: query
+        name: tenant_id
+        type: string
+      - description: Filter by email (exact match)
+        in: query
+        name: email
+        type: string
+      - description: Filter by role ID (exact match)
+        in: query
+        name: role_id
+        type: string
+      - description: Filter by tenant-master flag (exact match)
+        in: query
+        name: is_tenant_master
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PageResponse-internal_features_users_User'
+        "400":
+          description: Invalid query (e.g. invalid sort field)
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: List users
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      description: Creates a new user scoped to a tenant. The password is hashed before
+        storage and never returned.
+      parameters:
+      - description: User payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_users.CreateInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_users.User'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "409":
+          description: Conflict (e.g. already exists)
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Create user
+      tags:
+      - users
+  /api/v1/users/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Soft-deletes a user by ID.
+      parameters:
+      - description: User UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: User not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Delete user
+      tags:
+      - users
+    get:
+      consumes:
+      - application/json
+      description: Returns a single user by UUID.
+      parameters:
+      - description: User UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_users.User'
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: User not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Get user by ID
+      tags:
+      - users
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing user by ID. Only provided fields are applied
+        (partial update); tenant_id is immutable.
+      parameters:
+      - description: User UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_users.UpdateInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_users.User'
+        "400":
+          description: Invalid ID or request body
+          schema:
+            type: object
+        "404":
+          description: User not found
+          schema:
+            type: object
+        "409":
+          description: Conflict (e.g. already exists)
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Update user
+      tags:
+      - users
 swagger: "2.0"

@@ -8,6 +8,7 @@ import (
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
 	"github.com/biairmal/guest-management-be/internal/features/events"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
+	"github.com/biairmal/guest-management-be/internal/features/users"
 	"github.com/google/uuid"
 )
 
@@ -15,6 +16,7 @@ import (
 type repositories struct {
 	categoryRepository sdkrepository.Repository[events.EventCategory, uuid.UUID]
 	tenantRepository   sdkrepository.Repository[tenants.Tenant, uuid.UUID]
+	userRepository     sdkrepository.Repository[users.User, uuid.UUID]
 }
 
 func (a *App) initializeRepository(
@@ -28,8 +30,13 @@ func (a *App) initializeRepository(
 	if err != nil {
 		return nil, err
 	}
+	userCacheOpts, err := featureConfig.Users.Repository.UserCache.ToOptions(redisClient)
+	if err != nil {
+		return nil, err
+	}
 	return &repositories{
 		categoryRepository: events.NewCategoryRepository(log, db, categoryCacheOpts),
 		tenantRepository:   tenants.NewTenantRepository(log, db, tenantCacheOpts),
+		userRepository:     users.NewUserRepository(log, db, userCacheOpts),
 	}, nil
 }
