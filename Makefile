@@ -9,7 +9,7 @@
 .PHONY: format format-check install-formatter lint lint-fix install-linter
 .PHONY: test test-unit test-integration test-race bench coverage coverage-view
 .PHONY: vulncheck install-govulncheck deps-tidy deps-verify deps deps-outdated deps-upgrade
-.PHONY: build clean generate run debug install-delve
+.PHONY: build build-debug clean generate kill-app kill-port run debug install-delve
 .PHONY: install-swagger swagger-generate swagger-serve
 .PHONY: install-migration migration-create migration-up migration-up-n migration-down migration-down-n migration-goto migration-version migration-force
 .PHONY: mocks

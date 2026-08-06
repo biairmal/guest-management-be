@@ -11,7 +11,8 @@
       "env": {
         "APP_ENV": "development"
       },
-      "args": []
+      "args": [],
+      "preLaunchTask": "make build-debug"
     },
     {
       "name": "Debug (pre-built binary, Unix)",
@@ -23,14 +24,19 @@
       "env": {
         "APP_ENV": "development"
       },
-      "args": []
+      "args": [],
+      "preLaunchTask": "make build-debug"
     },
     {
       "name": "Attach to Delve (make debug)",
       "type": "go",
       "request": "attach",
-      "mode": "local",
-      "port": 2345
+      "mode": "remote",
+      "debugAdapter": "legacy",
+      "host": "127.0.0.1",
+      "port": 2345,
+      "preLaunchTask": "make debug (background)",
+      "postDebugTask": "make kill-app"
     }
   ]
 }
