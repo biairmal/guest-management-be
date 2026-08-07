@@ -37,6 +37,11 @@ import (
 // @host            localhost:8080
 // @BasePath        /
 
+// @securityDefinitions.apikey  BearerAuth
+// @in                          header
+// @name                        Authorization
+// @description                Type "Bearer" followed by a space and the access token issued by POST /api/v1/auth/login (e.g. "Bearer eyJhbGciOiJIUzI1NiIs...").
+
 // @externalDocs.description  OpenAPI
 // @externalDocs.url          https://swagger.io/resources/open-api/
 func main() {

@@ -11,6 +11,8 @@ import (
 
 func (a *App) initializeRoutes(_ logger.Logger, mux *chi.Mux, handler *handler) {
 	events.InitCategoryRoutes(mux, handler.categoryHandler)
+	events.InitEventRoutes(mux, handler.eventHandler)
+	events.InitWorkflowStepRoutes(mux, handler.workflowStepHandler)
 	tenants.InitTenantRoutes(mux, handler.tenantHandler)
 	users.InitUserRoutes(mux, handler.userHandler)
 	appauth.InitAuthRoutes(mux, handler.authHandler)

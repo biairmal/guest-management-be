@@ -13,15 +13,22 @@ type Config struct {
 }
 
 // RepositoryConfig holds config for the events feature's repository layer:
-// today, just the category repository's cache policy. A second repository
-// in this feature would add its own CacheConfig field here.
+// one CacheConfig per repository (category, event, workflow step, workflow step template).
 type RepositoryConfig struct {
-	CategoryCache corerepository.CacheConfig `mapstructure:"category_cache"`
+	CategoryCache             corerepository.CacheConfig `mapstructure:"category_cache"`
+	EventCache                corerepository.CacheConfig `mapstructure:"event_cache"`
+	WorkflowStepCache         corerepository.CacheConfig `mapstructure:"workflow_step_cache"`
+	WorkflowStepTemplateCache corerepository.CacheConfig `mapstructure:"workflow_step_template_cache"`
 }
 
 // DefaultConfig returns the events feature config with caching enabled by default.
 func DefaultConfig() Config {
-	return Config{Repository: RepositoryConfig{CategoryCache: corerepository.DefaultCacheConfig()}}
+	return Config{Repository: RepositoryConfig{
+		CategoryCache:             corerepository.DefaultCacheConfig(),
+		EventCache:                corerepository.DefaultCacheConfig(),
+		WorkflowStepCache:         corerepository.DefaultCacheConfig(),
+		WorkflowStepTemplateCache: corerepository.DefaultCacheConfig(),
+	}}
 }
 
 // Validate validates the events feature configuration.
@@ -31,5 +38,14 @@ func (c *Config) Validate() error {
 
 // Validate validates the events feature's repository-layer configuration.
 func (c *RepositoryConfig) Validate() error {
-	return c.CategoryCache.Validate()
+	if err := c.CategoryCache.Validate(); err != nil {
+		return err
+	}
+	if err := c.EventCache.Validate(); err != nil {
+		return err
+	}
+	if err := c.WorkflowStepCache.Validate(); err != nil {
+		return err
+	}
+	return c.WorkflowStepTemplateCache.Validate()
 }

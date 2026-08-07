@@ -22,6 +22,33 @@ func TestConfigValidate(t *testing.T) {
 			}(),
 			wantErr: true,
 		},
+		{
+			name: "invalid repository event cache strategy is rejected",
+			cfg: func() Config {
+				c := DefaultConfig()
+				c.Repository.EventCache.Strategy = "bogus"
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "invalid repository workflow step cache strategy is rejected",
+			cfg: func() Config {
+				c := DefaultConfig()
+				c.Repository.WorkflowStepCache.Strategy = "bogus"
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "invalid repository workflow step template cache strategy is rejected",
+			cfg: func() Config {
+				c := DefaultConfig()
+				c.Repository.WorkflowStepTemplateCache.Strategy = "bogus"
+				return c
+			}(),
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

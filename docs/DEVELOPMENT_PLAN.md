@@ -24,7 +24,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B1 | Domain | `tenants` | A6 | ✅ |
 | B2 | Domain | `users` | B1 | ✅ |
 | B3 | Domain | `auth` (login + route protection) | B2, go-sdk `auth` | ✅ |
-| B4 | Domain | `events` (events + workflow steps; extend existing slice) | B1, B2 | ⬜ |
+| B4 | Domain | `events` (events + workflow steps; extend existing slice) | B1, B2 | ✅ |
 | B5 | Domain | `templates` (event + message templates) | B4 | ⬜ |
 | B6 | Domain | `staffing` (event staff assignments, roles/permissions) | B2, B4 | ⬜ |
 | B7 | Domain | `tickets` (ticket types + tickets) | B4 | ⬜ |

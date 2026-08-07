@@ -53,6 +53,7 @@ func NewCategoryHandler(service CategoryService, validator validation.Validator)
 //	@Success		200		{object}	common.PageResponse[events.EventCategory]
 //	@Failure		400		{object}	object	"Invalid query (e.g. invalid sort field)"
 //	@Failure		500		{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/event-categories [get]
 func (h *CategoryHandler) List(r *http.Request) (any, error) {
 	params, err := query.ParseListParams(r.URL.Query(), eventCategoryListConfig)
@@ -83,6 +84,7 @@ func (h *CategoryHandler) List(r *http.Request) (any, error) {
 //	@Failure		400	{object}	object	"Invalid ID format"
 //	@Failure		404	{object}	object	"Event category not found"
 //	@Failure		500	{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/event-categories/{id} [get]
 func (h *CategoryHandler) GetByID(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
@@ -112,7 +114,10 @@ func (h *CategoryHandler) GetByID(r *http.Request) (any, error) {
 //	@Failure		409		{object}	object	"Conflict (e.g. already exists)"
 //	@Failure		422		{object}	object	"Unprocessable entity"
 //	@Failure		500		{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/event-categories [post]
+//
+//nolint:dupl // decode+validate+create+respond shape intentionally mirrors EventHandler.Create (see PATTERNS.md)
 func (h *CategoryHandler) Create(r *http.Request) (any, error) {
 	var body CreateInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -143,6 +148,7 @@ func (h *CategoryHandler) Create(r *http.Request) (any, error) {
 //	@Failure		400		{object}	object	"Invalid ID or request body"
 //	@Failure		404		{object}	object	"Event category not found"
 //	@Failure		500		{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/event-categories/{id} [put]
 func (h *CategoryHandler) Update(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
@@ -178,6 +184,7 @@ func (h *CategoryHandler) Update(r *http.Request) (any, error) {
 //	@Failure		400	{object}	object	"Invalid ID format"
 //	@Failure		404	{object}	object	"Event category not found"
 //	@Failure		500	{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/event-categories/{id} [delete]
 func (h *CategoryHandler) Delete(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")

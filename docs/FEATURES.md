@@ -13,13 +13,15 @@ Each section follows the same template:
 
 ## events
 
-Source: `internal/features/events`. Table: `event_categories` (see [DATABASE.md](DATABASE.md)).
+Source: `internal/features/events`. Tables: `event_categories`, `events`, `workflow_steps` (see [DATABASE.md](DATABASE.md)). One vertical slice covering event categories (the taxonomy), events themselves, and their per-event workflow steps.
 
-### Intent
+### Event categories
+
+#### Intent
 
 Manages **event categories** — the taxonomy events are classified under. Categories are either **app-defined** (available to every tenant) or **tenant-defined** (private to one tenant).
 
-### Invariants
+#### Invariants
 
 - `source` is one of `"app"` or `"tenant"`.
 - When `source == "app"`, `tenant_id` **must be null** (a system category belongs to no tenant).
@@ -29,7 +31,7 @@ Manages **event categories** — the taxonomy events are classified under. Categ
 
 > Field-presence/format checks (`required`, `oneof`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateInput`/`UpdateInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the cross-field source/tenant rule above stays in the service as a business invariant.
 
-### Endpoints
+#### Endpoints
 
 Base path `/api/v1/event-categories`:
 
@@ -46,12 +48,104 @@ Base path `/api/v1/event-categories`:
 - `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, source, tenant_id, name, created_at, updated_at`); unknown field → 400.
 - Filters: `name`, `source`, `tenant_id` (exact match); unknown keys ignored.
 
-### States & lifecycle
+#### States & lifecycle
 
 - **Create** — service generates the `id` (UUID); `created_at`/`updated_at` are stamped by the audit repository decorator.
 - **Update** — partial; `updated_at` re-stamped by the decorator.
 - **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
 - **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); unexpected errors become 500 and are logged with context.
+
+### Events
+
+#### Intent
+
+Manages **events** — a tenant's scheduled occasion, classified under an event category, with a start/end date range. Events are the parent of workflow steps, ticket types, guests, and staff assignments (see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) B5–B9).
+
+#### Invariants
+
+- `tenant_id`, `category_id`, `name`, `start_date`, and `end_date` are required on create.
+- `tenant_id` is **immutable** after creation — an event cannot move tenants; it is not part of `UpdateEventInput`.
+- `end_date` must not be before `start_date`, both on create and on the resulting record after a partial update.
+- `is_multi_day` is **derived**, not caller-supplied: `true` when `start_date` and `end_date` fall on different calendar days (each evaluated in its own timestamp's location), recomputed whenever either date changes.
+- **Create seeds default workflow steps from the category's templates**: right after the event row is inserted, `EventService` looks up `workflow_step_templates` for `category_id` (ordered by `order_index`) and copies each one into a `workflow_steps` row for the new event — the customizable starting point a UI shows immediately after event creation. A category with no templates copies nothing. This is **best-effort**: a template lookup or copy failure is logged but does not fail event creation (there is currently no API for managing `workflow_step_templates` themselves — see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) B5). The caller can always add/edit/remove the resulting steps via [Workflow steps → Sync](#workflow-steps).
+
+> Field-presence/format checks (`required`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateEventInput`/`UpdateEventInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the date-ordering rule and `is_multi_day` derivation stay in the service as business invariants.
+
+#### Endpoints
+
+Base path `/api/v1/events`:
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List (paginated, filtered, sorted) | 200 | 400 invalid query |
+| `GET` | `/{id}` | Get one by UUID | 200 | 400 bad UUID · 404 not found |
+| `POST` | `/` | Create | 201 | 400 invalid body/date order · 409 conflict · 422 invalid entity |
+| `PUT` | `/{id}` | Partial update | 200 | 400 · 404 not found |
+| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 404 not found |
+
+**List query:** `?page=1&size=20&sort=start_date,ASC&tenant_id=...&category_id=...&name=Gala`.
+- `page` 1-based; `size` default 20, clamped to 100.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, tenant_id, category_id, name, start_date, end_date, is_multi_day, created_at, updated_at`); unknown field → 400.
+- Filters: `tenant_id`, `category_id`, `name` (exact match); unknown keys ignored.
+
+#### States & lifecycle
+
+- **Create** — service generates the `id` (UUID) and derives `is_multi_day`; `created_at`/`updated_at` are stamped by the audit repository decorator.
+- **Update** — partial; `is_multi_day` is re-derived whenever a date changes; `tenant_id` cannot change; `updated_at` re-stamped by the decorator.
+- **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); unexpected errors become 500 and are logged with context.
+
+### Workflow steps
+
+#### Intent
+
+Manages an event's **workflow steps** — the lifecycle stages a ticket moves through at an event (e.g. Check-in, Photo booth). Always scoped to a parent event via the URL; there is no top-level workflow-step listing. New events start with steps copied from their category's `workflow_step_templates` (see [Events](#events)); from there, a UI reconciles the whole list — add, rename, reorder, remove — in one call via `PUT` (**Sync**) rather than issuing separate create/update/delete requests per step.
+
+#### Invariants
+
+- `name` and `order_index` are required on create; `order_index` must be `>= 0`.
+- `(event_id, order_index)` is unique — DB-enforced; a conflicting `order_index` on create or update surfaces as `errorz.Conflict` (409).
+- `event_id` is **immutable** and always taken from the URL, never the body — it is not part of `CreateWorkflowStepInput`/`UpdateWorkflowStepInput`/`SyncWorkflowStepInput`.
+- Every read/update/delete is scoped to the `{event_id}` in the URL: a step that exists but belongs to a different event resolves as `errorz.NotFound` (404), not a cross-event leak.
+- **Sync** (`PUT /workflow-steps`) treats the request body as the *entire* desired list for the event: entries with an `id` are updated, entries without one are created, and any existing step **not** present in the list is deleted. Two entries sharing an `order_index` are rejected up front (400) rather than left to race against the DB constraint. An `id` that doesn't belong to this event is rejected (404).
+
+> Field-presence/format checks (`required`, `gte=0`) are enforced at the HTTP boundary via `validate:"..."` tags (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the event-scope check and Sync's reconciliation rules are business invariants enforced in the service since no struct tag or DB constraint can express them.
+
+#### Endpoints
+
+Base path `/api/v1/events/{event_id}/workflow-steps`:
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List for the event (paginated, filtered, sorted) | 200 | 400 invalid event id/query |
+| `PUT` | `/` | **Sync** — replace the entire list (add/update/delete/reorder in one call) | 200 | 400 duplicate order_index/unknown id · 422 invalid entity |
+| `GET` | `/{id}` | Get one by UUID, scoped to the event | 200 | 400 bad UUID · 404 not found |
+| `POST` | `/` | Create a single step under the event | 201 | 400 invalid body · 409 order_index conflict · 422 invalid entity |
+| `PUT` | `/{id}` | Partial update of a single step | 200 | 400 · 404 not found · 409 order_index conflict |
+| `DELETE` | `/{id}` | Soft delete a single step | 204 | 400 · 404 not found |
+
+The single-step `POST`/`PUT {id}`/`DELETE {id}` endpoints remain available (e.g. for scripts or a future mobile client that reorders one step at a time); a "one screen, one save button" UI is expected to call **Sync** exclusively.
+
+**List query:** `?page=1&size=20&sort=order_index,ASC&name=Check-in`.
+- `page` 1-based; `size` default 20, clamped to 100.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, name, order_index, allows_multiple, created_at, updated_at`); unknown field → 400.
+- Filters: `name` (exact match); `event_id` is always forced from the URL and is not a query filter.
+
+**Sync body:** a JSON array of `{ id?, name, order_index, allows_multiple? }`. Example — update step `A`, add a new step, and (implicitly) delete every other existing step:
+```json
+[
+  { "id": "11111111-...", "name": "Check-in", "order_index": 0 },
+  { "name": "Photo booth", "order_index": 1, "allows_multiple": true }
+]
+```
+
+#### States & lifecycle
+
+- **Create** (single-step) — service generates the `id` (UUID) and sets `event_id` from the URL; `created_at`/`updated_at` are stamped by the audit repository decorator.
+- **Update** (single-step) — partial; `event_id` cannot change; `updated_at` re-stamped by the decorator.
+- **Delete** (single-step) — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
+- **Sync** — reconciles in three passes: (1) delete every existing step not referenced by the payload, (2) move every referenced step to a unique negative `order_index` and apply its new `name`/`allows_multiple`, (3) create new entries and move the referenced steps to their final `order_index`. The two-phase reorder (negative, then final) exists so that swapping two steps' `order_index` — the common drag-reorder case — never trips the `(event_id, order_index)` unique constraint on an intermediate state. Sync is **not wrapped in a database transaction** (no feature in this codebase uses one yet); a failure partway through can leave a partial result, in which case re-submitting the same Sync call is the recovery path.
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a step belonging to a different event is also reported as 404; unexpected errors become 500 and are logged with context.
 
 ---
 

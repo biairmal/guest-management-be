@@ -33,12 +33,12 @@ One row per feature slice. **When you add a feature, add a row here** (see [Auth
 
 | Feature | Path | Endpoints | Behaviour doc |
 |---|---|---|---|
-| `events` | `internal/features/events` | `/api/v1/event-categories` (CRUD + list) | [docs/FEATURES.md#events](docs/FEATURES.md#events) |
+| `events` | `internal/features/events` | `/api/v1/event-categories`, `/api/v1/events`, `/api/v1/events/{event_id}/workflow-steps` (CRUD + list) | [docs/FEATURES.md#events](docs/FEATURES.md#events) |
 | `tenants` | `internal/features/tenants` | `/api/v1/tenants` (CRUD + list) | [docs/FEATURES.md#tenants](docs/FEATURES.md#tenants) |
 | `users` | `internal/features/users` | `/api/v1/users` (CRUD + list) | [docs/FEATURES.md#users](docs/FEATURES.md#users) |
 | `auth` | `internal/features/auth` | `/api/v1/auth/login`, `/api/v1/auth/refresh` | [docs/FEATURES.md#auth](docs/FEATURES.md#auth) |
 
-> The domain is largely unbuilt — 12 migrations define ~16 tables (tenants, users, roles/permissions, events, guests, tickets, scans, templates) but only `event_categories`, `tenants`, `users`, and `auth` have code. The build order is specified in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
+> Most of the domain is still unbuilt — 12 migrations define ~16 tables (tenants, users, roles/permissions, events, guests, tickets, scans, templates) but only `event_categories`/`events`/`workflow_steps`, `tenants`, `users`, and `auth` have code. The build order is specified in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
 
 ---
 

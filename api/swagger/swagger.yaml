@@ -1,5 +1,24 @@
 basePath: /
 definitions:
+  dto.PageResponse-internal_features_events_Event:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_events.Event'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
   dto.PageResponse-internal_features_events_EventCategory:
     properties:
       has_next:
@@ -9,6 +28,25 @@ definitions:
       items:
         items:
           $ref: '#/definitions/internal_features_events.EventCategory'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  dto.PageResponse-internal_features_events_WorkflowStep:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_events.WorkflowStep'
         type: array
       page:
         type: integer
@@ -85,6 +123,27 @@ definitions:
       token_type:
         type: string
     type: object
+  internal_features_events.CreateEventInput:
+    properties:
+      category_id:
+        type: string
+      description:
+        type: string
+      end_date:
+        type: string
+      name:
+        type: string
+      start_date:
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - category_id
+    - end_date
+    - name
+    - start_date
+    - tenant_id
+    type: object
   internal_features_events.CreateInput:
     properties:
       name:
@@ -99,6 +158,43 @@ definitions:
     required:
     - name
     - source
+    type: object
+  internal_features_events.CreateWorkflowStepInput:
+    properties:
+      allows_multiple:
+        type: boolean
+      name:
+        type: string
+      order_index:
+        minimum: 0
+        type: integer
+    required:
+    - name
+    type: object
+  internal_features_events.Event:
+    properties:
+      category_id:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      description:
+        type: string
+      end_date:
+        type: string
+      id:
+        type: string
+      is_multi_day:
+        type: boolean
+      name:
+        type: string
+      start_date:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
     type: object
   internal_features_events.EventCategory:
     properties:
@@ -117,6 +213,34 @@ definitions:
       updated_at:
         type: string
     type: object
+  internal_features_events.SyncWorkflowStepInput:
+    properties:
+      allows_multiple:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      order_index:
+        minimum: 0
+        type: integer
+    required:
+    - name
+    type: object
+  internal_features_events.UpdateEventInput:
+    properties:
+      category_id:
+        type: string
+      description:
+        type: string
+      end_date:
+        type: string
+      name:
+        minLength: 1
+        type: string
+      start_date:
+        type: string
+    type: object
   internal_features_events.UpdateInput:
     properties:
       name:
@@ -128,6 +252,36 @@ definitions:
         - tenant
         type: string
       tenant_id:
+        type: string
+    type: object
+  internal_features_events.UpdateWorkflowStepInput:
+    properties:
+      allows_multiple:
+        type: boolean
+      name:
+        minLength: 1
+        type: string
+      order_index:
+        minimum: 0
+        type: integer
+    type: object
+  internal_features_events.WorkflowStep:
+    properties:
+      allows_multiple:
+        type: boolean
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      event_id:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      order_index:
+        type: integer
+      updated_at:
         type: string
     type: object
   internal_features_tenants.CreateInput:
@@ -358,6 +512,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: List event categories
       tags:
       - event-categories
@@ -396,6 +552,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Create event category
       tags:
       - event-categories
@@ -427,6 +585,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Delete event category
       tags:
       - event-categories
@@ -459,6 +619,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Get event category by ID
       tags:
       - event-categories
@@ -498,9 +660,477 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Update event category
       tags:
       - event-categories
+  /api/v1/events:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns a paginated list of events. Query: page, size, sort=field,dir
+        (repeatable), filter by allowed fields (tenant_id, category_id, name).'
+      parameters:
+      - description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: size
+        type: integer
+      - description: 'Sort: field,dir (e.g. sort=start_date,ASC&sort=id,DESC)'
+        in: query
+        name: sort
+        type: string
+      - description: Filter by tenant ID (exact match)
+        in: query
+        name: tenant_id
+        type: string
+      - description: Filter by category ID (exact match)
+        in: query
+        name: category_id
+        type: string
+      - description: Filter by name (exact match)
+        in: query
+        name: name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PageResponse-internal_features_events_Event'
+        "400":
+          description: Invalid query (e.g. invalid sort field)
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List events
+      tags:
+      - events
+    post:
+      consumes:
+      - application/json
+      description: Creates a new event scoped to a tenant and category. is_multi_day
+        is derived from start_date/end_date.
+      parameters:
+      - description: Event payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_events.CreateEventInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_events.Event'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create event
+      tags:
+      - events
+  /api/v1/events/{event_id}/workflow-steps:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns a paginated list of workflow steps for an event. Query:
+        page, size, sort=field,dir (repeatable), filter by allowed fields (name).'
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: size
+        type: integer
+      - description: 'Sort: field,dir (e.g. sort=order_index,ASC)'
+        in: query
+        name: sort
+        type: string
+      - description: Filter by name (exact match)
+        in: query
+        name: name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PageResponse-internal_features_events_WorkflowStep'
+        "400":
+          description: Invalid event id or query
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List workflow steps
+      tags:
+      - workflow-steps
+    post:
+      consumes:
+      - application/json
+      description: Creates a new workflow step under an event. order_index must be
+        unique per event.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Workflow step payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_events.CreateWorkflowStepInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_events.WorkflowStep'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "409":
+          description: Conflict (order_index already used for this event)
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create workflow step
+      tags:
+      - workflow-steps
+    put:
+      consumes:
+      - application/json
+      description: 'Replaces an event''s workflow steps with the given list: entries
+        with "id" are updated, entries without are created, and any existing step
+        not present in the list is deleted.'
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Full desired list of workflow steps
+        in: body
+        name: body
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/internal_features_events.SyncWorkflowStepInput'
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_features_events.WorkflowStep'
+            type: array
+        "400":
+          description: Invalid request body, duplicate order_index, or an id not belonging
+            to this event
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Sync workflow steps
+      tags:
+      - workflow-steps
+  /api/v1/events/{event_id}/workflow-steps/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Soft-deletes a workflow step by ID, scoped to its event.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Workflow step UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Workflow step not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete workflow step
+      tags:
+      - workflow-steps
+    get:
+      consumes:
+      - application/json
+      description: Returns a single workflow step by UUID, scoped to its event.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Workflow step UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events.WorkflowStep'
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Workflow step not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get workflow step by ID
+      tags:
+      - workflow-steps
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing workflow step by ID. Only provided fields are
+        applied (partial update); event_id is immutable.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Workflow step UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_events.UpdateWorkflowStepInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events.WorkflowStep'
+        "400":
+          description: Invalid ID or request body
+          schema:
+            type: object
+        "404":
+          description: Workflow step not found
+          schema:
+            type: object
+        "409":
+          description: Conflict (order_index already used for this event)
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update workflow step
+      tags:
+      - workflow-steps
+  /api/v1/events/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Soft-deletes an event by ID.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Event not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete event
+      tags:
+      - events
+    get:
+      consumes:
+      - application/json
+      description: Returns a single event by UUID.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events.Event'
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Event not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get event by ID
+      tags:
+      - events
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing event by ID. Only provided fields are applied
+        (partial update); tenant_id is immutable.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_events.UpdateEventInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events.Event'
+        "400":
+          description: Invalid ID or request body
+          schema:
+            type: object
+        "404":
+          description: Event not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update event
+      tags:
+      - events
   /api/v1/tenants:
     get:
       consumes:
@@ -543,6 +1173,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: List tenants
       tags:
       - tenants
@@ -581,6 +1213,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Create tenant
       tags:
       - tenants
@@ -612,6 +1246,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Delete tenant
       tags:
       - tenants
@@ -644,6 +1280,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Get tenant by ID
       tags:
       - tenants
@@ -683,6 +1321,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Update tenant
       tags:
       - tenants
@@ -736,6 +1376,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: List users
       tags:
       - users
@@ -774,6 +1416,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Create user
       tags:
       - users
@@ -805,6 +1449,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Delete user
       tags:
       - users
@@ -837,6 +1483,8 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Get user by ID
       tags:
       - users
@@ -880,7 +1528,16 @@ paths:
           description: Internal server error
           schema:
             type: object
+      security:
+      - BearerAuth: []
       summary: Update user
       tags:
       - users
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and the access token issued by
+      POST /api/v1/auth/login (e.g. "Bearer eyJhbGciOiJIUzI1NiIs...").
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"

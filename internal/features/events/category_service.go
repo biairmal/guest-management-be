@@ -16,6 +16,8 @@ import (
 //go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=../../../mocks/events/mock_service.go -package=mockevents github.com/biairmal/guest-management-be/internal/features/events CategoryService
 
 // CategoryService defines the application-level operations for event categories.
+//
+//nolint:dupl // CRUD interface shape intentionally mirrors EventService (see PATTERNS.md)
 type CategoryService interface {
 	Create(ctx context.Context, in CreateInput) (*EventCategory, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*EventCategory, error)
@@ -89,6 +91,8 @@ func (s *categoryServiceImpl) Create(ctx context.Context, in CreateInput) (*Even
 }
 
 // GetByID returns an event category by ID, or errorz.NotFound if not found or soft-deleted.
+//
+//nolint:dupl // sentinel->errorz translation intentionally mirrors EventService.GetByID (see PATTERNS.md)
 func (s *categoryServiceImpl) GetByID(ctx context.Context, id uuid.UUID) (*EventCategory, error) {
 	entity, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -137,6 +141,8 @@ func (s *categoryServiceImpl) Update(ctx context.Context, id uuid.UUID, in Updat
 
 // Delete soft-deletes an event category. The AuditableRepository handles
 // setting deleted_at and updated_at.
+//
+//nolint:dupl // sentinel->errorz translation intentionally mirrors EventService.Delete (see PATTERNS.md)
 func (s *categoryServiceImpl) Delete(ctx context.Context, id uuid.UUID) error {
 	if err := s.repo.Delete(ctx, id); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {

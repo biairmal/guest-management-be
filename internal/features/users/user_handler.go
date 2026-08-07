@@ -55,6 +55,7 @@ func NewUserHandler(service UserService, validator validation.Validator) *UserHa
 //	@Success		200		{object}	common.PageResponse[users.User]
 //	@Failure		400		{object}	object	"Invalid query (e.g. invalid sort field)"
 //	@Failure		500		{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/users [get]
 func (h *UserHandler) List(r *http.Request) (any, error) {
 	params, err := query.ParseListParams(r.URL.Query(), userListConfig)
@@ -85,6 +86,7 @@ func (h *UserHandler) List(r *http.Request) (any, error) {
 //	@Failure		400	{object}	object	"Invalid ID format"
 //	@Failure		404	{object}	object	"User not found"
 //	@Failure		500	{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/users/{id} [get]
 func (h *UserHandler) GetByID(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
@@ -114,6 +116,7 @@ func (h *UserHandler) GetByID(r *http.Request) (any, error) {
 //	@Failure		409		{object}	object	"Conflict (e.g. already exists)"
 //	@Failure		422		{object}	object	"Unprocessable entity"
 //	@Failure		500		{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/users [post]
 func (h *UserHandler) Create(r *http.Request) (any, error) {
 	var body CreateInput
@@ -146,6 +149,7 @@ func (h *UserHandler) Create(r *http.Request) (any, error) {
 //	@Failure		404		{object}	object	"User not found"
 //	@Failure		409		{object}	object	"Conflict (e.g. already exists)"
 //	@Failure		500		{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/users/{id} [put]
 func (h *UserHandler) Update(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
@@ -181,6 +185,7 @@ func (h *UserHandler) Update(r *http.Request) (any, error) {
 //	@Failure		400	{object}	object	"Invalid ID format"
 //	@Failure		404	{object}	object	"User not found"
 //	@Failure		500	{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/users/{id} [delete]
 func (h *UserHandler) Delete(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")

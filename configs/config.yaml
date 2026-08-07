@@ -117,6 +117,21 @@ app:
         ttl: 5m
         prefix: guest-management
         strategy: write_around # write_around, write_through, write_behind
+      event_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind
+      workflow_step_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind
+      workflow_step_template_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind
   tenants:
     repository:
       tenant_cache:

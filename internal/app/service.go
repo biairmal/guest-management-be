@@ -11,10 +11,12 @@ import (
 )
 
 type service struct {
-	categoryService events.CategoryService
-	tenantService   tenants.TenantService
-	userService     users.UserService
-	authService     appauth.Service
+	categoryService     events.CategoryService
+	eventService        events.EventService
+	workflowStepService events.WorkflowStepService
+	tenantService       tenants.TenantService
+	userService         users.UserService
+	authService         appauth.Service
 }
 
 func (a *App) initializeService(
@@ -23,8 +25,13 @@ func (a *App) initializeService(
 ) *service {
 	return &service{
 		categoryService: events.NewCategoryService(logger, repositories.categoryRepository),
-		tenantService:   tenants.NewTenantService(logger, repositories.tenantRepository),
-		userService:     users.NewUserService(logger, repositories.userRepository),
+		eventService: events.NewEventService(
+			logger, repositories.eventRepository,
+			repositories.workflowStepTemplateRepository, repositories.workflowStepRepository,
+		),
+		workflowStepService: events.NewWorkflowStepService(logger, repositories.workflowStepRepository),
+		tenantService:       tenants.NewTenantService(logger, repositories.tenantRepository),
+		userService:         users.NewUserService(logger, repositories.userRepository),
 		authService: appauth.NewService(
 			logger, repositories.userRepository, authIssuer, authValidator,
 			authConfig.Token.Issuer.DefaultTTL, authConfig.RefreshTTL,

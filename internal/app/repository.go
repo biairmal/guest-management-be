@@ -14,15 +14,30 @@ import (
 
 // repositories holds all feature repositories wired for the application.
 type repositories struct {
-	categoryRepository sdkrepository.Repository[events.EventCategory, uuid.UUID]
-	tenantRepository   sdkrepository.Repository[tenants.Tenant, uuid.UUID]
-	userRepository     sdkrepository.Repository[users.User, uuid.UUID]
+	categoryRepository             sdkrepository.Repository[events.EventCategory, uuid.UUID]
+	eventRepository                sdkrepository.Repository[events.Event, uuid.UUID]
+	workflowStepRepository         sdkrepository.Repository[events.WorkflowStep, uuid.UUID]
+	workflowStepTemplateRepository sdkrepository.Repository[events.WorkflowStepTemplate, uuid.UUID]
+	tenantRepository               sdkrepository.Repository[tenants.Tenant, uuid.UUID]
+	userRepository                 sdkrepository.Repository[users.User, uuid.UUID]
 }
 
 func (a *App) initializeRepository(
 	log logger.Logger, db *sqlkit.DB, redisClient redis.Client, featureConfig *appconfig.FeatureConfig,
 ) (*repositories, error) {
 	categoryCacheOpts, err := featureConfig.Events.Repository.CategoryCache.ToOptions(redisClient)
+	if err != nil {
+		return nil, err
+	}
+	eventCacheOpts, err := featureConfig.Events.Repository.EventCache.ToOptions(redisClient)
+	if err != nil {
+		return nil, err
+	}
+	workflowStepCacheOpts, err := featureConfig.Events.Repository.WorkflowStepCache.ToOptions(redisClient)
+	if err != nil {
+		return nil, err
+	}
+	workflowStepTemplateCacheOpts, err := featureConfig.Events.Repository.WorkflowStepTemplateCache.ToOptions(redisClient)
 	if err != nil {
 		return nil, err
 	}
@@ -35,8 +50,11 @@ func (a *App) initializeRepository(
 		return nil, err
 	}
 	return &repositories{
-		categoryRepository: events.NewCategoryRepository(log, db, categoryCacheOpts),
-		tenantRepository:   tenants.NewTenantRepository(log, db, tenantCacheOpts),
-		userRepository:     users.NewUserRepository(log, db, userCacheOpts),
+		categoryRepository:             events.NewCategoryRepository(log, db, categoryCacheOpts),
+		eventRepository:                events.NewEventRepository(log, db, eventCacheOpts),
+		workflowStepRepository:         events.NewWorkflowStepRepository(log, db, workflowStepCacheOpts),
+		workflowStepTemplateRepository: events.NewWorkflowStepTemplateRepository(log, db, workflowStepTemplateCacheOpts),
+		tenantRepository:               tenants.NewTenantRepository(log, db, tenantCacheOpts),
+		userRepository:                 users.NewUserRepository(log, db, userCacheOpts),
 	}, nil
 }

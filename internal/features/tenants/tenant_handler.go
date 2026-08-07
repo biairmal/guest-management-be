@@ -53,6 +53,7 @@ func NewTenantHandler(service TenantService, validator validation.Validator) *Te
 //	@Success		200		{object}	common.PageResponse[tenants.Tenant]
 //	@Failure		400		{object}	object	"Invalid query (e.g. invalid sort field)"
 //	@Failure		500		{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/tenants [get]
 func (h *TenantHandler) List(r *http.Request) (any, error) {
 	params, err := query.ParseListParams(r.URL.Query(), tenantListConfig)
@@ -83,6 +84,7 @@ func (h *TenantHandler) List(r *http.Request) (any, error) {
 //	@Failure		400	{object}	object	"Invalid ID format"
 //	@Failure		404	{object}	object	"Tenant not found"
 //	@Failure		500	{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/tenants/{id} [get]
 func (h *TenantHandler) GetByID(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
@@ -112,6 +114,7 @@ func (h *TenantHandler) GetByID(r *http.Request) (any, error) {
 //	@Failure		409		{object}	object	"Conflict (e.g. already exists)"
 //	@Failure		422		{object}	object	"Unprocessable entity"
 //	@Failure		500		{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/tenants [post]
 func (h *TenantHandler) Create(r *http.Request) (any, error) {
 	var body CreateInput
@@ -143,6 +146,7 @@ func (h *TenantHandler) Create(r *http.Request) (any, error) {
 //	@Failure		400		{object}	object	"Invalid ID or request body"
 //	@Failure		404		{object}	object	"Tenant not found"
 //	@Failure		500		{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/tenants/{id} [put]
 func (h *TenantHandler) Update(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
@@ -178,6 +182,7 @@ func (h *TenantHandler) Update(r *http.Request) (any, error) {
 //	@Failure		400	{object}	object	"Invalid ID format"
 //	@Failure		404	{object}	object	"Tenant not found"
 //	@Failure		500	{object}	object	"Internal server error"
+//	@Security		BearerAuth
 //	@Router			/api/v1/tenants/{id} [delete]
 func (h *TenantHandler) Delete(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
