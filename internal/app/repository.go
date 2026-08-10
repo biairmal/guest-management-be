@@ -7,6 +7,7 @@ import (
 	"github.com/biairmal/go-sdk/lib/sqlkit"
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
 	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 	"github.com/google/uuid"
@@ -20,6 +21,7 @@ type repositories struct {
 	workflowStepTemplateRepository sdkrepository.Repository[events.WorkflowStepTemplate, uuid.UUID]
 	tenantRepository               sdkrepository.Repository[tenants.Tenant, uuid.UUID]
 	userRepository                 sdkrepository.Repository[users.User, uuid.UUID]
+	messageTemplateRepository      sdkrepository.Repository[templates.MessageTemplate, uuid.UUID]
 }
 
 func (a *App) initializeRepository(
@@ -49,6 +51,10 @@ func (a *App) initializeRepository(
 	if err != nil {
 		return nil, err
 	}
+	messageTemplateCacheOpts, err := featureConfig.Templates.Repository.MessageTemplateCache.ToOptions(redisClient)
+	if err != nil {
+		return nil, err
+	}
 	return &repositories{
 		categoryRepository:             events.NewCategoryRepository(log, db, categoryCacheOpts),
 		eventRepository:                events.NewEventRepository(log, db, eventCacheOpts),
@@ -56,5 +62,6 @@ func (a *App) initializeRepository(
 		workflowStepTemplateRepository: events.NewWorkflowStepTemplateRepository(log, db, workflowStepTemplateCacheOpts),
 		tenantRepository:               tenants.NewTenantRepository(log, db, tenantCacheOpts),
 		userRepository:                 users.NewUserRepository(log, db, userCacheOpts),
+		messageTemplateRepository:      templates.NewMessageTemplateRepository(log, db, messageTemplateCacheOpts),
 	}, nil
 }

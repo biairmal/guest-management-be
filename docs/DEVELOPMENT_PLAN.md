@@ -25,7 +25,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B2 | Domain | `users` | B1 | ✅ |
 | B3 | Domain | `auth` (login + route protection) | B2, go-sdk `auth` | ✅ |
 | B4 | Domain | `events` (events + workflow steps; extend existing slice) | B1, B2 | ✅ |
-| B5 | Domain | `templates` (event + message templates) | B4 | ⬜ |
+| B5 | Domain | `templates` (event + message templates) | B4 | ✅ |
 | B6 | Domain | `staffing` (event staff assignments, roles/permissions) | B2, B4 | ⬜ |
 | B7 | Domain | `tickets` (ticket types + tickets) | B4 | ⬜ |
 | B8 | Domain | `guests` | B4, B7 | ⬜ |
@@ -146,7 +146,7 @@ each phase names its migration and tables. Ordered by data dependency.
 | **B2** | `users` | `000003` — `users` | CRUD `/api/v1/users`; scoped by tenant |
 | **B3** | `auth` | uses `000002` (`roles`,`permissions`,`role_permissions`) + `000003` | `POST /auth/login`, `POST /auth/refresh`; route protection middleware |
 | **B4** | `events` (extend) | `000005` — `events`, `workflow_steps` | CRUD `/api/v1/events`; workflow-step management |
-| **B5** | `templates` | `000004` (event templates), `000006` (`message_templates`) | CRUD `/api/v1/event-templates`, `/message-templates` |
+| **B5** | `templates` | `000004` (event templates), `000006` (`message_templates`) | CRUD `/api/v1/event-categories/{category_id}/workflow-step-templates`, `/api/v1/message-templates` |
 | **B6** | `staffing` | `000002` (roles/permissions), `000007` (`event_staff_assignments`) | assign/list staff on an event; permission checks |
 | **B7** | `tickets` | `000008` — `ticket_types` + junction | CRUD ticket types; associate to events |
 | **B8** | `guests` | `000009` — `guests`, `tickets` | CRUD `/api/v1/guests`; issue tickets |
@@ -162,6 +162,13 @@ each phase names its migration and tables. Ordered by data dependency.
   `ctxkit`. This is the seam that lets `users` later become a separate identity service.
 - **B4 `events`** — the current `event_categories` slice grows into the full events feature; keep categories as a
   sub-concern. Workflow steps model the event's lifecycle stages.
+- **B5 `templates`** — two independent pieces. `workflow_step_templates` (migration `000004`) completes the
+  `events` slice — it already had model + repository from B4 (needed by `EventService.Create`'s default-step
+  copy); B5 adds service/handler/routes, nested under `event-categories/{category_id}` the same way workflow
+  steps nest under `events/{event_id}`. `message_templates` (migration `000006`) is a new `internal/features/templates`
+  slice — app/tenant/event scoped email/WhatsApp bodies, with no dependency on the `events` package (kept
+  separate rather than folded into `events` since it scopes to tenants/events by ID reference, not ownership,
+  mirroring `event_categories`' own source/tenant_id discriminator).
 - **B6 `staffing`** — introduces role/permission enforcement; wire a permission check into the middleware/service
   layer, reusing `ctxkit` user identity.
 - **B7–B9 `tickets`/`guests`/`scans`** — the check-in critical path. `scans` is write-heavy and latency-sensitive;

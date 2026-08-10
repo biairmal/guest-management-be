@@ -146,3 +146,10 @@ app:
         ttl: 5m
         prefix: guest-management
         strategy: write_around # write_around, write_through, write_behind
+  templates:
+    repository:
+      message_template_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind

@@ -252,6 +252,341 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/event-categories/{category_id}/workflow-step-templates": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a paginated list of workflow step templates for an event category. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (name).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workflow-step-templates"
+                ],
+                "summary": "List workflow step templates",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event category UUID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (1-based)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 20, max 100)",
+                        "name": "size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort: field,dir (e.g. sort=order_index,ASC)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by name (exact match)",
+                        "name": "name",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_WorkflowStepTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid category id or query",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new workflow step template under an event category. order_index must be unique per category.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workflow-step-templates"
+                ],
+                "summary": "Create workflow step template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event category UUID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Workflow step template payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_events.CreateWorkflowStepTemplateInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_events.WorkflowStepTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body or validation error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict (order_index already used for this category)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable entity",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/event-categories/{category_id}/workflow-step-templates/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single workflow step template by UUID, scoped to its event category.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workflow-step-templates"
+                ],
+                "summary": "Get workflow step template by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event category UUID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workflow step template UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_events.WorkflowStepTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID format",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Workflow step template not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates an existing workflow step template by ID. Only provided fields are applied (partial update); category_id is immutable.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workflow-step-templates"
+                ],
+                "summary": "Update workflow step template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event category UUID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workflow step template UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_events.UpdateWorkflowStepTemplateInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_events.WorkflowStepTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID or request body",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Workflow step template not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict (order_index already used for this category)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft-deletes a workflow step template by ID, scoped to its event category.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workflow-step-templates"
+                ],
+                "summary": "Delete workflow step template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event category UUID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workflow step template UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No content"
+                    },
+                    "400": {
+                        "description": "Invalid ID format",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Workflow step template not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/event-categories/{id}": {
             "get": {
                 "security": [
@@ -1128,6 +1463,318 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/message-templates": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a paginated list of message templates. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (name, source, tenant_id, event_id, channel).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "List message templates",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (1-based)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 20, max 100)",
+                        "name": "size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort: field,dir (e.g. sort=name,ASC\u0026sort=id,DESC)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by name (exact match)",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by source (exact match)",
+                        "name": "source",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by channel (exact match)",
+                        "name": "channel",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_templates_MessageTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query (e.g. invalid sort field)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new message template. Source must be \"app\", \"tenant\", or \"event\"; tenant_id/event_id required accordingly. Subject is required for \"email\" channel and must be empty for \"whatsapp\".",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "Create message template",
+                "parameters": [
+                    {
+                        "description": "Message template payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_templates.CreateInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_templates.MessageTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body or validation error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict (e.g. already exists for this scope, name, and channel)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable entity",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/message-templates/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single message template by UUID.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "Get message template by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Message template UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_templates.MessageTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID format",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Message template not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates an existing message template by ID. Only provided fields are applied (partial update); the source/channel invariants re-apply to the resulting record.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "Update message template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Message template UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_templates.UpdateInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_templates.MessageTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID or request body",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Message template not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft-deletes a message template by ID.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "Delete message template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Message template UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No content"
+                    },
+                    "400": {
+                        "description": "Invalid ID format",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Message template not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/tenants": {
             "get": {
                 "security": [
@@ -1835,6 +2482,64 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.PageResponse-internal_features_events_WorkflowStepTemplate": {
+            "type": "object",
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "has_prev": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events.WorkflowStepTemplate"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dto.PageResponse-internal_features_templates_MessageTemplate": {
+            "type": "object",
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "has_prev": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_features_templates.MessageTemplate"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
         "dto.PageResponse-internal_features_tenants_Tenant": {
             "type": "object",
             "properties": {
@@ -2006,6 +2711,30 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_features_events.CreateWorkflowStepTemplateInput": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "allows_multiple": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "order_index": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "ticket_type_applicability": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "internal_features_events.Event": {
             "type": "object",
             "properties": {
@@ -2147,6 +2876,28 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_features_events.UpdateWorkflowStepTemplateInput": {
+            "type": "object",
+            "properties": {
+                "allows_multiple": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "order_index": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "ticket_type_applicability": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "internal_features_events.WorkflowStep": {
             "type": "object",
             "properties": {
@@ -2173,6 +2924,175 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_features_events.WorkflowStepTemplate": {
+            "type": "object",
+            "properties": {
+                "allows_multiple": {
+                    "type": "boolean"
+                },
+                "category_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "order_index": {
+                    "type": "integer"
+                },
+                "ticket_type_applicability": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_templates.CreateInput": {
+            "type": "object",
+            "required": [
+                "body",
+                "channel",
+                "name",
+                "source"
+            ],
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "channel": {
+                    "type": "string",
+                    "enum": [
+                        "email",
+                        "whatsapp"
+                    ]
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string",
+                    "enum": [
+                        "app",
+                        "tenant",
+                        "event"
+                    ]
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "variables": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_features_templates.MessageTemplate": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "channel": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "variables": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_features_templates.UpdateInput": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "channel": {
+                    "type": "string",
+                    "enum": [
+                        "email",
+                        "whatsapp"
+                    ]
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "source": {
+                    "type": "string",
+                    "enum": [
+                        "app",
+                        "tenant",
+                        "event"
+                    ]
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "variables": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 }
             }
         },

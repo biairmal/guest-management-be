@@ -6,17 +6,20 @@ import (
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
 	appauth "github.com/biairmal/guest-management-be/internal/features/auth"
 	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 )
 
 type service struct {
-	categoryService     events.CategoryService
-	eventService        events.EventService
-	workflowStepService events.WorkflowStepService
-	tenantService       tenants.TenantService
-	userService         users.UserService
-	authService         appauth.Service
+	categoryService             events.CategoryService
+	eventService                events.EventService
+	workflowStepService         events.WorkflowStepService
+	workflowStepTemplateService events.WorkflowStepTemplateService
+	tenantService               tenants.TenantService
+	userService                 users.UserService
+	authService                 appauth.Service
+	messageTemplateService      templates.MessageTemplateService
 }
 
 func (a *App) initializeService(
@@ -30,11 +33,15 @@ func (a *App) initializeService(
 			repositories.workflowStepTemplateRepository, repositories.workflowStepRepository,
 		),
 		workflowStepService: events.NewWorkflowStepService(logger, repositories.workflowStepRepository),
-		tenantService:       tenants.NewTenantService(logger, repositories.tenantRepository),
-		userService:         users.NewUserService(logger, repositories.userRepository),
+		workflowStepTemplateService: events.NewWorkflowStepTemplateService(
+			logger, repositories.workflowStepTemplateRepository,
+		),
+		tenantService: tenants.NewTenantService(logger, repositories.tenantRepository),
+		userService:   users.NewUserService(logger, repositories.userRepository),
 		authService: appauth.NewService(
 			logger, repositories.userRepository, authIssuer, authValidator,
 			authConfig.Token.Issuer.DefaultTTL, authConfig.RefreshTTL,
 		),
+		messageTemplateService: templates.NewMessageTemplateService(logger, repositories.messageTemplateRepository),
 	}
 }

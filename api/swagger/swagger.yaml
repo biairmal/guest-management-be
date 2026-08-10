@@ -57,6 +57,44 @@ definitions:
       total_pages:
         type: integer
     type: object
+  dto.PageResponse-internal_features_events_WorkflowStepTemplate:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_events.WorkflowStepTemplate'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  dto.PageResponse-internal_features_templates_MessageTemplate:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_templates.MessageTemplate'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
   dto.PageResponse-internal_features_tenants_Tenant:
     properties:
       has_next:
@@ -171,6 +209,22 @@ definitions:
     required:
     - name
     type: object
+  internal_features_events.CreateWorkflowStepTemplateInput:
+    properties:
+      allows_multiple:
+        type: boolean
+      name:
+        type: string
+      order_index:
+        minimum: 0
+        type: integer
+      ticket_type_applicability:
+        items:
+          type: integer
+        type: array
+    required:
+    - name
+    type: object
   internal_features_events.Event:
     properties:
       category_id:
@@ -265,6 +319,21 @@ definitions:
         minimum: 0
         type: integer
     type: object
+  internal_features_events.UpdateWorkflowStepTemplateInput:
+    properties:
+      allows_multiple:
+        type: boolean
+      name:
+        minLength: 1
+        type: string
+      order_index:
+        minimum: 0
+        type: integer
+      ticket_type_applicability:
+        items:
+          type: integer
+        type: array
+    type: object
   internal_features_events.WorkflowStep:
     properties:
       allows_multiple:
@@ -283,6 +352,121 @@ definitions:
         type: integer
       updated_at:
         type: string
+    type: object
+  internal_features_events.WorkflowStepTemplate:
+    properties:
+      allows_multiple:
+        type: boolean
+      category_id:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      order_index:
+        type: integer
+      ticket_type_applicability:
+        items:
+          type: integer
+        type: array
+      updated_at:
+        type: string
+    type: object
+  internal_features_templates.CreateInput:
+    properties:
+      body:
+        type: string
+      channel:
+        enum:
+        - email
+        - whatsapp
+        type: string
+      event_id:
+        type: string
+      name:
+        type: string
+      source:
+        enum:
+        - app
+        - tenant
+        - event
+        type: string
+      subject:
+        type: string
+      tenant_id:
+        type: string
+      variables:
+        items:
+          type: integer
+        type: array
+    required:
+    - body
+    - channel
+    - name
+    - source
+    type: object
+  internal_features_templates.MessageTemplate:
+    properties:
+      body:
+        type: string
+      channel:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      event_id:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      source:
+        type: string
+      subject:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+      variables:
+        items:
+          type: integer
+        type: array
+    type: object
+  internal_features_templates.UpdateInput:
+    properties:
+      body:
+        minLength: 1
+        type: string
+      channel:
+        enum:
+        - email
+        - whatsapp
+        type: string
+      event_id:
+        type: string
+      name:
+        minLength: 1
+        type: string
+      source:
+        enum:
+        - app
+        - tenant
+        - event
+        type: string
+      subject:
+        type: string
+      tenant_id:
+        type: string
+      variables:
+        items:
+          type: integer
+        type: array
     type: object
   internal_features_tenants.CreateInput:
     properties:
@@ -557,6 +741,229 @@ paths:
       summary: Create event category
       tags:
       - event-categories
+  /api/v1/event-categories/{category_id}/workflow-step-templates:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns a paginated list of workflow step templates for an event
+        category. Query: page, size, sort=field,dir (repeatable), filter by allowed
+        fields (name).'
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: size
+        type: integer
+      - description: 'Sort: field,dir (e.g. sort=order_index,ASC)'
+        in: query
+        name: sort
+        type: string
+      - description: Filter by name (exact match)
+        in: query
+        name: name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PageResponse-internal_features_events_WorkflowStepTemplate'
+        "400":
+          description: Invalid category id or query
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List workflow step templates
+      tags:
+      - workflow-step-templates
+    post:
+      consumes:
+      - application/json
+      description: Creates a new workflow step template under an event category. order_index
+        must be unique per category.
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Workflow step template payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_events.CreateWorkflowStepTemplateInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_events.WorkflowStepTemplate'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "409":
+          description: Conflict (order_index already used for this category)
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create workflow step template
+      tags:
+      - workflow-step-templates
+  /api/v1/event-categories/{category_id}/workflow-step-templates/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Soft-deletes a workflow step template by ID, scoped to its event
+        category.
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Workflow step template UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Workflow step template not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete workflow step template
+      tags:
+      - workflow-step-templates
+    get:
+      consumes:
+      - application/json
+      description: Returns a single workflow step template by UUID, scoped to its
+        event category.
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Workflow step template UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events.WorkflowStepTemplate'
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Workflow step template not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get workflow step template by ID
+      tags:
+      - workflow-step-templates
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing workflow step template by ID. Only provided
+        fields are applied (partial update); category_id is immutable.
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Workflow step template UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_events.UpdateWorkflowStepTemplateInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events.WorkflowStepTemplate'
+        "400":
+          description: Invalid ID or request body
+          schema:
+            type: object
+        "404":
+          description: Workflow step template not found
+          schema:
+            type: object
+        "409":
+          description: Conflict (order_index already used for this category)
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update workflow step template
+      tags:
+      - workflow-step-templates
   /api/v1/event-categories/{id}:
     delete:
       consumes:
@@ -1131,6 +1538,212 @@ paths:
       summary: Update event
       tags:
       - events
+  /api/v1/message-templates:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns a paginated list of message templates. Query: page, size,
+        sort=field,dir (repeatable), filter by allowed fields (name, source, tenant_id,
+        event_id, channel).'
+      parameters:
+      - description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: size
+        type: integer
+      - description: 'Sort: field,dir (e.g. sort=name,ASC&sort=id,DESC)'
+        in: query
+        name: sort
+        type: string
+      - description: Filter by name (exact match)
+        in: query
+        name: name
+        type: string
+      - description: Filter by source (exact match)
+        in: query
+        name: source
+        type: string
+      - description: Filter by channel (exact match)
+        in: query
+        name: channel
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PageResponse-internal_features_templates_MessageTemplate'
+        "400":
+          description: Invalid query (e.g. invalid sort field)
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List message templates
+      tags:
+      - message-templates
+    post:
+      consumes:
+      - application/json
+      description: Creates a new message template. Source must be "app", "tenant",
+        or "event"; tenant_id/event_id required accordingly. Subject is required for
+        "email" channel and must be empty for "whatsapp".
+      parameters:
+      - description: Message template payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_templates.CreateInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_templates.MessageTemplate'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "409":
+          description: Conflict (e.g. already exists for this scope, name, and channel)
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create message template
+      tags:
+      - message-templates
+  /api/v1/message-templates/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Soft-deletes a message template by ID.
+      parameters:
+      - description: Message template UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Message template not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete message template
+      tags:
+      - message-templates
+    get:
+      consumes:
+      - application/json
+      description: Returns a single message template by UUID.
+      parameters:
+      - description: Message template UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_templates.MessageTemplate'
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "404":
+          description: Message template not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get message template by ID
+      tags:
+      - message-templates
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing message template by ID. Only provided fields
+        are applied (partial update); the source/channel invariants re-apply to the
+        resulting record.
+      parameters:
+      - description: Message template UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_templates.UpdateInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_templates.MessageTemplate'
+        "400":
+          description: Invalid ID or request body
+          schema:
+            type: object
+        "404":
+          description: Message template not found
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update message template
+      tags:
+      - message-templates
   /api/v1/tenants:
     get:
       consumes:

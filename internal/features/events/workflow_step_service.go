@@ -110,6 +110,8 @@ func (s *workflowStepServiceImpl) Create(
 // GetByID returns a workflow step by ID scoped to eventID. Returns
 // errorz.NotFound if the step doesn't exist, is soft-deleted, or belongs to
 // a different event.
+//
+//nolint:dupl // scope-checked sentinel->errorz translation mirrors WorkflowStepTemplateService.GetByID
 func (s *workflowStepServiceImpl) GetByID(ctx context.Context, eventID, id uuid.UUID) (*WorkflowStep, error) {
 	entity, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -163,6 +165,8 @@ func (s *workflowStepServiceImpl) Update(
 
 // Delete soft-deletes a workflow step scoped to eventID. The
 // AuditableRepository handles setting deleted_at and updated_at.
+//
+//nolint:dupl // scope-checked sentinel->errorz translation mirrors WorkflowStepTemplateService.Delete
 func (s *workflowStepServiceImpl) Delete(ctx context.Context, eventID, id uuid.UUID) error {
 	if _, err := s.GetByID(ctx, eventID, id); err != nil {
 		return err

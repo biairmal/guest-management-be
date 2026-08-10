@@ -16,6 +16,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/core/query"
 )
 
+//nolint:dupl // table-driven CRUD test shape intentionally mirrors WorkflowStepTemplateService tests (see PATTERNS.md)
 func TestWorkflowStepService_Create(t *testing.T) {
 	tests := []struct {
 		name    string

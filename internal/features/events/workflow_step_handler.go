@@ -132,6 +132,8 @@ func (h *WorkflowStepHandler) GetByID(r *http.Request) (any, error) {
 //	@Failure		500			{object}	object	"Internal server error"
 //	@Security		BearerAuth
 //	@Router			/api/v1/events/{event_id}/workflow-steps [post]
+//
+//nolint:dupl // decode+validate+create+respond shape mirrors WorkflowStepTemplateHandler.Create (see PATTERNS.md)
 func (h *WorkflowStepHandler) Create(r *http.Request) (any, error) {
 	eventID, err := eventIDFromPath(r)
 	if err != nil {

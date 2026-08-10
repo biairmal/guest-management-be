@@ -13,7 +13,7 @@ Each section follows the same template:
 
 ## events
 
-Source: `internal/features/events`. Tables: `event_categories`, `events`, `workflow_steps` (see [DATABASE.md](DATABASE.md)). One vertical slice covering event categories (the taxonomy), events themselves, and their per-event workflow steps.
+Source: `internal/features/events`. Tables: `event_categories`, `events`, `workflow_steps`, `workflow_step_templates` (see [DATABASE.md](DATABASE.md)). One vertical slice covering event categories (the taxonomy), events themselves, their per-event workflow steps, and the per-category templates those steps are seeded from.
 
 ### Event categories
 
@@ -67,7 +67,7 @@ Manages **events** — a tenant's scheduled occasion, classified under an event 
 - `tenant_id` is **immutable** after creation — an event cannot move tenants; it is not part of `UpdateEventInput`.
 - `end_date` must not be before `start_date`, both on create and on the resulting record after a partial update.
 - `is_multi_day` is **derived**, not caller-supplied: `true` when `start_date` and `end_date` fall on different calendar days (each evaluated in its own timestamp's location), recomputed whenever either date changes.
-- **Create seeds default workflow steps from the category's templates**: right after the event row is inserted, `EventService` looks up `workflow_step_templates` for `category_id` (ordered by `order_index`) and copies each one into a `workflow_steps` row for the new event — the customizable starting point a UI shows immediately after event creation. A category with no templates copies nothing. This is **best-effort**: a template lookup or copy failure is logged but does not fail event creation (there is currently no API for managing `workflow_step_templates` themselves — see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) B5). The caller can always add/edit/remove the resulting steps via [Workflow steps → Sync](#workflow-steps).
+- **Create seeds default workflow steps from the category's templates**: right after the event row is inserted, `EventService` looks up `workflow_step_templates` for `category_id` (ordered by `order_index`) and copies each one into a `workflow_steps` row for the new event — the customizable starting point a UI shows immediately after event creation. A category with no templates copies nothing. This is **best-effort**: a template lookup or copy failure is logged but does not fail event creation. Templates themselves are managed via [Workflow step templates](#workflow-step-templates). The caller can always add/edit/remove the resulting steps via [Workflow steps → Sync](#workflow-steps).
 
 > Field-presence/format checks (`required`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateEventInput`/`UpdateEventInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the date-ordering rule and `is_multi_day` derivation stay in the service as business invariants.
 
@@ -146,6 +146,94 @@ The single-step `POST`/`PUT {id}`/`DELETE {id}` endpoints remain available (e.g.
 - **Delete** (single-step) — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
 - **Sync** — reconciles in three passes: (1) delete every existing step not referenced by the payload, (2) move every referenced step to a unique negative `order_index` and apply its new `name`/`allows_multiple`, (3) create new entries and move the referenced steps to their final `order_index`. The two-phase reorder (negative, then final) exists so that swapping two steps' `order_index` — the common drag-reorder case — never trips the `(event_id, order_index)` unique constraint on an intermediate state. Sync is **not wrapped in a database transaction** (no feature in this codebase uses one yet); a failure partway through can leave a partial result, in which case re-submitting the same Sync call is the recovery path.
 - **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a step belonging to a different event is also reported as 404; unexpected errors become 500 and are logged with context.
+
+### Workflow step templates
+
+#### Intent
+
+Manages a category's **workflow step templates** — the default lifecycle stages `EventService.Create` copies onto every new event in that category (see [Events](#events)). Always scoped to a parent event category via the URL; there is no top-level listing. Unlike event-level workflow steps, templates have no **Sync** endpoint — they are administered as individual records (add/rename/reorder one at a time) since they change far less often than an event's own steps.
+
+#### Invariants
+
+- `name` and `order_index` are required on create; `order_index` must be `>= 0`.
+- `(category_id, order_index)` is unique — DB-enforced; a conflicting `order_index` on create or update surfaces as `errorz.Conflict` (409).
+- `category_id` is **immutable** and always taken from the URL, never the body — it is not part of `CreateWorkflowStepTemplateInput`/`UpdateWorkflowStepTemplateInput`.
+- Every read/update/delete is scoped to the `{category_id}` in the URL: a template that exists but belongs to a different category resolves as `errorz.NotFound` (404), not a cross-category leak.
+- `ticket_type_applicability` is an opaque, optional JSON document — the service passes it through unvalidated.
+
+> Field-presence/format checks (`required`, `gte=0`) are enforced at the HTTP boundary via `validate:"..."` tags (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the category-scope check is a business invariant enforced in the service since no struct tag or DB constraint can express it.
+
+#### Endpoints
+
+Base path `/api/v1/event-categories/{category_id}/workflow-step-templates`:
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List for the category (paginated, filtered, sorted) | 200 | 400 invalid category id/query |
+| `GET` | `/{id}` | Get one by UUID, scoped to the category | 200 | 400 bad UUID · 404 not found |
+| `POST` | `/` | Create a template under the category | 201 | 400 invalid body · 409 order_index conflict · 422 invalid entity |
+| `PUT` | `/{id}` | Partial update of a single template | 200 | 400 · 404 not found · 409 order_index conflict |
+| `DELETE` | `/{id}` | Soft delete a single template | 204 | 400 · 404 not found |
+
+**List query:** `?page=1&size=20&sort=order_index,ASC&name=Check-in`.
+- `page` 1-based; `size` default 20, clamped to 100.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, name, order_index, allows_multiple, created_at, updated_at`); unknown field → 400.
+- Filters: `name` (exact match); `category_id` is always forced from the URL and is not a query filter.
+
+#### States & lifecycle
+
+- **Create** — service generates the `id` (UUID) and sets `category_id` from the URL; `created_at`/`updated_at` are stamped by the audit repository decorator.
+- **Update** — partial; `category_id` cannot change; `updated_at` re-stamped by the decorator.
+- **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a template belonging to a different category is also reported as 404; unexpected errors become 500 and are logged with context.
+
+---
+
+## templates
+
+Source: `internal/features/templates`. Table: `message_templates` (see [DATABASE.md](DATABASE.md)).
+
+### Intent
+
+Manages **message templates** — reusable email/WhatsApp message bodies (invitation, ticket delivery, thank you) at three scopes: **app** (global default), **tenant** (override), and **event** (instance-level override). Resolving which template applies to a given event prefers event, then tenant, then app (see [REQUIREMENT.md](REQUIREMENT.md) ss2.2) — that resolution is left to the caller/future sender feature; this slice only manages the records themselves.
+
+### Invariants
+
+- `source` is one of `"app"`, `"tenant"`, or `"event"`; `channel` is one of `"email"` or `"whatsapp"`.
+- When `source == "app"`, `tenant_id` and `event_id` **must both be null**.
+- When `source == "tenant"`, `tenant_id` **is required** and `event_id` **must be null**.
+- When `source == "event"`, `tenant_id` **and** `event_id` **are both required**.
+- When `channel == "email"`, `subject` **is required** (non-empty).
+- When `channel == "whatsapp"`, `subject` **must be empty** — WhatsApp messages have no subject line.
+- `name` and `body` are required. `variables` is an opaque, optional JSON document (a list of placeholder names for UI/validation use).
+- On update (partial), only provided fields change; the source/tenant/event and channel/subject rules re-apply to the resulting record.
+- Uniqueness per scope is DB-enforced via partial unique indexes: app — `(name, channel)`; tenant — `(tenant_id, name, channel)`; event — `(event_id, name, channel)`.
+
+> Field-presence/format checks (`required`, `oneof`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateInput`/`UpdateInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the cross-field source/tenant/event and channel/subject rules stay in the service as business invariants.
+
+### Endpoints
+
+Base path `/api/v1/message-templates`:
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List (paginated, filtered, sorted) | 200 | 400 invalid query |
+| `GET` | `/{id}` | Get one by UUID | 200 | 400 bad UUID · 404 not found |
+| `POST` | `/` | Create | 201 | 400 invalid body/scope/channel · 409 conflict · 422 invalid entity |
+| `PUT` | `/{id}` | Partial update | 200 | 400 · 404 not found · 409 conflict |
+| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 404 not found |
+
+**List query:** `?page=1&size=20&sort=name,ASC&name=Invitation&source=tenant&channel=email`.
+- `page` 1-based; `size` default 20, clamped to 100.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, source, tenant_id, event_id, name, channel, created_at, updated_at`); unknown field → 400.
+- Filters: `name`, `source`, `tenant_id`, `event_id`, `channel` (exact match); unknown keys ignored.
+
+### States & lifecycle
+
+- **Create** — service generates the `id` (UUID); `created_at`/`updated_at` are stamped by the audit repository decorator.
+- **Update** — partial; the resulting record is re-validated against the same scope/channel invariants; `updated_at` re-stamped by the decorator.
+- **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); unexpected errors become 500 and are logged with context.
 
 ---
 
