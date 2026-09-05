@@ -133,6 +133,25 @@ definitions:
       total_pages:
         type: integer
     type: object
+  dto.PageResponse-internal_features_tickets_TicketType:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_tickets.TicketType'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
   dto.PageResponse-internal_features_users_User:
     properties:
       has_next:
@@ -574,6 +593,57 @@ definitions:
         type: array
       type:
         type: string
+    type: object
+  internal_features_tickets.CreateTicketTypeInput:
+    properties:
+      name:
+        type: string
+      rules:
+        items:
+          type: integer
+        type: array
+    required:
+    - name
+    type: object
+  internal_features_tickets.ReplaceWorkflowStepsInput:
+    properties:
+      workflow_step_ids:
+        items:
+          type: string
+        type: array
+    type: object
+  internal_features_tickets.TicketType:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      event_id:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      rules:
+        items:
+          type: integer
+        type: array
+      updated_at:
+        type: string
+      workflow_step_ids:
+        items:
+          type: string
+        type: array
+    type: object
+  internal_features_tickets.UpdateTicketTypeInput:
+    properties:
+      name:
+        minLength: 1
+        type: string
+      rules:
+        items:
+          type: integer
+        type: array
     type: object
   internal_features_users.CreateInput:
     properties:
@@ -1487,6 +1557,328 @@ paths:
       summary: Update a staff assignment's role
       tags:
       - staffing
+  /api/v1/events/{event_id}/ticket-types:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns a paginated list of ticket types for an event. Query:
+        page, size, sort=field,dir (repeatable), filter by allowed fields (name).
+        Requires the manage_events permission.'
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: size
+        type: integer
+      - description: 'Sort: field,dir (e.g. sort=name,ASC)'
+        in: query
+        name: sort
+        type: string
+      - description: Filter by name (exact match)
+        in: query
+        name: name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PageResponse-internal_features_tickets_TicketType'
+        "400":
+          description: Invalid event id or query
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List event ticket types
+      tags:
+      - ticket-types
+    post:
+      consumes:
+      - application/json
+      description: Creates a new ticket type under an event; name is unique per event.
+        The new ticket type defaults to applying to ALL of the event's current workflow
+        steps. Requires the manage_events permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Ticket type payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_tickets.CreateTicketTypeInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_tickets.TicketType'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "409":
+          description: Ticket type name already exists for this event
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create ticket type
+      tags:
+      - ticket-types
+  /api/v1/events/{event_id}/ticket-types/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Soft-deletes a ticket type by ID, scoped to its event. Requires
+        the manage_events permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Ticket type UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "404":
+          description: Ticket type not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete ticket type
+      tags:
+      - ticket-types
+    get:
+      consumes:
+      - application/json
+      description: Returns a single ticket type by UUID, scoped to its event, including
+        which of the event's workflow steps it applies to (workflow_step_ids). Requires
+        the manage_events permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Ticket type UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_tickets.TicketType'
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "404":
+          description: Ticket type not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get ticket type by ID
+      tags:
+      - ticket-types
+    put:
+      consumes:
+      - application/json
+      description: Partially updates a ticket type's name/rules. Only provided fields
+        are applied; event_id is immutable. Requires the manage_events permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Ticket type UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_tickets.UpdateTicketTypeInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_tickets.TicketType'
+        "400":
+          description: Invalid ID or request body
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "404":
+          description: Ticket type not found
+          schema:
+            type: object
+        "409":
+          description: Ticket type name already exists for this event
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update ticket type
+      tags:
+      - ticket-types
+  /api/v1/events/{event_id}/ticket-types/{id}/workflow-steps:
+    put:
+      consumes:
+      - application/json
+      description: Replaces the full set of workflow steps a ticket type applies to
+        (full-replace, no incremental add/remove); every workflow_step_id must belong
+        to the ticket type's own event. Requires the manage_events permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Ticket type UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Full desired set of workflow step IDs
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_tickets.ReplaceWorkflowStepsInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_tickets.TicketType'
+        "400":
+          description: Invalid request body, ID, or a workflow_step_id not belonging
+            to this event
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "404":
+          description: Ticket type not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Replace ticket type workflow steps
+      tags:
+      - ticket-types
   /api/v1/events/{event_id}/workflow-steps:
     get:
       consumes:

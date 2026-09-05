@@ -452,6 +452,56 @@ Base path `/api/v1/events/{event_id}/staff`. Every route requires a valid access
 
 ---
 
+## tickets
+
+Source: `internal/features/tickets`. Tables: `ticket_types`, `ticket_type_workflow_steps` (see [DATABASE.md](DATABASE.md)). This phase ships **`TicketType` only** — the `Ticket` QR artifact issued to a guest is B8, which depends on `guests` existing first.
+
+### Intent
+
+Manages an event's **ticket types** (e.g. Regular, VIP) and which of that event's workflow steps each type applies to, so guests receive the right ticket and check-in later enforces only the steps that type is entitled to (REQUIREMENT.md §3.8, §4.4). Always scoped to a parent event via the URL; there is no top-level ticket-type listing.
+
+### Invariants
+
+- `name` is required on create; `(event_id, name)` is unique — DB-enforced; a conflicting name on create or update surfaces as `errorz.Conflict` (409).
+- `event_id` is **immutable** and always taken from the URL, never the body — it is not part of `CreateTicketTypeInput`/`UpdateTicketTypeInput`.
+- Every read/update/delete/workflow-step-replace is scoped to the `{event_id}` in the URL: a ticket type that exists but belongs to a different event resolves as `errorz.NotFound` (404), not a cross-event leak — the same convention as [workflow steps](#workflow-steps).
+- `rules` is an opaque, optional JSON document (default `{}`), passed through unvalidated — same treatment as `workflow_step_templates.ticket_type_applicability`.
+- **Every route requires the `manage_events` permission** (`authz.RequirePermission`, same mechanism [staffing](#staffing) uses for `manage_staff`) — a deliberate divergence from `events`/`workflow-steps`, which stay auth-only/ungated in this phase.
+- `workflow_step_ids` (the set of the event's workflow steps this ticket type currently applies to) is populated only on `GetByID` (one extra lookup) and on the workflow-step-replace response; it is left empty on `List`/`Update` to avoid an N+1 join across every row of a list.
+- **`PUT .../workflow-steps`** replaces the *entire* set of workflow steps a ticket type applies to (full-replace, no incremental add/remove — mirroring [workflow steps](#workflow-steps)' Sync design). Every submitted ID is validated to belong to the ticket type's own event; an ID that doesn't exist or belongs to a different event is rejected as `errorz.BadRequest` (400) before anything is written.
+
+> Field-presence/format checks (`required`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateTicketTypeInput`/`UpdateTicketTypeInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the event-scope check and workflow-step cross-event validation are business invariants enforced in the service since no struct tag or DB constraint can express them.
+
+### Endpoints
+
+Base path `/api/v1/events/{event_id}/ticket-types`. Every route requires a valid access token **and** the `manage_events` permission (`authz.RequirePermission`):
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List for the event (paginated, filtered, sorted) | 200 | 400 invalid event id/query · 401 · 403 |
+| `POST` | `/` | Create a ticket type under the event | 201 | 400 invalid body · 401 · 403 · 409 name conflict · 422 invalid entity |
+| `GET` | `/{id}` | Get one, scoped to the event — response includes `workflow_step_ids` | 200 | 400 bad UUID · 401 · 403 · 404 not found |
+| `PUT` | `/{id}` | Partial update (`name`, `rules`) | 200 | 400 · 401 · 403 · 404 not found · 409 name conflict |
+| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 401 · 403 · 404 not found |
+| `PUT` | `/{id}/workflow-steps` | **Replace** the full set of workflow steps this ticket type applies to | 200 | 400 a step id not on this event · 401 · 403 · 404 ticket type not found |
+
+**List query:** `?page=1&size=20&sort=name,ASC&name=VIP`.
+- `page` 1-based; `size` default 20, clamped to 100.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, name, created_at, updated_at`); unknown field → 400.
+- Filters: `name` (exact match); `event_id` is always forced from the URL and is not a query filter.
+
+**Workflow-step replace body:** `{ "workflow_step_ids": ["11111111-...", "22222222-..."] }` — an empty array clears applicability entirely.
+
+### States & lifecycle
+
+- **Create** — service generates the `id` (UUID) and sets `event_id` from the URL; `rules` defaults to `{}` when omitted; `created_at`/`updated_at` are stamped by the audit repository decorator. Right after the row insert, the new ticket type's workflow-step applicability is seeded to **ALL** of the event's current workflow steps (fail open — an organizer forgetting to configure a new type should default to full admission, not silently block guests at every check-in step) via `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs`. This is **best-effort**, the same non-blocking treatment as `EventService.Create`'s template-copy (see [Events](#events)): a workflow-step lookup or assign failure is logged but does not fail ticket type creation.
+- **Update** — partial (`name`/`rules` only); `event_id` cannot change; `workflow_step_ids` is left unpopulated on the response; `updated_at` re-stamped by the decorator.
+- **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
+- **Replace workflow steps** — full-replace via `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs` (delete-then-reinsert every association for the ticket type); **not wrapped in a database transaction** (no feature in this codebase uses one yet, same as [workflow steps](#workflow-steps)' Sync) — a failure partway through is recovered by resubmitting the same call.
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a ticket type or workflow step belonging to a different event is also reported as 404/400 respectively (see Invariants); a missing `manage_events` permission →403; unexpected errors become 500 and are logged with context.
+
+---
+
 ## Template for new features
 
 Copy this when adding a slice (and add a [feature-map](../AGENTS.md#feature-map) row):

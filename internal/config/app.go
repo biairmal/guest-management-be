@@ -6,6 +6,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
+	"github.com/biairmal/guest-management-be/internal/features/tickets"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 )
 
@@ -22,6 +23,7 @@ type FeatureConfig struct {
 	Templates templates.Config `mapstructure:"templates"`
 	Roles     roles.Config     `mapstructure:"roles"`
 	Staffing  staffing.Config  `mapstructure:"staffing"`
+	Tickets   tickets.Config   `mapstructure:"tickets"`
 }
 
 // Validate validates every registered feature's configuration.
@@ -41,5 +43,8 @@ func (c *FeatureConfig) Validate() error {
 	if err := c.Roles.Validate(); err != nil {
 		return err
 	}
-	return c.Staffing.Validate()
+	if err := c.Staffing.Validate(); err != nil {
+		return err
+	}
+	return c.Tickets.Validate()
 }

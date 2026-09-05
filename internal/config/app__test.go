@@ -8,6 +8,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
+	"github.com/biairmal/guest-management-be/internal/features/tickets"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 )
 
@@ -19,6 +20,7 @@ func defaultFeatureConfig() FeatureConfig {
 		Events: events.DefaultConfig(), Tenants: tenants.DefaultConfig(),
 		Users: users.DefaultConfig(), Templates: templates.DefaultConfig(),
 		Roles: roles.DefaultConfig(), Staffing: staffing.DefaultConfig(),
+		Tickets: tickets.DefaultConfig(),
 	}
 }
 
@@ -82,6 +84,15 @@ func TestFeatureConfigValidate(t *testing.T) {
 			cfg: func() FeatureConfig {
 				c := defaultFeatureConfig()
 				c.Staffing.Repository.StaffAssignmentCache.Strategy = "bogus"
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "invalid tickets config is rejected",
+			cfg: func() FeatureConfig {
+				c := defaultFeatureConfig()
+				c.Tickets.Repository.TicketTypeCache.Strategy = "bogus"
 				return c
 			}(),
 			wantErr: true,

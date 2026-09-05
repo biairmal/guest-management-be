@@ -40,8 +40,9 @@ One row per feature slice. **When you add a feature, add a row here** (see [Auth
 | `templates` | `internal/features/templates` | `/api/v1/message-templates` (CRUD + list) | [docs/FEATURES.md#templates](docs/FEATURES.md#templates) |
 | `roles` | `internal/features/roles` | *internal-only, no HTTP endpoints this phase* — model + repository consumed by `users`/`staffing`/`internal/core/authz` | [docs/FEATURES.md#roles](docs/FEATURES.md#roles) |
 | `staffing` | `internal/features/staffing` | `/api/v1/events/{event_id}/staff` (CRUD + list, all gated on the `manage_staff` permission) | [docs/FEATURES.md#staffing](docs/FEATURES.md#staffing) |
+| `tickets` | `internal/features/tickets` | `/api/v1/events/{event_id}/ticket-types` (CRUD + list + `PUT /{id}/workflow-steps`, all gated on the `manage_events` permission) | [docs/FEATURES.md#tickets](docs/FEATURES.md#tickets) |
 
-> 15 migrations define ~16 tables (tenants, users, roles/permissions, events, guests, tickets, scans, templates) plus role scope/seed data; `event_categories`/`events`/`workflow_steps`/`workflow_step_templates`, `tenants`, `users`, `auth`, `message_templates`, `roles` (model+repo only), and `staffing` have code. The build order is specified in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
+> 15 migrations define ~16 tables (tenants, users, roles/permissions, events, guests, tickets, scans, templates) plus role scope/seed data; `event_categories`/`events`/`workflow_steps`/`workflow_step_templates`, `tenants`, `users`, `auth`, `message_templates`, `roles` (model+repo only), `staffing`, and `tickets` (ticket types only — the `Ticket` QR artifact is B8) have code. The build order is specified in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
 
 ---
 

@@ -11,8 +11,8 @@
 
 include $(SCRIPTS_DIR)/vars.mk
 
-# Packages that carry //go:generate mockgen directives.
-MOCK_PKGS := ./internal/features/events/... ./internal/features/tenants/... ./internal/features/users/... ./internal/features/auth/... ./internal/features/templates/... ./internal/features/roles/... ./internal/features/staffing/... ./internal/core/validation/... ./internal/core/authz/...
+# All app source packages; go generate is a no-op for files without a //go:generate directive.
+MOCK_PKGS := ./internal/...
 
 mocks: ## Regenerate app-interface mocks into ./mocks (go.uber.org/mock)
 	$(ECHO_EMPTY)

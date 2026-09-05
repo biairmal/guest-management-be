@@ -14,6 +14,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
+	"github.com/biairmal/guest-management-be/internal/features/tickets"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 )
 
@@ -27,6 +28,7 @@ type service struct {
 	authService                 appauth.Service
 	messageTemplateService      templates.MessageTemplateService
 	staffAssignmentService      staffing.StaffAssignmentService
+	ticketTypeService           tickets.TicketTypeService
 	authzChecker                *coreauthz.Checker
 }
 
@@ -57,6 +59,10 @@ func (a *App) initializeService(
 		staffAssignmentService: staffing.NewStaffAssignmentService(
 			logger, repositories.staffAssignmentRepository, repositories.eventRepository,
 			repositories.userRepository, repositories.roleRepository,
+		),
+		ticketTypeService: tickets.NewTicketTypeService(
+			logger, repositories.ticketTypeRepository,
+			repositories.ticketTypeWorkflowStepRepository, repositories.workflowStepRepository,
 		),
 		authzChecker: authzChecker,
 	}

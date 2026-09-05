@@ -28,7 +28,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B4 | Domain | `events` (events + workflow steps; extend existing slice) | B1, B2 | ✅ |
 | B5 | Domain | `templates` (event + message templates) | B4 | ✅ |
 | B6 | Domain | `staffing` (event staff assignments, roles/permissions) | B2, B4 | ✅ |
-| B7 | Domain | `tickets` (ticket types + tickets) | B4 | ⬜ |
+| B7 | Domain | `tickets` (ticket types + tickets) | B4 | ✅ |
 | B8 | Domain | `guests` | B4, B7 | ⬜ |
 | B9 | Domain | `scans` (check-in / scan logs) | B8 | ⬜ |
 
@@ -247,6 +247,113 @@ each phase names its migration and tables. Ordered by data dependency.
 - **B7–B9 `tickets`/`guests`/`scans`** — the check-in critical path. `scans` is write-heavy and latency-sensitive;
   when it becomes a hotspot, it's the first candidate to extract into its own service (the slice boundary already
   isolates it).
+
+### B7. `tickets` (ticket types)
+
+#### Story (product-manager)
+
+As a tenant staff member configuring an event, I want to define ticket types for an event and specify which of
+that event's workflow steps each ticket type includes, so that guests receive the right ticket (e.g. VIP vs
+Regular) and check-in later enforces only the steps that ticket type is entitled to (REQUIREMENT.md §3.8, §4.4).
+
+**Acceptance criteria**
+1. Creating a ticket type under an event with a name and rules succeeds and the response is scoped to that event.
+2. Creating a second ticket type with a name that already exists on the same event is rejected (409) — name is
+   unique per event (DATABASE.md §3.11).
+3. Listing ticket types for an event returns only that event's active (non-deleted) ticket types, paginated.
+4. Fetching, updating, or deleting a ticket type that belongs to a different event resolves as 404, not a
+   cross-event leak.
+5. A ticket type's set of applicable workflow steps can be assigned/replaced, restricted to workflow steps
+   belonging to the same event; a workflow step from a different event is rejected.
+6. Retrieving a ticket type reports which of the event's workflow steps it currently applies to.
+7. A newly created ticket type defaults to **all** of the event's current workflow steps (not none) — an
+   organizer must explicitly narrow it down if a type should have limited access.
+8. Deleting a ticket type is a soft delete: it disappears from subsequent list/get calls.
+9. Every endpoint requires a valid access token; an unauthenticated call gets 401.
+
+**Open question for solutions-architect:** B4's events/workflow-steps endpoints enforce auth only, with no
+permission-code gate; B6 staffing gated its endpoints on `manage_staff`. Decide whether create/update/delete of
+ticket types should be gated by an existing permission (e.g. `manage_events`) or left ungated for now. Also
+decide the endpoint shape for setting a ticket type's workflow-step applicability — a dedicated junction
+endpoint vs. a `workflow_step_ids` field on the ticket-type body (mirroring workflow-steps' Sync pattern).
+
+No new domain concepts — `TicketType` is already modeled in REQUIREMENT.md §3.8 and the `ticket_type_workflow_steps`
+junction in DATABASE.md §3.12, so no REQUIREMENT.md changes are needed.
+
+#### Technical Design (solutions-architect)
+
+**Slice boundary:** new slice `internal/features/tickets`, flat layout (not split into per-entity subpackages —
+`TicketType` is the only entity this phase; `Ticket` itself arrives in B8). File names follow the entity:
+`ticket_type_model.go`, `ticket_type_repository.go`, `ticket_type_workflow_step_repository.go`,
+`ticket_type_dto.go`, `ticket_type_service.go`, `ticket_type_handler.go`, `ticket_type_routes.go`,
+`tickets_constants.go`.
+
+**Data model:** no new tables — migration `000008` already defines both:
+- `ticket_types` (DATABASE.md §3.11) — standard soft-delete entity, `repository.Repository[TicketType, uuid.UUID]`
+  via `internal/core/repository.NewRepository`, exactly like `events`/`event_category`.
+- `ticket_type_workflow_steps` (DATABASE.md §3.12) — a composite-key junction with **no soft delete**. Same shape
+  as `roles`' `role_permissions` join (FEATURES.md#roles): a small purpose-built
+  `TicketTypeWorkflowStepRepository` interface (`SetWorkflowStepIDs(ctx, ticketTypeID, ids)`,
+  `WorkflowStepIDsByTicketTypeID(ctx, ticketTypeID)`), not the generic `repository.Repository[T,TID]` — a junction
+  row has no ID of its own to key a generic CRUD interface on.
+- **Cross-feature read**: validating that a workflow-step ID belongs to the ticket type's event requires reading
+  `workflow_steps`, owned by `events/workflowstep`. Follow the exact pattern `staffing` already uses for its
+  `eventRepo`/`userRepo`/`roleRepo` (A8 step 6, AGENTS.md#repository-pattern--anti-duplication): the ticket-type
+  service holds a `repository.ReadRepository[workflowstep.WorkflowStep, uuid.UUID]` field and calls `GetByID`
+  per submitted ID, checking `.EventID` matches. No new published interface — this codebase already decided
+  (A8, "explicitly out of scope") that a published-interface/adapter layer isn't warranted until a slice is an
+  actual extraction candidate.
+
+**API surface** (mirrors `events/workflowstep`'s nested-resource shape — see FEATURES.md#workflow-steps):
+
+Base path `/api/v1/events/{event_id}/ticket-types`, `event_id` always from the URL, never the body. **Every route
+requires the `manage_events` permission** (`authz.RequirePermission`, same mechanism `staffing` uses for
+`manage_staff` — FEATURES.md#staffing) — decided per product owner: ticket types modify an event's flow, so they
+gate on the same permission as event configuration, even though `events`/`workflow-steps` themselves don't yet
+enforce it (that stays unchanged; out of scope here). `PermissionManageEvents = "manage_events"` is declared in
+`tickets_constants.go` — permission codes are feature-owned (AGENTS.md), so this is a same-value constant local
+to `tickets`, not a shared import from `events`.
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List for the event (paginated, filtered, sorted) | 200 | 400 invalid event id/query |
+| `POST` | `/` | Create a ticket type under the event | 201 | 400 invalid body · 409 name conflict · 422 invalid entity |
+| `GET` | `/{id}` | Get one, scoped to the event — response includes `workflow_step_ids` | 200 | 400 bad UUID · 404 not found |
+| `PUT` | `/{id}` | Partial update (`name`, `rules`) | 200 | 400 · 404 not found · 409 name conflict |
+| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 404 not found |
+| `PUT` | `/{id}/workflow-steps` | **Replace** the full set of workflow steps this ticket type applies to (bulk, same Sync-style full-replace semantics as `PUT /workflow-steps`, scoped to one ticket type instead of the whole event) | 200 | 400 a step id not on this event · 404 ticket type not found |
+
+- `workflow_step_ids` is populated on `GetByID` only (one extra lookup), left empty on `List`/`Update` to
+  avoid an N+1 join across every row of a list — the story's AC5/AC6 only requires it on a single retrieved
+  ticket type, not the list view. `Create`'s response does populate it (see below — it's never empty by design).
+- **Create seeds default workflow-step applicability to ALL of the event's current workflow steps** — not zero.
+  Right after the row insert, the service looks up the event's `workflow_steps` and assigns every one via
+  `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs`, same best-effort/non-blocking treatment as
+  `EventService.Create`'s template-copy (FEATURES.md#events): a lookup/assign failure is logged but does not fail
+  ticket type creation. Rationale: an organizer forgetting to configure a new ticket type should fail **open**
+  (full standard admission) rather than fail **closed** (guests silently blocked at every check-in step) — the
+  latter is the costlier mistake during a live event. Narrowing a type (e.g. Regular loses VIP lounge) is then a
+  deliberate `PUT .../workflow-steps` call that removes steps from the default set, not an easy-to-forget add.
+- List query allow-list: sort `id, name, created_at, updated_at`; filter `name`; `event_id` forced from the URL,
+  never a query param (same convention as `workflow-steps`).
+- `name` uniqueness (`(event_id, name)`, DATABASE.md §3.11) is DB-enforced; the service maps
+  `repository.ErrAlreadyExists` → `errorz.Conflict()`, same translation every other feature uses.
+- `rules` is passed through as an opaque JSON document (`json.RawMessage`), unvalidated — same treatment as
+  `workflow_step_templates.ticket_type_applicability` (FEATURES.md#workflow-step-templates); nothing in
+  REQUIREMENT.md prescribes a `rules` schema yet.
+
+**Non-goals:**
+- **Not retrofitting `manage_events` onto `events`/`workflow-steps`** — those stay auth-only as they are today;
+  only the new `ticket-types` routes gate on the permission. Revisit if a future story asks to lock down event
+  editing itself.
+- **No incremental add/remove of individual workflow-step associations** — only the full-replace `PUT
+  .../workflow-steps`, mirroring the event-level workflow-steps Sync design. A UI needing to toggle one step
+  resubmits the full set, same as today's workflow-steps Sync.
+- **`Ticket` (the QR artifact issued to a guest) is out of scope** — that's B8, which depends on `guests`
+  existing first.
+- **No transaction around the workflow-step replace** — no feature in this codebase uses a DB transaction yet
+  (see FEATURES.md#workflow-steps' Sync note); a failed replace is recovered by resubmitting, consistent with
+  existing Sync behavior.
 
 ### Cross-references to go-sdk
 

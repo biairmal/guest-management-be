@@ -11,6 +11,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
+	"github.com/biairmal/guest-management-be/internal/features/tickets"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 	"github.com/go-chi/chi/v5"
 )
@@ -30,4 +31,5 @@ func (a *App) initializeRoutes(_ logger.Logger, mux *chi.Mux, handler *handler, 
 	appauth.InitAuthRoutes(mux, handler.authHandler)
 	templates.InitMessageTemplateRoutes(mux, handler.messageTemplateHandler)
 	staffing.InitStaffAssignmentRoutes(mux, handler.staffAssignmentHandler, checker)
+	tickets.InitTicketTypeRoutes(mux, handler.ticketTypeHandler, checker)
 }
