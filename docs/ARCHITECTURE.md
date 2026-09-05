@@ -44,6 +44,8 @@ Domain code lives in `internal/features/<feature>`, each slice holding its own m
 
 `internal/app` is the **composition root** — the single place that imports every feature and wires repositories → services → handlers → routes. Keeping wiring here (and out of the slices) means adding/removing a feature is a localized change.
 
+A slice modeling several distinct entities (e.g. `events`) splits into per-entity subpackages (`events/category`, `events/event`, ...) for navigability — see [PATTERNS.md](PATTERNS.md#multi-entity-features-split-by-entity-not-by-layer). This doesn't weaken the service boundary above: entities within a feature don't call each other, so it's a pure navigation split, not a new dependency edge.
+
 ## Errors: errorz as the ecosystem-wide error type
 
 `errorz` (from `go-sdk`) is the shared structured-error type for the **whole ecosystem**, not an HTTP concern. Every layer returns `errorz`-coded errors, and `httpkit` maps the code to an HTTP status **at the edge only** (`CodeNotFound` → 404, `CodeConflict` → 409, …). The same taxonomy would map to gRPC codes if a slice becomes a gRPC service.

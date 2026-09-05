@@ -100,6 +100,7 @@ These are **MUST**-level unless stated otherwise. They are derived from the exis
 
 - **Dependency direction points inward only:** `handler → service → repository → go-sdk infra`. A handler MUST NOT touch the database; a service MUST NOT touch HTTP (`http.Request`, status codes, `chi`). The service layer speaks in domain types and `context.Context`, never transport types.
 - **Each feature is a self-contained vertical slice** under `internal/features/<feature>`. Treat the slice boundary as a **future service boundary**: no feature may import another feature's internals. Cross-feature reuse goes through `internal/core` (shared building blocks) or a small published interface — never a direct reach into a sibling slice.
+- **A feature slice with more than one distinct entity splits into per-entity subpackages**: `internal/features/<feature>/<entity>/` (e.g. `events/category`, `events/event`, `events/workflowstep`, `events/workflowsteptemplate`), each a flat, one-file-per-concern package per [Feature slice layout](docs/PATTERNS.md#feature-slice-layout) — split by entity, never by layer (no `service`/`handler`/`repository` subpackages within a slice; that forces internals to be exported across a boundary that doesn't need to exist and invites import cycles). Package names drop underscores per Go convention (`workflowstep`, not `workflow_step`) even though files inside keep `workflow_step_*.go` naming. A single-entity feature (`staffing`, `tenants`, `users`, `auth`) stays flat — don't split what isn't messy. `<feature>/config.go` stays at the feature root, aggregating every entity's `RepositoryConfig`.
 - **`internal/core` is for cross-feature infrastructure only.** Never put feature-specific types there.
 - **`internal/app` is the only layer that knows all features.** Wiring lives there; features do not wire themselves into the router from inside the slice beyond exposing an `InitXRoutes(...)` function.
 
@@ -119,18 +120,27 @@ These are **MUST**-level unless stated otherwise. They are derived from the exis
 
 - Persistence uses `go-sdk`'s generic `repository.Repository[TEntity, TID]` + `repository/sql.NewSQLRepository`, wrapped by the `internal/core/audit` decorator for soft-delete/audit fields.
 - **A per-feature repository MUST NOT be a hand-written pass-through** that re-widens a typed `TID` back to `any` or swallows type assertions (`idStr, _ := id.(string)` is banned — it turns a bad ID into a silent empty-string lookup). Use the typed generic repository directly, or the shared base helper once it exists (see [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)). If you write a repository interface, keep the ID **typed** (`uuid.UUID` / `string`), not `any`.
-- **Filter/sort/pagination parsing MUST reuse the shared allow-list parser** in `internal/core/query` (`ListParseConfig` + `ParseListParams`), not be copy-pasted per feature. Every list endpoint declares its allowed sort/filter fields as a `query.ListParseConfig`; pagination defaults fall back to the package-level defaults when left zero. See `events/category_handler.go` for the shape.
+- **Filter/sort/pagination parsing MUST reuse the shared allow-list parser** in `internal/core/query` (`ListParseConfig` + `ParseListParams`), not be copy-pasted per feature. `ParseListParams` is an HTTP-only adapter (it takes `url.Values`) used by HTTP handlers to fail fast on a bad query string; pagination defaults fall back to the package-level defaults when left zero. See `events/category_handler.go` for the shape.
+- **The allow-list is enforced again in the service, transport-agnostically, via `query.ValidateListParams(params, cfg)`** — the service, not the handler, is the actual authority: every transport (HTTP, and eventually gRPC/a subscriber) ends up with a `*query.ListParams` before calling the service, but only HTTP goes through `ParseListParams`. A handler that builds `ListParams` some other way must not be able to skip the allow-list. `ListParseConfig` (the allow-list itself) is declared once, exported from the `<entity>_service.go` file (e.g. `CategoryListConfig`); the HTTP handler imports that same value for its `ParseListParams` call rather than declaring its own copy. Running the same check at both the HTTP edge (fast client feedback) and the service (guaranteed enforcement regardless of caller) is deliberate defense-in-depth, not duplication to clean up.
+- **Converting `*query.ListParams` to `*repository.ListOptions` MUST reuse `query.ToListOptions`** in `internal/core/query` — never hand-roll a per-feature `listParamsToListOptions`. The conversion (page/size clamping, filter conditions, sort-direction mapping) is identical across every feature; it drifted into 5+ verbatim copies before this rule existed.
 
 ### Request validation
 
 - **Validate request payloads at the HTTP boundary** via the shared validator (`go-sdk` `validator` when it lands, or `go-playground/validator` meanwhile), driven by `validate:"..."` struct tags on the input DTO. Validation failures become clean `400`s with per-field detail.
 - **Do not scatter hand-written `if in.X == ""` checks in the service** for shape/format validation. The service layer owns **business-rule invariants** (e.g. "tenant_id required when source is tenant"), not field-presence checks.
+- **Decode request bodies via go-sdk's `serializer.ParseJSON`**, never `encoding/json` directly — this falls out of the go-sdk-first rule above; go-sdk owns request decoding the same way it owns errors, logging, and repositories.
+- **Input/output DTOs live in `<entity>_dto.go`**, not inline in `<entity>_service.go`. The service file holds only the `XService` interface and its implementation — struct definitions (`CreateInput`, `UpdateInput`, `SyncXInput`, etc.) belong in a dedicated DTO file so the service file is pure logic.
 
 ### API shape & options
 
 - Constructors are named **`NewX`**. Data/I/O functions take **`context.Context` as the first parameter**.
 - **Only introduce a per-layer `Options`/`Config` struct when it carries a real field.** Empty `struct{}` options threaded through layers are **banned** — add the struct when there is something to configure, not before.
 - Prefer **interface before implementation** for services and repositories (return the interface from the constructor) so layers are testable with generated mocks.
+
+### Constants
+
+- **Each feature slice owns a single `<feature>_constants.go`** (or `<entity>_constants.go` inside a per-entity subpackage) for its exported constants — permission codes, enum-like string values (`SourceApp`/`SourceTenant`), etc. Don't scatter `const` blocks across model/service files; once a feature has more than one or two constants, give them one place to scan.
+- **Permission codes stay feature-owned, not centralized in `internal/core/authz`.** A feature slice is the authority on what it gates; `internal/core/authz` only provides the generic `PermissionResolver`/`Checker`/`RequirePermission` mechanism, never the codes themselves.
 
 ### Configuration
 
@@ -147,6 +157,7 @@ These are **MUST**-level unless stated otherwise. They are derived from the exis
 - **Unit tests use stdlib `testing` + generated `gomock` mocks** — no testify, no hand-written fakes. Assertions are hand-written `if got != want { t.Errorf(...) }`; collaborators are stubbed with generated mocks.
 - **Mock collaborators with generated mocks, never manual fakes.** A hand-rolled fake silently rots — adding a method to an interface breaks every fake at once, and stale fakes hide gaps. For **`go-sdk` interfaces** (`repository.Repository[T,ID]`, `logger.Logger`, `redis.Client`) consume the generated mocks from the **`github.com/biairmal/go-sdk/mocks`** module (`mockrepository`, `mocklogger`, `mockredis`). For **app-defined interfaces** (feature services, etc.) generate mocks the same way — `//go:generate` + `mockgen` into a nested `mocks` module + `make mocks` — mirroring `go-sdk`'s setup ([scripts/mocks.mk](../go-sdk/scripts/mocks.mk)). Do **not** hand-write a fake; add a mockgen directive and regenerate. (A real no-op like `logger.NewNoOp()` is fine where there's nothing to stub.)
 - **Table-driven**, same-package (`package events`, not `events_test`), file named `*__test.go` (double underscore).
+- **When a file moves — e.g. into a new per-entity subpackage — its `*__test.go` moves with it in the same change.** A test file left behind in the old location is an orphaned test, not a passing one.
 - Integration tests that need a live DB go in **`*_integration_test.go`** and skip under `-short` (`if testing.Short() { t.Skip(...) }`); run via `make test-integration`.
 - **New behaviour ships with tests in the same change**; regenerate mocks (`make mocks`) when you change a mocked interface. See [docs/TESTING.md](docs/TESTING.md).
 
@@ -176,6 +187,10 @@ A change is **not complete** until every box is checked:
 - [ ] Errors use `errorz` with an appropriate code and **wrap the underlying cause**; sentinels compared via `errors.Is`; signatures return `error`, not `*errorz.Error`.
 - [ ] Handlers don't touch the DB; services don't touch HTTP; no cross-feature imports.
 - [ ] Request shape validated at the boundary via the shared validator; only business invariants live in the service.
+- [ ] Request bodies decoded via `serializer.ParseJSON`, not `encoding/json` directly.
+- [ ] List endpoints convert `*query.ListParams` via the shared `query.ToListOptions` — no per-feature reimplementation.
+- [ ] The list allow-list (`ListParseConfig`) is declared once in the service and enforced there via `query.ValidateListParams`, not only in the handler.
+- [ ] DTOs live in `<entity>_dto.go`; constants in `<feature>_constants.go`; a multi-entity feature is split into per-entity subpackages.
 - [ ] No new third-party dependency unless `go-sdk` truly lacks it (justification recorded); **no empty `Options{}` structs**; **no pass-through repository / swallowed ID assertion**.
 - [ ] Any configuration is in the `Config` tree (`mapstructure`-tagged, `go-sdk` configs embedded); **no hardcoded runtime values** in `main.go`.
 - [ ] New endpoints have **Swagger annotations** and `make swagger-generate` was run; exported symbols have doc comments.

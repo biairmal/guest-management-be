@@ -21,6 +21,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | A5 | Foundations | **Testing foundation** (generated-mock setup + first table-driven tests) | A2 | ✅ |
 | A6 | Foundations | Shared building blocks in `internal/core` (base repo, list-query parser, validator) | A5, go-sdk `validator` | ✅ |
 | A7 | Foundations | Cross-cutting middleware/observability + go-sdk `lifecycle` shutdown | go-sdk phases | ✅ |
+| A8 | Foundations | Post-B6 cleanup: shared list helpers, decode/DTO/constants hygiene, `events` entity split | A6 | ⬜ |
 | B1 | Domain | `tenants` | A6 | ✅ |
 | B2 | Domain | `users` | B1 | ✅ |
 | B3 | Domain | `auth` (login + route protection) | B2, go-sdk `auth` | ✅ |
@@ -130,6 +131,48 @@ cognitive-complexity lint cap):
   dependency call when one is introduced (e.g. a future remote `auth` mode in B3).
 - New config: `configs/config.yaml` `metrics:`/`ratelimit:`/`lifecycle:` blocks, `.env.example`
   `METRICS_*`/`RATELIMIT_*` vars. Tests: `internal/config/metrics__test.go`, `ratelimit__test.go`.
+
+### A8. Post-B6 cleanup: shared list helpers, decode/DTO/constants hygiene, `events` entity split
+
+Debt identified by a full-repo pattern review after B1–B6 shipped (`events`/`staffing` used as the worked examples).
+The new rules are already live in [AGENTS.md](../AGENTS.md) / [PATTERNS.md](PATTERNS.md) / [NEW_FEATURE_CHECKLIST.md](NEW_FEATURE_CHECKLIST.md#7-service) —
+this item is bringing existing code into line with them. Suggested order (each step's diff stays reviewable on its own):
+
+1. **`query.ToListOptions`** — add to `internal/core/query`, converting `*query.ListParams` to `*repository.ListOptions`
+   (page/size clamp, filter conditions, sort-direction mapping). Delete the verbatim `listParamsToListOptions` copies —
+   confirmed in `events/category_service.go`, `staffing/assignment_service.go`, `users/user_service.go`,
+   `templates/message_template_service.go`, `tenants/tenant_service.go` (grep `func listParamsToListOptions` for the
+   final count — `events/event_service.go`/`workflow_step_service.go`/`workflow_step_template_service.go` weren't
+   confirmed and may have their own copies too). Every call site switches to `query.ToListOptions(params)`.
+2. **`query.ValidateListParams`** — add alongside it: the same allow-list check as `ParseListParams`, but against an
+   already-built `*ListParams` so it works regardless of transport. Move each feature's `ListParseConfig` var from the
+   handler to the service file (exported, e.g. `CategoryListConfig`), call `query.ValidateListParams` first thing in
+   each service `List` method, and have the handler's `ParseListParams` call reuse that same exported value instead of
+   declaring its own copy. See [PATTERNS.md#list-query--allow-list-parsing-and-enforcement](PATTERNS.md#list-query--allow-list-parsing-and-enforcement).
+3. **`serializer.ParseJSON` swap** — replace every `json.NewDecoder(r.Body).Decode(&body)` with
+   `serializer.ParseJSON(r.Body, &body)` (go-sdk). Confirmed in 15 spots across `events`, `staffing`, `users`,
+   `tenants`, `templates`, `auth` handlers — grep `json.NewDecoder` for the full list.
+4. **DTO split** — move `CreateInput`/`UpdateInput`/etc. out of every `<entity>_service.go` into a new
+   `<entity>_dto.go`; the service file keeps only the `XService` interface + implementation.
+5. **Constants file** — `staffing_constants.go` for `PermissionManageStaff` (currently inline at the top of
+   `assignment_service.go`); an equivalent `<feature>_constants.go` for any other feature with inline domain constants
+   (e.g. `events`' `SourceApp`/`SourceTenant`).
+6. **`staffing` repository narrowing** — `staffAssignmentServiceImpl`'s `eventRepo`/`userRepo`/`roleRepo` fields go
+   from `repository.Repository[T, uuid.UUID]` to `repository.ReadRepository[T, uuid.UUID]` (go-sdk, already exists) —
+   `assignment_service.go` only ever calls `GetByID` on them. Re-run `make mocks`.
+7. **`events` entity split (do last)** — once 1–6 land, split the now-cleaner `events` package into per-entity
+   subpackages: `events/category`, `events/event`, `events/workflowstep`, `events/workflowsteptemplate` (package
+   names drop underscores; files keep `workflow_step_*.go` naming). `events/config.go` stays at the feature root.
+   Every moved `*__test.go` moves with its file in the same commit. See
+   [PATTERNS.md#multi-entity-features-split-by-entity-not-by-layer](PATTERNS.md#multi-entity-features-split-by-entity-not-by-layer).
+
+**Explicitly out of scope** (discussed and declined this pass — don't reopen without a new reason):
+permission-code centralization in `internal/core/authz` (staying feature-owned); a published-interface/adapter layer
+decoupling `staffing` from `events`/`users`/`roles` (no slice besides `scans` is an actual extraction candidate per
+this roadmap — `ReadRepository` narrowing in step 6 is the right-sized fix).
+
+- **Verify:** `make check` green; `make swagger-generate` re-run if any DTO moved package; `make mocks` re-run for
+  every mocked interface touched (staffing's narrowed repos, any new/moved service interface after the entity split).
 
 ---
 

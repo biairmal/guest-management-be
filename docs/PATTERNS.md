@@ -2,7 +2,7 @@
 
 Copy-paste templates for the conventions required by [../AGENTS.md](../AGENTS.md). Each snippet is modelled on the real `events` feature in this repository — follow these shapes rather than inventing new ones.
 
-> Where a snippet differs from current `events` code, the snippet is the **target** pattern and the difference is called out. The `events` slice predates these guidelines and has known issues (empty `Options{}`, a pass-through repository, service-level field validation) tracked in [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md).
+> Where a snippet differs from current `events` code, the snippet is the **target** pattern and the difference is called out. The `events` slice predates these guidelines and has known issues (empty `Options{}`, a pass-through repository, service-level field validation, DTOs inline in the service file, a hand-rolled `listParamsToListOptions`, an unsplit multi-entity package) tracked in [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md).
 
 ## Feature slice layout
 
@@ -10,15 +10,45 @@ A feature is a package under `internal/features/<feature>` with one file per con
 
 ```
 internal/features/<feature>/
-  <entity>_model.go        # struct with db + json tags, TableName(), domain consts
-  <entity>_repository.go   # typed repository over go-sdk generic repo + audit decorator
-  <entity>_service.go      # business rules, input DTOs, error translation
-  <entity>_handler.go      # func(*http.Request)(any,error) handlers + Swagger annotations
-  <entity>_routes.go       # InitXRoutes(r, handler) route registration
+  <entity>_model.go         # struct with db + json tags, TableName()
+  <entity>_repository.go    # typed repository over go-sdk generic repo + audit decorator
+  <entity>_dto.go           # input/output DTOs (CreateInput, UpdateInput, ...) with validate tags
+  <entity>_service.go       # XService interface + implementation only — business rules, error translation
+  <entity>_handler.go       # func(*http.Request)(any,error) handlers + Swagger annotations
+  <entity>_routes.go        # InitXRoutes(r, handler) route registration
   <entity>_service__test.go
+  <feature>_constants.go    # exported constants (permission codes, enum-like string values, ...)
 ```
 
 List endpoints declare their `query.ListParseConfig` allow-list as a var in `<entity>_handler.go` (see [List query — allow-list parsing](#list-query--allow-list-parsing)); the shared parser lives in `internal/core/query`, so no per-feature `_query.go` file is needed.
+
+### Multi-entity features: split by entity, not by layer
+
+A feature slice that models more than one distinct entity (e.g. `events`: category, event, workflow step, workflow step template) splits into per-entity subpackages, each following the layout above:
+
+```
+internal/features/events/
+  config.go                 # stays at the feature root — aggregates every entity's RepositoryConfig
+  category/
+    category_model.go
+    category_repository.go
+    category_dto.go
+    category_service.go
+    category_handler.go
+    category_routes.go
+    category_service__test.go
+  event/
+    event_model.go
+    ...
+  workflowstep/              # package name drops the underscore (Go convention); files keep workflow_step_*.go
+    workflow_step_model.go
+    ...
+  workflowsteptemplate/
+    workflow_step_template_model.go
+    ...
+```
+
+Split **by entity, never by layer** — no `service`/`handler`/`repository` subpackages inside a slice. Entities in a feature don't call each other, so an entity subpackage introduces no new cross-package coupling; a layer subpackage would force unexported types like `categoryServiceImpl` to become exported just to cross the new boundary, and invites import cycles between the layer packages. A single-entity feature (`staffing`, `tenants`, `users`, `auth`) stays flat — don't split what isn't messy.
 
 ## Model
 
@@ -69,6 +99,23 @@ Caching is configured **per repository**, not with one app-wide switch: each fea
 
 > **Anti-pattern (current `events/category_repository.go`, to be removed):** a `categoryRepo` struct whose methods are `return r.repo.X(...)` pass-throughs, with `idStr, _ := id.(string)` silently swallowing a bad ID type. Banned by [AGENTS.md](../AGENTS.md#repository-pattern--anti-duplication). When you need a shared CRUD base, use the `internal/core` base helper (see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)), not a per-feature forwarder.
 
+## DTOs — input/output shapes
+
+Input/output DTOs live in `<entity>_dto.go`, not inline in the service file — the service file holds only the `XService` interface and its implementation. Modelled on a `category_dto.go` split out of [`events/category_service.go`](../internal/features/events/category_service.go):
+
+```go
+// CreateInput is the input for creating an event category.
+//
+// swagger:model CreateInput
+type CreateInput struct {
+    Source   string     `json:"source"    validate:"required,oneof=app tenant"`
+    TenantID *uuid.UUID `json:"tenant_id" validate:"omitempty"`
+    Name     string     `json:"name"      validate:"required"`
+}
+```
+
+`validate:"..."` tags drive boundary validation (see [Request validation](#request-validation-boundary)); the service only enforces cross-field business invariants a struct tag can't express.
+
 ## Service — business rules & error translation
 
 The service speaks domain types + `context.Context`, never HTTP. It translates repository sentinels into `errorz` codes and logs internal errors once. Modelled on [`events/category_service.go`](../internal/features/events/category_service.go):
@@ -93,15 +140,46 @@ func (s *categoryService) Create(ctx context.Context, in CreateInput) (*EventCat
         if errors.Is(err, repository.ErrAlreadyExists) {
             return nil, errorz.Conflict().WithMessage("event category already exists")
         }
-        s.log.ErrorWithContext(ctx, "event category create failed", logger.F("error", err))
+        s.logger.ErrorWithContext(ctx, "event category create failed", logger.F("error", err))
         return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to create event category")
     }
-    s.log.InfoWithContext(ctx, "event category created", logger.F("id", entity.ID))
+    s.logger.InfoWithContext(ctx, "event category created", logger.F("id", entity.ID))
     return entity, nil
+}
+
+func (s *categoryService) List(
+    ctx context.Context, params *query.ListParams,
+) (*common.PageResponse[EventCategory], error) {
+    // Enforce the allow-list here too, not just in the handler — see
+    // "List query — allow-list parsing and enforcement" below for why.
+    if err := query.ValidateListParams(params, CategoryListConfig); err != nil {
+        return nil, errorz.BadRequest().WithMessage(err.Error())
+    }
+    // Reuse the shared conversion — never hand-roll this per feature.
+    items, total, err := s.repo.List(ctx, query.ToListOptions(params))
+    if err != nil {
+        s.logger.ErrorWithContext(ctx, "event category list failed", logger.F("error", err))
+        return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to list event categories")
+    }
+    return common.NewPageResponse(items, total, params.Page, params.Size), nil
 }
 ```
 
 Key rules: return `error` (not `*errorz.Error`); compare sentinels with `errors.Is`; wrap the cause on the internal path.
+
+## Constants
+
+Exported constants — permission codes, enum-like string values (`SourceApp`/`SourceTenant`), etc. — live in a single `<feature>_constants.go` (or `<entity>_constants.go` inside a per-entity subpackage), not scattered across model/service files. Modelled on `staffing`'s permission code:
+
+```go
+// staffing_constants.go
+
+// PermissionManageStaff is the permission code required to assign/remove/update
+// event staff. Gated on every route in assignment_routes.go via authz.RequirePermission.
+const PermissionManageStaff = "manage_staff"
+```
+
+Permission codes stay feature-owned — `internal/core/authz` provides the generic `PermissionResolver`/`Checker`/`RequirePermission` mechanism only, never the codes themselves.
 
 ## Handler — go-sdk adapter + Swagger
 
@@ -153,34 +231,43 @@ func InitCategoryRoutes(r chi.Router, h *CategoryHandler) {
 
 ## Request validation (boundary)
 
-Shape/format validation is driven by `validate:"..."` tags on the input DTO and runs in the handler via the shared validator, **not** by hand-written `if x == ""` in the service:
+Shape/format validation is driven by the `validate:"..."` tags on the input DTO (see [DTOs](#dtos--inputoutput-shapes)) and runs in the handler via the shared validator, **not** by hand-written `if x == ""` in the service. The service then only enforces **cross-field business invariants** (e.g. "tenant_id required when source is tenant") that a struct tag can't express cleanly.
+
+## List query — allow-list parsing and enforcement
+
+List endpoints declare their allowed sort/filter fields as a `query.ListParseConfig`, and it's enforced **twice, at two different layers, for two different reasons**:
+
+1. **HTTP parsing (handler, fail fast)** — [`internal/core/query`](../internal/core/query/list.go)'s `ParseListParams(q url.Values, cfg)` is an HTTP-only adapter: it parses the query string into a `*query.ListParams` and rejects a disallowed field immediately with a `400`, so an HTTP caller doesn't round-trip to the service for a bad request. Pagination defaults (`DefaultPage`/`DefaultSize`/`MaxSize`) fall back to the package-level defaults when left zero.
+2. **Service enforcement (transport-agnostic, authoritative)** — `query.ValidateListParams(params *query.ListParams, cfg) error` runs the same allow-list check against an already-built `*ListParams`, regardless of what produced it. The **service** calls this, not just the handler, because HTTP is not the only transport that will ever call it — a future gRPC handler or subscriber builds `*query.ListParams` from its own typed fields, never touches `ParseListParams`, and must still be unable to sort/filter on a field the entity doesn't allow.
+
+This isn't duplication to clean up — it's the same category as client-side + server-side validation: one copy for fast feedback at the edge, one copy that's the actual guarantee no matter who calls in.
+
+The `ListParseConfig` value itself is declared **once**, exported from the service file (the service is the authority enforcing it), and the HTTP handler imports that same value rather than declaring its own copy. Modelled on `events/category`:
 
 ```go
-// CreateInput is the request body for creating an event category.
-//
-// swagger:model CreateInput
-type CreateInput struct {
-    Source   string     `json:"source"    validate:"required,oneof=app tenant"`
-    TenantID *uuid.UUID `json:"tenant_id" validate:"omitempty"`
-    Name     string     `json:"name"      validate:"required"`
-}
-```
-
-The service then only enforces **cross-field business invariants** (e.g. "tenant_id required when source is tenant") that a struct tag can't express cleanly.
-
-## List query — allow-list parsing
-
-List endpoints declare their allowed sort/filter fields as config and reject anything else with a 400. The parser itself lives once in [`internal/core/query`](../internal/core/query/list.go) (`ListParseConfig` + `ParseListParams`); a feature only supplies its allow-lists — pagination defaults (`DefaultPage`/`DefaultSize`/`MaxSize`) fall back to the package-level defaults when left zero. Modelled on [`events/category_handler.go`](../internal/features/events/category_handler.go):
-
-```go
-var eventCategoryListConfig = query.ListParseConfig{
+// category_service.go — the service owns and enforces the allow-list
+var CategoryListConfig = query.ListParseConfig{
     AllowedSortFields:   []string{"id", "source", "tenant_id", "name", "created_at", "updated_at"},
     AllowedFilterFields: []string{"name", "source", "tenant_id"},
 }
 
-// in the handler:
-params, err := query.ParseListParams(r.URL.Query(), eventCategoryListConfig)
+func (s *categoryServiceImpl) List(
+    ctx context.Context, params *query.ListParams,
+) (*common.PageResponse[EventCategory], error) {
+    if err := query.ValidateListParams(params, CategoryListConfig); err != nil {
+        return nil, errorz.BadRequest().WithMessage(err.Error())
+    }
+    items, total, err := s.repo.List(ctx, query.ToListOptions(params))
+    // ...
+}
 ```
+
+```go
+// category_handler.go — reuses the service's config, does not declare its own
+params, err := query.ParseListParams(r.URL.Query(), events.CategoryListConfig)
+```
+
+`ParseListParams`, `ValidateListParams`, and `ToListOptions` together mean a feature never needs its own `XxxListParams` type, list-parsing code, or `listParamsToListOptions` conversion — only the one allow-list config above, declared once.
 
 `ParseListParams` returns `*query.ListParams` (embeds `common.BasePageRequest` + `Filters map[string]string`) directly — a feature does not need its own `XxxListParams` type or `ParseXxxListParams` wrapper function.
 
