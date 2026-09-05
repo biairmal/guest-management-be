@@ -2,6 +2,8 @@ package config
 
 import (
 	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/biairmal/guest-management-be/internal/features/roles"
+	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
 	"github.com/biairmal/guest-management-be/internal/features/users"
@@ -18,6 +20,8 @@ type FeatureConfig struct {
 	Tenants   tenants.Config   `mapstructure:"tenants"`
 	Users     users.Config     `mapstructure:"users"`
 	Templates templates.Config `mapstructure:"templates"`
+	Roles     roles.Config     `mapstructure:"roles"`
+	Staffing  staffing.Config  `mapstructure:"staffing"`
 }
 
 // Validate validates every registered feature's configuration.
@@ -31,5 +35,11 @@ func (c *FeatureConfig) Validate() error {
 	if err := c.Users.Validate(); err != nil {
 		return err
 	}
-	return c.Templates.Validate()
+	if err := c.Templates.Validate(); err != nil {
+		return err
+	}
+	if err := c.Roles.Validate(); err != nil {
+		return err
+	}
+	return c.Staffing.Validate()
 }

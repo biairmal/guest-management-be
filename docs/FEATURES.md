@@ -292,9 +292,10 @@ Manages **users** — the members of a tenant who log in and act on its behalf (
 
 - `tenant_id`, `email`, `password`, and `role_id` are required on create; `email` must be a valid address.
 - `tenant_id` is **immutable** after creation — a user cannot move tenants; it is not part of `UpdateInput`.
+- `role_id` must reference a **system-scope** role (`roles.scope = 'system'` — see [roles](#roles) and [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §3): the service loads the role by ID on create and on any update that changes `role_id`, returning `errorz.NotFound` (404) if the role doesn't exist and `errorz.BadRequest` (400) if it exists but is `event`-scoped. An event-scoped role (e.g. Usher) can never become a user's tenant-wide role.
 - `password` is never stored or returned in the clear: the service hashes it with bcrypt before persisting (`password_hash`), and the model tags `PasswordHash` `json:"-"` so it is never serialized in any response.
-- `email` is unique **across all tenants** (migration 000012 — see [DATABASE.md](DATABASE.md#35-users)), so [B3 `auth`](#auth) can look a user up at login by email alone. At most one user per tenant may have `is_tenant_master = true`, also DB-enforced.
-- On update (partial), only provided fields change; a provided `password` is re-hashed.
+- `email` is unique **across all tenants** (migration 000012 — see [DATABASE.md](DATABASE.md#35-users)), so [B3 `auth`](#auth) can look a user up at login by email alone. At most one user per tenant may have `is_tenant_master = true`, also DB-enforced. Exactly one user in the whole system may hold the Super Admin role — DB-enforced by a partial unique index on `users.role_id` (migration 000014; see [DATABASE.md](DATABASE.md)).
+- On update (partial), only provided fields change; a provided `password` is re-hashed; a provided `role_id` is re-validated as system-scope.
 
 > Field-presence/format checks (`required`, `email`, `min`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateInput`/`UpdateInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)). `tenant_id` scoping stays explicit in the request body — [B3 `auth`](#auth) puts `user_id`/`tenant_id` in the authenticated request context (`auth.ClaimsFromContext`), but users' own endpoints don't yet consume it in place of the body field.
 
@@ -317,10 +318,10 @@ Base path `/api/v1/users`:
 
 ### States & lifecycle
 
-- **Create** — service generates the `id` (UUID) and hashes the plaintext `password` with bcrypt; `created_at`/`updated_at` are stamped by the audit repository decorator.
-- **Update** — partial; a provided `password` is re-hashed, `tenant_id` cannot change; `updated_at` re-stamped by the decorator.
+- **Create** — service loads and validates `role_id`'s scope first (404/400 short-circuit before any write), then generates the `id` (UUID) and hashes the plaintext `password` with bcrypt; `created_at`/`updated_at` are stamped by the audit repository decorator.
+- **Update** — partial; a provided `password` is re-hashed, a provided `role_id` is re-validated as system-scope, `tenant_id` cannot change; `updated_at` re-stamped by the decorator.
 - **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
-- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); unexpected errors (including a bcrypt hashing failure) become 500 and are logged with context.
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a missing `role_id`→404, a `role_id` that isn't system-scope→400; unexpected errors (including a bcrypt hashing failure) become 500 and are logged with context.
 
 ---
 
@@ -341,12 +342,17 @@ in the route policy (`configs/config.yaml` `auth.token.rules`).
 
 - Login always returns the same generic `401 invalid email or password` for both an unknown email and a
   wrong password — a caller cannot enumerate valid emails from the error alone.
-- Every issued token carries a `type` claim (`access` or `refresh`) and a `tenant_id` claim. The protected-route
-  middleware is wired with a validator wrapped in `AccessOnlyValidator`, which rejects any token whose `type`
-  isn't `access` — so a refresh token, despite being signed by the same issuer, cannot be used to call a
-  protected endpoint.
+- Every issued token carries a `type` claim (`access` or `refresh`), a `tenant_id` claim, and (since B6) a
+  `role_id` claim — the user's current system-level role, read by
+  [`internal/core/authz`](STAFFING_RBAC.md) to authorize permission-gated endpoints (e.g. [staffing](#staffing)).
+  The protected-route middleware is wired with a validator wrapped in `AccessOnlyValidator`, which rejects any
+  token whose `type` isn't `access` — so a refresh token, despite being signed by the same issuer, cannot be
+  used to call a protected endpoint.
 - `POST /auth/refresh` validates the refresh token with the *unwrapped* validator, checks `type == "refresh"`
   itself, and re-loads the user by the token's subject so a deleted account cannot refresh past its removal.
+  `role_id` on the newly-issued pair is read from that freshly-reloaded user, **never** carried over from the
+  presented refresh token's own claims — so a role change (or downgrade) takes effect on the very next refresh
+  rather than persisting for the remainder of the old token's TTL (see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §6).
 - Access/refresh tokens are **stateless** — nothing is persisted server-side, so there is no logout/revocation
   endpoint; a compromised token is only invalidated by its `exp`.
 - `email` is unique across all tenants (migration 000012 — see [users](#users) above), so login needs only an
@@ -373,6 +379,76 @@ require a valid access token to reach the very endpoints that issue one.
   presented refresh token is not itself invalidated, since nothing is stored server-side).
 - **Errors** — token validation failures resolve through `go-sdk`'s `auth` sentinels (all wrap
   `errorz.ErrUnauthorized` → 401); unexpected repository/signing errors become 500 and are logged with context.
+
+---
+
+## roles
+
+Source: `internal/features/roles`. Tables: `roles`, `permissions`, `role_permissions` (see [DATABASE.md](DATABASE.md), [docs/STAFFING_RBAC.md](STAFFING_RBAC.md)).
+
+### Intent
+
+The shared roles/permissions engine every other feature's authorization checks build on: a **role** (`roles`) has a name, description, and a **scope** (`system` or `event`) and is granted a set of **permissions** (`permissions`) via `role_permissions`. [`users`](#users) validates that a user's `role_id` is `system`-scope; [`staffing`](#staffing) validates that an assignment's `role_id` is `event`-scope; [`internal/core/authz`](STAFFING_RBAC.md) resolves a role's permission codes to authorize a request. This phase ships **model + repository only** — no HTTP surface (mirrors `workflow_step_templates` shipping model+repository-only in B4 before handler/routes landed in B5). The starter role/permission catalog (Super Admin, Tenant Admin, Tenant Staff, Usher, Photobooth Staff; `manage_tenants`/`manage_users`/`manage_events`/`manage_staff`/`manage_guests`/`manage_workflows`/`check_in`) is seeded by migration `000014` — see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §3 for the full grant table and §7 for what's explicitly out of scope this phase (no admin CRUD endpoints for roles/permissions, no per-tenant custom roles).
+
+### Invariants
+
+- `roles.scope` is `system` or `event` (DB `CHECK`, migration 000013) — a role is one or the other, never both.
+- **`roles` has no `deleted_at` column** (system/reference data, not user content) — its repository is built with `internal/core/repository.NewRepositoryNoAudit`, not the usual `NewRepository`, since the audit decorator assumes `deleted_at` exists and would break `List`/`Count` and silently no-op `Delete` against this table.
+- `role_permissions` has a composite primary key `(role_id, permission_id)` and is a read-only join for this phase — modeled as a small purpose-built `RolePermissionRepository` interface (`PermissionCodesByRoleID`), not the generic `repository.Repository[T,TID]` pattern, and given its own hand-rolled Redis read-through cache decorator (`NewCachedRolePermissionRepository`).
+- Exactly one user in the system may hold the seeded Super Admin role, enforced by a partial unique index on `users.role_id` (migration 000014) — see [users](#users).
+
+### Endpoints
+
+None this phase — internal-only, consumed by `users`, `staffing`, and `internal/core/authz`. A future phase may add admin CRUD for roles/permissions (see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §7).
+
+### States & lifecycle
+
+- Roles/permissions/role_permissions are **seeded once** (migration `000014`) and otherwise static in this phase — no create/update/delete path exists yet.
+- `PermissionCodesByRoleID` reads are cached (read-through, JSON-encoded `[]string`, keyed by role ID) when `app.roles.repository.role_permission_cache.enabled` is true; a Redis outage or cache-miss falls through to the DB join, never fails the read.
+
+---
+
+## staffing
+
+Source: `internal/features/staffing`. Table: `event_staff_assignments` (see [DATABASE.md](DATABASE.md), [docs/STAFFING_RBAC.md](STAFFING_RBAC.md)).
+
+### Intent
+
+Assigns tenant users to events with an **event-scoped role** (e.g. Usher, Photobooth Staff) that governs what they can do at that one event, independent of their tenant-wide role (see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §1–§2, §5). Every endpoint requires the caller's **system-level role** to hold the `manage_staff` permission (Tenant Admin/Super Admin by the seeded catalog — see [roles](#roles)); an event-level role never grants staff-management rights on its own.
+
+### Invariants
+
+- **Tenant scoping comes from the JWT, not the request body** — every endpoint resolves the caller's tenant via `authz.TenantIDFromContext` (the `tenant_id` claim), and `CreateAssignmentInput`/`UpdateAssignmentInput` carry **no `tenant_id` field**. This is a deliberate, narrow divergence from the [`users`](#users)/[`events`](#events) precedent (which still take `tenant_id` explicitly in the body — a known, separately-tracked gap): permission enforcement is meaningless if a caller can simply name a different tenant's `event_id`/`user_id` in the body while the permission check passes on their own role.
+- Every request is authorized against the caller's **system-level role's** permissions (the `manage_staff` permission), checked by `authz.RequirePermission` middleware before the handler runs — see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §6.
+- `event_id` is always taken from the URL, and every operation first loads the event and verifies `event.tenant_id` matches the caller's tenant claim. A mismatch (or a nonexistent event) resolves as `errorz.NotFound` (404), **never** `errorz.Forbidden` — the same not-found-not-forbidden convention as `WorkflowStepService`, so a caller can't distinguish "doesn't exist" from "belongs to someone else."
+- **Create** validates, in order: the event belongs to the caller's tenant (404 otherwise); the target user exists and belongs to the *same* tenant as the event (404 otherwise — same not-found convention); the role exists (404) and is **event-scope** (`errorz.BadRequest`/400 if it's `system`-scope instead); and no other **active** assignment already exists for this `(event_id, user_id)` pair (`errorz.Conflict`/409).
+- A user can hold **at most one active assignment per event** at a time — enforced by a partial unique index `(event_id, user_id) WHERE deleted_at IS NULL` (migration 000015, replacing the original plain `UNIQUE (event_id, user_id)` from migration 000007, which would have permanently blocked re-assignment after a removal). **Removing and later re-assigning the same user to the same event is allowed** and creates a brand-new row — never a reactivation of the deleted one — so an event's staffing history stays an accurate log of who was ever staffed (see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §5).
+- **`event_id` and `user_id` are immutable** after creation — `UpdateAssignmentInput` carries only `role_id`. Re-assigning a different user (or moving an assignment to a different event) is a `DELETE` + `POST`, not a `PUT`. A provided `role_id` on update is re-validated as event-scope.
+- **List is always scoped to one event** — `event_id` is server-injected into the query regardless of caller-supplied filters; there is no cross-event staff listing in this phase.
+
+### Endpoints
+
+Base path `/api/v1/events/{event_id}/staff`. Every route requires a valid access token **and** the `manage_staff` permission (`authz.RequirePermission`):
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List staff for the event (paginated, filtered, sorted) | 200 | 400 invalid event id/query · 401 · 403 · 404 event not found |
+| `GET` | `/{id}` | Get one assignment by UUID, scoped to the event | 200 | 400 bad UUID · 401 · 403 · 404 not found |
+| `POST` | `/` | Assign a user to the event with an event-scope role | 201 | 400 invalid body/role not event-scope · 401 · 403 · 404 event/user/role not found · 409 already assigned · 422 invalid entity |
+| `PUT` | `/{id}` | Change an assignment's role | 200 | 400 invalid body/role not event-scope · 401 · 403 · 404 not found |
+| `DELETE` | `/{id}` | Remove a user from the event (soft delete) | 204 | 400 · 401 · 403 · 404 not found |
+
+**List query:** `?page=1&size=20&sort=created_at,ASC&user_id=...&role_id=...`.
+- `page` 1-based; `size` default 20, clamped to 100.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, user_id, role_id, created_at, updated_at`); unknown field → 400.
+- Filters: `user_id`, `role_id` (exact match); `event_id` is always forced from the URL and is not a query filter.
+
+### States & lifecycle
+
+- **Create** — service generates the `id` (UUID) and sets `event_id`/`user_id`/`role_id` from the URL/validated input; `created_at`/`updated_at` are stamped by the audit repository decorator. The active-duplicate check is a `List`-based pre-check (necessary, not optional — `go-sdk`'s Postgres error mapping does not yet translate a `23505 unique_violation` into `repository.ErrAlreadyExists`, see `go-sdk/lib/repository/sql/helpers.go`); a residual `errors.Is(err, repository.ErrAlreadyExists)` translation on the `Create` call itself is kept as a race-condition fallback.
+- **Update** — only `role_id` may change, re-validated as event-scope; `updated_at` re-stamped by the decorator.
+- **Delete** — **soft**: `deleted_at` is set; the row remains as staffing history. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator) — including the active-duplicate check, so removing and re-adding the same user to the same event is allowed (see Invariants).
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a missing `tenant_id`/`role_id` JWT claim →401; a missing `manage_staff` permission →403; an assignment/event resolved as belonging to a different tenant or event →404; unexpected errors become 500 and are logged with context.
 
 ---
 

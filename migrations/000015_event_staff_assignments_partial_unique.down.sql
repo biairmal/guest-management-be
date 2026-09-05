@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_event_staff_assignments_event_user_active;
+ALTER TABLE event_staff_assignments ADD CONSTRAINT event_staff_assignments_event_id_user_id_key UNIQUE (event_id, user_id);

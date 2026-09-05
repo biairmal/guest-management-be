@@ -99,7 +99,7 @@ func (s *authServiceImpl) Login(ctx context.Context, in LoginInput) (*TokenPair,
 		return nil, errInvalidCredentials
 	}
 
-	return s.issueTokenPair(ctx, user.ID, user.TenantID)
+	return s.issueTokenPair(ctx, user.ID, user.TenantID, user.RoleID)
 }
 
 // Refresh validates a refresh token and issues a new token pair for the same
@@ -123,7 +123,11 @@ func (s *authServiceImpl) Refresh(ctx context.Context, in RefreshInput) (*TokenP
 		return nil, errorz.Unauthorized().WithMessage("user no longer exists")
 	}
 
-	return s.issueTokenPair(ctx, user.ID, user.TenantID)
+	// user.RoleID is read from the freshly-reloaded user (never carried over
+	// from the presented refresh token's claims), so a role change takes
+	// effect on the caller's very next refresh rather than being stuck for
+	// the remainder of the refresh token's TTL (see docs/STAFFING_RBAC.md ss6).
+	return s.issueTokenPair(ctx, user.ID, user.TenantID, user.RoleID)
 }
 
 // getByEmail looks up a user by email (unique across all tenants; migration
@@ -147,14 +151,21 @@ func (s *authServiceImpl) getByEmail(ctx context.Context, email string) (*users.
 
 // issueTokenPair mints an access token (accessTTL, type=access) and a
 // refresh token (refreshTTL, type=refresh) for userID, both carrying
-// tenant_id as an extra claim — this package keeps tenant scoping in JWT
-// claims rather than ctxkit (see docs/DEVELOPMENT_PLAN.md B3).
-func (s *authServiceImpl) issueTokenPair(ctx context.Context, userID, tenantID uuid.UUID) (*TokenPair, error) {
+// tenant_id and role_id as extra claims — this package keeps tenant/role
+// scoping in JWT claims rather than ctxkit (see docs/DEVELOPMENT_PLAN.md B3,
+// docs/STAFFING_RBAC.md ss6). Callers must pass the caller's *current*
+// roleID (e.g. freshly reloaded from the repository), never one carried
+// over from a previously-issued token, so a role change takes effect
+// promptly rather than persisting for the life of an old token.
+func (s *authServiceImpl) issueTokenPair(ctx context.Context, userID, tenantID, roleID uuid.UUID) (*TokenPair, error) {
 	subject := userID.String()
+	claims := func(typ string) map[string]any {
+		return map[string]any{"type": typ, "tenant_id": tenantID.String(), "role_id": roleID.String()}
+	}
 
 	access, err := s.issuer.Issue(subject,
 		sdkauth.WithTTL(s.accessTTL),
-		sdkauth.WithExtraClaims(map[string]any{"type": tokenTypeAccess, "tenant_id": tenantID.String()}),
+		sdkauth.WithExtraClaims(claims(tokenTypeAccess)),
 	)
 	if err != nil {
 		s.logger.ErrorWithContext(ctx, "issue access token failed", logger.F("error", err))
@@ -163,7 +174,7 @@ func (s *authServiceImpl) issueTokenPair(ctx context.Context, userID, tenantID u
 
 	refresh, err := s.issuer.Issue(subject,
 		sdkauth.WithTTL(s.refreshTTL),
-		sdkauth.WithExtraClaims(map[string]any{"type": tokenTypeRefresh, "tenant_id": tenantID.String()}),
+		sdkauth.WithExtraClaims(claims(tokenTypeRefresh)),
 	)
 	if err != nil {
 		s.logger.ErrorWithContext(ctx, "issue refresh token failed", logger.F("error", err))

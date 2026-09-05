@@ -40,16 +40,28 @@ replace github.com/biairmal/go-sdk/mocks => ../go-sdk/mocks
 > `repository.Repository[EventCategory, uuid.UUID]` (no bespoke wrapper interface), the **go-sdk-generated
 > `mockrepository.MockRepository` mocks it directly** — zero app mock code.
 
-### 2. App-defined interfaces → generate the same way
+### 2. App-defined interfaces → generate into `./mocks`, same module
 
-For interfaces this service defines (feature **services**, and any app-specific interface), **do not hand-write a fake** — mirror `go-sdk`'s setup ([scripts/mocks.mk](../../go-sdk/scripts/mocks.mk)):
+For interfaces this service defines (feature **services**, and any app-defined interface), **do not
+hand-write a fake** — generate one, the same way `go-sdk` does it ([scripts/mocks.mk](../../go-sdk/scripts/mocks.mk)):
 
 1. Add a `//go:generate` directive next to the interface:
    ```go
    //go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=../../../mocks/events/mock_service.go -package=mockevents github.com/biairmal/guest-management-be/internal/features/events CategoryService
    ```
-2. Generate into a nested `mocks/` module (own `go.mod` with `replace github.com/biairmal/guest-management-be => ../`) so `go.uber.org/mock` stays out of the main module.
-3. Add a `make mocks` target (copy `go-sdk/scripts/mocks.mk`) and run it. Setting this up is item **A5** in [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md).
+2. `make mocks` (`go generate` over every package listed in `scripts/mocks.mk`'s `MOCK_PKGS`) writes the
+   generated file straight into `./mocks/<feature>/`, an ordinary package tree of **this same module** —
+   no nested `go.mod`. `go.uber.org/mock` is a normal (test-only-in-practice) dependency in the main
+   `go.mod`; it never ships in the compiled binary since `_test.go` files aren't part of `go build
+   ./cmd/api`, so keeping it in the main module costs nothing at runtime.
+3. A generated mock is consumed with a plain import, exactly like any other package in the repo — no
+   `require`/`replace` pair needed, and nothing has to be committed before `go build`/`go vet`/`go test`
+   can see it. (An earlier revision of this doc put app-defined mocks in a separate nested `mocks` module,
+   purely to keep `go.uber.org/mock` out of the main `go.mod`. That module had to `replace` itself back to
+   the main module to reach the app's own interfaces, and in practice a self-referential local
+   `require`+`replace` pair like that is fragile — it's easy to end up needing a fresh package committed
+   before the module graph resolves it correctly. Not worth the isolation it bought, so app-defined mocks
+   now live directly in this module.)
 
 ## Unit test template
 

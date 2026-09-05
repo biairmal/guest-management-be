@@ -153,3 +153,22 @@ app:
         ttl: 5m
         prefix: guest-management
         strategy: write_around # write_around, write_through, write_behind
+  roles:
+    repository:
+      role_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind
+      role_permission_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind (write path unused; read-through cache only)
+  staffing:
+    repository:
+      staff_assignment_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind

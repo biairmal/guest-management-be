@@ -4,10 +4,23 @@ import (
 	"testing"
 
 	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/biairmal/guest-management-be/internal/features/roles"
+	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 )
+
+// defaultFeatureConfig returns a FeatureConfig with every registered
+// feature's default configuration, for tests that only want to flex one
+// feature's Validate() failure at a time.
+func defaultFeatureConfig() FeatureConfig {
+	return FeatureConfig{
+		Events: events.DefaultConfig(), Tenants: tenants.DefaultConfig(),
+		Users: users.DefaultConfig(), Templates: templates.DefaultConfig(),
+		Roles: roles.DefaultConfig(), Staffing: staffing.DefaultConfig(),
+	}
+}
 
 func TestFeatureConfigValidate(t *testing.T) {
 	tests := []struct {
@@ -16,51 +29,61 @@ func TestFeatureConfigValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "default events, tenants, users and templates config is valid",
-			cfg: FeatureConfig{
-				Events: events.DefaultConfig(), Tenants: tenants.DefaultConfig(),
-				Users: users.DefaultConfig(), Templates: templates.DefaultConfig(),
-			},
+			name: "default events, tenants, users, templates, roles and staffing config is valid",
+			cfg:  defaultFeatureConfig(),
 		},
 		{
 			name: "invalid events config is rejected",
-			cfg: FeatureConfig{Events: func() events.Config {
-				c := events.DefaultConfig()
-				c.Repository.CategoryCache.Strategy = "bogus"
+			cfg: func() FeatureConfig {
+				c := defaultFeatureConfig()
+				c.Events.Repository.CategoryCache.Strategy = "bogus"
 				return c
-			}(), Tenants: tenants.DefaultConfig(), Users: users.DefaultConfig(), Templates: templates.DefaultConfig()},
+			}(),
 			wantErr: true,
 		},
 		{
 			name: "invalid tenants config is rejected",
-			cfg: FeatureConfig{Events: events.DefaultConfig(), Tenants: func() tenants.Config {
-				c := tenants.DefaultConfig()
-				c.Repository.TenantCache.Strategy = "bogus"
+			cfg: func() FeatureConfig {
+				c := defaultFeatureConfig()
+				c.Tenants.Repository.TenantCache.Strategy = "bogus"
 				return c
-			}(), Users: users.DefaultConfig(), Templates: templates.DefaultConfig()},
+			}(),
 			wantErr: true,
 		},
 		{
 			name: "invalid users config is rejected",
-			cfg: FeatureConfig{
-				Events: events.DefaultConfig(), Tenants: tenants.DefaultConfig(), Users: func() users.Config {
-					c := users.DefaultConfig()
-					c.Repository.UserCache.Strategy = "bogus"
-					return c
-				}(), Templates: templates.DefaultConfig(),
-			},
+			cfg: func() FeatureConfig {
+				c := defaultFeatureConfig()
+				c.Users.Repository.UserCache.Strategy = "bogus"
+				return c
+			}(),
 			wantErr: true,
 		},
 		{
 			name: "invalid templates config is rejected",
-			cfg: FeatureConfig{
-				Events: events.DefaultConfig(), Tenants: tenants.DefaultConfig(), Users: users.DefaultConfig(),
-				Templates: func() templates.Config {
-					c := templates.DefaultConfig()
-					c.Repository.MessageTemplateCache.Strategy = "bogus"
-					return c
-				}(),
-			},
+			cfg: func() FeatureConfig {
+				c := defaultFeatureConfig()
+				c.Templates.Repository.MessageTemplateCache.Strategy = "bogus"
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "invalid roles config is rejected",
+			cfg: func() FeatureConfig {
+				c := defaultFeatureConfig()
+				c.Roles.Repository.RoleCache.Strategy = "bogus"
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "invalid staffing config is rejected",
+			cfg: func() FeatureConfig {
+				c := defaultFeatureConfig()
+				c.Staffing.Repository.StaffAssignmentCache.Strategy = "bogus"
+				return c
+			}(),
 			wantErr: true,
 		},
 	}

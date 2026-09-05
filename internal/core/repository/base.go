@@ -67,3 +67,43 @@ func NewRepository[TEntity any, TID comparable](
 		cache.WithStrategy(cacheOpts.Strategy),
 	)
 }
+
+// NewRepositoryNoAudit returns a repository for TEntity like NewRepository,
+// except it skips the audit.NewAuditableRepository decorator. Use this only
+// for tables that genuinely have no deleted_at column (e.g. roles) — the
+// audit decorator unconditionally appends a "deleted_at IS NULL" filter to
+// every List/Count and turns Delete into a soft-delete Update, both of which
+// break (or silently no-op) against a table lacking that column. The
+// optional cache decorator is still applied when cacheOpts.Enabled and
+// cacheOpts.Client are set, identically to NewRepository.
+func NewRepositoryNoAudit[TEntity any, TID comparable](
+	log logger.Logger,
+	db *sqlkit.DB,
+	table string,
+	selectColumns []string,
+	cacheOpts CacheOptions,
+) repository.Repository[TEntity, TID] {
+	sqlRepo := sql.NewSQLRepository[TEntity, TID](
+		log,
+		db,
+		table,
+		sql.WithSelectColumns[TEntity, TID](selectColumns),
+	)
+
+	if !cacheOpts.Enabled || cacheOpts.Client == nil {
+		return sqlRepo
+	}
+
+	namespace := table
+	if cacheOpts.Prefix != "" {
+		namespace = cacheOpts.Prefix + ":" + table
+	}
+
+	return cache.NewCachedRepository[TEntity, TID](
+		sqlRepo,
+		cacheOpts.Client,
+		cache.WithKeyGenerator(cache.NewDefaultKeyGenerator(namespace)),
+		cache.WithTTL(cacheOpts.TTL),
+		cache.WithStrategy(cacheOpts.Strategy),
+	)
+}

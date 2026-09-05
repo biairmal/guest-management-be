@@ -26,7 +26,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B3 | Domain | `auth` (login + route protection) | B2, go-sdk `auth` | ✅ |
 | B4 | Domain | `events` (events + workflow steps; extend existing slice) | B1, B2 | ✅ |
 | B5 | Domain | `templates` (event + message templates) | B4 | ✅ |
-| B6 | Domain | `staffing` (event staff assignments, roles/permissions) | B2, B4 | ⬜ |
+| B6 | Domain | `staffing` (event staff assignments, roles/permissions) | B2, B4 | ✅ |
 | B7 | Domain | `tickets` (ticket types + tickets) | B4 | ⬜ |
 | B8 | Domain | `guests` | B4, B7 | ⬜ |
 | B9 | Domain | `scans` (check-in / scan logs) | B8 | ⬜ |
@@ -169,8 +169,15 @@ each phase names its migration and tables. Ordered by data dependency.
   slice — app/tenant/event scoped email/WhatsApp bodies, with no dependency on the `events` package (kept
   separate rather than folded into `events` since it scopes to tenants/events by ID reference, not ownership,
   mirroring `event_categories`' own source/tenant_id discriminator).
-- **B6 `staffing`** — introduces role/permission enforcement; wire a permission check into the middleware/service
-  layer, reusing `ctxkit` user identity.
+- **B6 `staffing`** — introduces role/permission enforcement. `internal/features/roles` ships model + repository
+  only (no HTTP surface — mirrors `workflow_step_templates` in B4/B5); `internal/core/authz` is the reusable
+  `Checker`/`RequirePermission` building block later phases (B7–B9) will reuse with their own permission codes.
+  `roles.scope` (`system`/`event`) and the starter role/permission catalog are seeded by migrations
+  000013–000014 (see [DATABASE.md](DATABASE.md) §6); `event_staff_assignments`' unique constraint is fixed to be
+  active-only by migration 000015. `auth`'s issued tokens gain a `role_id` claim (read fresh on every
+  `Refresh`, so a role change takes effect promptly); `users` gains system-scope role validation. See
+  [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) for the full requirement and [FEATURES.md](FEATURES.md#staffing) for
+  the shipped behaviour.
 - **B7–B9 `tickets`/`guests`/`scans`** — the check-in critical path. `scans` is write-heavy and latency-sensitive;
   when it becomes a hotspot, it's the first candidate to extract into its own service (the slice boundary already
   isolates it).

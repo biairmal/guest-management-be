@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_roles_scope;
+ALTER TABLE roles DROP COLUMN IF EXISTS scope;

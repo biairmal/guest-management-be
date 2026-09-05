@@ -55,6 +55,6 @@ func (a *App) Initialize() error {
 	a.repositories = repositories
 	a.service = a.initializeService(a.logger, a.repositories, a.authIssuer, a.authValidator, a.authConfig)
 	a.handler = a.initializeHandler(a.logger, a.validator, a.service)
-	a.initializeRoutes(a.logger, a.router, a.handler)
+	a.initializeRoutes(a.logger, a.router, a.handler, a.service.authzChecker)
 	return nil
 }

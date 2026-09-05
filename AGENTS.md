@@ -38,8 +38,10 @@ One row per feature slice. **When you add a feature, add a row here** (see [Auth
 | `users` | `internal/features/users` | `/api/v1/users` (CRUD + list) | [docs/FEATURES.md#users](docs/FEATURES.md#users) |
 | `auth` | `internal/features/auth` | `/api/v1/auth/login`, `/api/v1/auth/refresh` | [docs/FEATURES.md#auth](docs/FEATURES.md#auth) |
 | `templates` | `internal/features/templates` | `/api/v1/message-templates` (CRUD + list) | [docs/FEATURES.md#templates](docs/FEATURES.md#templates) |
+| `roles` | `internal/features/roles` | *internal-only, no HTTP endpoints this phase* — model + repository consumed by `users`/`staffing`/`internal/core/authz` | [docs/FEATURES.md#roles](docs/FEATURES.md#roles) |
+| `staffing` | `internal/features/staffing` | `/api/v1/events/{event_id}/staff` (CRUD + list, all gated on the `manage_staff` permission) | [docs/FEATURES.md#staffing](docs/FEATURES.md#staffing) |
 
-> Most of the domain is still unbuilt — 12 migrations define ~16 tables (tenants, users, roles/permissions, events, guests, tickets, scans, templates) but only `event_categories`/`events`/`workflow_steps`/`workflow_step_templates`, `tenants`, `users`, `auth`, and `message_templates` have code. The build order is specified in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
+> 15 migrations define ~16 tables (tenants, users, roles/permissions, events, guests, tickets, scans, templates) plus role scope/seed data; `event_categories`/`events`/`workflow_steps`/`workflow_step_templates`, `tenants`, `users`, `auth`, `message_templates`, `roles` (model+repo only), and `staffing` have code. The build order is specified in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
 
 ---
 
@@ -77,7 +79,7 @@ make vulncheck           # govulncheck ./...
 make swagger-generate    # regenerate api/swagger from handler annotations
 
 # Mocks (gomock) — regenerate after changing any mocked interface
-make mocks               # go generate → mocks/ (nested module; go.uber.org/mock)
+make mocks               # go generate → ./mocks/ (same module; go.uber.org/mock)
 
 # Migrations (DATABASE_URL from .env)
 make migration-create NAME=create_x_table

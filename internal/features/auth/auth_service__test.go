@@ -67,20 +67,20 @@ func TestAuthService_Login(t *testing.T) {
 		},
 		{
 			name:     "wrong password maps to 401",
-			repoRes:  []*users.User{{ID: uuid.New(), TenantID: uuid.New(), PasswordHash: validHash}},
+			repoRes:  []*users.User{{ID: uuid.New(), TenantID: uuid.New(), RoleID: uuid.New(), PasswordHash: validHash}},
 			password: "wrong-password",
 			wantErr:  errorz.CodeUnauthorized,
 		},
 		{
 			name:      "issuer error maps to 500",
-			repoRes:   []*users.User{{ID: uuid.New(), TenantID: uuid.New(), PasswordHash: validHash}},
+			repoRes:   []*users.User{{ID: uuid.New(), TenantID: uuid.New(), RoleID: uuid.New(), PasswordHash: validHash}},
 			password:  "correct-password",
 			issuerErr: errors.New("sign failed"),
 			wantErr:   errorz.CodeInternal,
 		},
 		{
 			name:     "happy path",
-			repoRes:  []*users.User{{ID: uuid.New(), TenantID: uuid.New(), PasswordHash: validHash}},
+			repoRes:  []*users.User{{ID: uuid.New(), TenantID: uuid.New(), RoleID: uuid.New(), PasswordHash: validHash}},
 			password: "correct-password",
 		},
 	}
@@ -153,7 +153,7 @@ func TestAuthService_Refresh(t *testing.T) {
 		},
 		{
 			name: "happy path", claimsType: tokenTypeRefresh, claimsSub: userID.String(),
-			repoRes: &users.User{ID: userID, TenantID: tenantID},
+			repoRes: &users.User{ID: userID, TenantID: tenantID, RoleID: uuid.New()},
 		},
 	}
 

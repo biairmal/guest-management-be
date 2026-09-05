@@ -12,6 +12,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/biairmal/guest-management-be/internal/core/query"
+	"github.com/biairmal/guest-management-be/internal/features/roles"
 )
 
 //go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=../../../mocks/users/mock_service.go -package=mockusers github.com/biairmal/guest-management-be/internal/features/users UserService
@@ -30,13 +31,40 @@ type UserService interface {
 
 // userServiceImpl is the concrete implementation of UserService.
 type userServiceImpl struct {
-	repo   repository.Repository[User, uuid.UUID]
-	logger logger.Logger
+	repo     repository.Repository[User, uuid.UUID]
+	roleRepo repository.Repository[roles.Role, uuid.UUID]
+	logger   logger.Logger
 }
 
-// NewUserService returns a UserService with the given dependencies.
-func NewUserService(logger logger.Logger, repo repository.Repository[User, uuid.UUID]) UserService {
-	return &userServiceImpl{logger: logger, repo: repo}
+// NewUserService returns a UserService with the given dependencies. roleRepo
+// is used to validate that a user's role_id references a system-scope role
+// (see docs/STAFFING_RBAC.md ss3) — a cross-feature repository-type
+// dependency, not a service-to-service one, mirroring the auth->users
+// precedent (see docs/ARCHITECTURE.md "Feature slice = future service boundary").
+func NewUserService(
+	logger logger.Logger, repo repository.Repository[User, uuid.UUID],
+	roleRepo repository.Repository[roles.Role, uuid.UUID],
+) UserService {
+	return &userServiceImpl{logger: logger, repo: repo, roleRepo: roleRepo}
+}
+
+// validateSystemScopeRole loads roleID and returns errorz.NotFound if it
+// doesn't exist, or errorz.BadRequest if it exists but isn't a system-scope
+// role — a user's role_id must reference a role assignable to a tenant-wide
+// role (see docs/STAFFING_RBAC.md ss3), never an event-scoped one.
+func (s *userServiceImpl) validateSystemScopeRole(ctx context.Context, roleID uuid.UUID) error {
+	role, err := s.roleRepo.GetByID(ctx, roleID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return errorz.NotFound().WithMessage("role not found")
+		}
+		s.logger.ErrorWithContext(ctx, "user role lookup failed", logger.F("role_id", roleID), logger.F("error", err))
+		return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to look up role")
+	}
+	if role.Scope != roles.ScopeSystem {
+		return errorz.BadRequest().WithMessage("role_id must reference a system-scope role")
+	}
+	return nil
 }
 
 // CreateInput is the input for creating a user. tenant_id is set once at
@@ -75,6 +103,10 @@ func hashPassword(password string) (string, error) {
 // hashed before storage and never returned. Audit fields (created_at,
 // updated_at) are set by the AuditableRepository.
 func (s *userServiceImpl) Create(ctx context.Context, in CreateInput) (*User, error) {
+	if err := s.validateSystemScopeRole(ctx, in.RoleID); err != nil {
+		return nil, err
+	}
+
 	hash, err := hashPassword(in.Password)
 	if err != nil {
 		return nil, err
@@ -138,6 +170,33 @@ func (s *userServiceImpl) GetByEmail(ctx context.Context, email string) (*User, 
 	return items[0], nil
 }
 
+// applyUpdate mutates entity in place with every non-nil field of in,
+// re-hashing a provided password and re-validating a provided role_id's
+// scope. Split out of Update to keep that method's cognitive complexity
+// within the lint budget.
+func (s *userServiceImpl) applyUpdate(ctx context.Context, entity *User, in UpdateInput) error {
+	if in.Email != nil {
+		entity.Email = *in.Email
+	}
+	if in.Password != nil {
+		hash, hashErr := hashPassword(*in.Password)
+		if hashErr != nil {
+			return hashErr
+		}
+		entity.PasswordHash = hash
+	}
+	if in.RoleID != nil {
+		if err := s.validateSystemScopeRole(ctx, *in.RoleID); err != nil {
+			return err
+		}
+		entity.RoleID = *in.RoleID
+	}
+	if in.IsTenantMaster != nil {
+		entity.IsTenantMaster = *in.IsTenantMaster
+	}
+	return nil
+}
+
 // Update updates a user. Only non-nil fields in UpdateInput are applied; a
 // non-nil Password is re-hashed. The updated_at field is set by the
 // AuditableRepository.
@@ -151,21 +210,8 @@ func (s *userServiceImpl) Update(ctx context.Context, id uuid.UUID, in UpdateInp
 		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to get user")
 	}
 
-	if in.Email != nil {
-		entity.Email = *in.Email
-	}
-	if in.Password != nil {
-		hash, hashErr := hashPassword(*in.Password)
-		if hashErr != nil {
-			return nil, hashErr
-		}
-		entity.PasswordHash = hash
-	}
-	if in.RoleID != nil {
-		entity.RoleID = *in.RoleID
-	}
-	if in.IsTenantMaster != nil {
-		entity.IsTenantMaster = *in.IsTenantMaster
+	if err := s.applyUpdate(ctx, entity, in); err != nil {
+		return nil, err
 	}
 
 	if err := s.repo.Update(ctx, id, entity); err != nil {

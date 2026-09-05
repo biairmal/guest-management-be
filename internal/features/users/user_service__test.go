@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/biairmal/guest-management-be/internal/core/query"
+	"github.com/biairmal/guest-management-be/internal/features/roles"
 )
 
 // assertErrorzCode fails unless err carries the wanted errorz code (or is nil when want == "").
@@ -37,35 +38,62 @@ func assertErrorzCode(t *testing.T, err error, want string) {
 
 func ptrString(s string) *string { return &s }
 
+// systemRole is a valid system-scope role fixture for tests that need
+// validateSystemScopeRole to succeed.
+func systemRole() *roles.Role { return &roles.Role{Scope: roles.ScopeSystem} }
+
 func TestUserService_Create(t *testing.T) {
 	tests := []struct {
-		name    string
-		in      CreateInput
-		repoErr error
-		wantErr string
+		name        string
+		in          CreateInput
+		roleRes     *roles.Role
+		roleErr     error
+		expectsRepo bool
+		repoErr     error
+		wantErr     string
 	}{
 		{
+			name: "role not found maps to 404", in: CreateInput{Email: "a@acme.com", Password: "password1"},
+			roleErr: repository.ErrNotFound, wantErr: errorz.CodeNotFound,
+		},
+		{
+			name: "role wrong scope maps to 400", in: CreateInput{Email: "a@acme.com", Password: "password1"},
+			roleRes: &roles.Role{Scope: roles.ScopeEvent}, wantErr: errorz.CodeBadRequest,
+		},
+		{
+			name: "role lookup error maps to 500", in: CreateInput{Email: "a@acme.com", Password: "password1"},
+			roleErr: errors.New("boom"), wantErr: errorz.CodeInternal,
+		},
+		{
 			name: "already exists maps to 409", in: CreateInput{Email: "a@acme.com", Password: "password1"},
-			repoErr: repository.ErrAlreadyExists, wantErr: errorz.CodeConflict,
+			roleRes: systemRole(), expectsRepo: true, repoErr: repository.ErrAlreadyExists, wantErr: errorz.CodeConflict,
 		},
 		{
 			name: "invalid entity maps to 422", in: CreateInput{Email: "a@acme.com", Password: "password1"},
-			repoErr: repository.ErrInvalidEntity, wantErr: errorz.CodeUnprocessableEntity,
+			roleRes: systemRole(), expectsRepo: true, repoErr: repository.ErrInvalidEntity,
+			wantErr: errorz.CodeUnprocessableEntity,
 		},
 		{
 			name: "unexpected repo error maps to 500", in: CreateInput{Email: "a@acme.com", Password: "password1"},
-			repoErr: errors.New("boom"), wantErr: errorz.CodeInternal,
+			roleRes: systemRole(), expectsRepo: true, repoErr: errors.New("boom"), wantErr: errorz.CodeInternal,
 		},
-		{name: "happy path", in: CreateInput{Email: "a@acme.com", Password: "password1", IsTenantMaster: true}},
+		{
+			name: "happy path", in: CreateInput{Email: "a@acme.com", Password: "password1", IsTenantMaster: true},
+			roleRes: systemRole(), expectsRepo: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			repo := mockrepository.NewMockRepository[User, uuid.UUID](ctrl)
-			repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(tt.repoErr)
+			roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
+			roleRepo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(tt.roleRes, tt.roleErr)
+			if tt.expectsRepo {
+				repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(tt.repoErr)
+			}
 
-			svc := NewUserService(logger.NewNoOp(), repo)
+			svc := NewUserService(logger.NewNoOp(), repo, roleRepo)
 			got, err := svc.Create(context.Background(), tt.in)
 			assertErrorzCode(t, err, tt.wantErr)
 			if tt.wantErr == "" {
@@ -101,7 +129,7 @@ func TestUserService_GetByID(t *testing.T) {
 			repo := mockrepository.NewMockRepository[User, uuid.UUID](ctrl)
 			repo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(tt.repoRes, tt.repoErr)
 
-			svc := NewUserService(logger.NewNoOp(), repo)
+			svc := NewUserService(logger.NewNoOp(), repo, nil)
 			_, err := svc.GetByID(context.Background(), uuid.New())
 			assertErrorzCode(t, err, tt.wantErr)
 		})
@@ -126,7 +154,7 @@ func TestUserService_GetByEmail(t *testing.T) {
 			repo := mockrepository.NewMockRepository[User, uuid.UUID](ctrl)
 			repo.EXPECT().List(gomock.Any(), gomock.Any()).Return(tt.repoRes, int64(len(tt.repoRes)), tt.repoErr)
 
-			svc := NewUserService(logger.NewNoOp(), repo)
+			svc := NewUserService(logger.NewNoOp(), repo, nil)
 			got, err := svc.GetByEmail(context.Background(), "a@acme.com")
 			assertErrorzCode(t, err, tt.wantErr)
 			if tt.wantErr == "" && got.Email != "a@acme.com" {
@@ -137,14 +165,19 @@ func TestUserService_GetByEmail(t *testing.T) {
 }
 
 func TestUserService_Update(t *testing.T) {
+	roleID := uuid.New()
+
 	tests := []struct {
-		name       string
-		in         UpdateInput
-		getRes     *User
-		getErr     error
-		expectsSet bool
-		updateErr  error
-		wantErr    string
+		name        string
+		in          UpdateInput
+		getRes      *User
+		getErr      error
+		expectsRole bool
+		roleRes     *roles.Role
+		roleErr     error
+		expectsSet  bool
+		updateErr   error
+		wantErr     string
 	}{
 		{
 			name:    "get not found maps to 404",
@@ -155,6 +188,22 @@ func TestUserService_Update(t *testing.T) {
 			name:    "get unexpected error maps to 500",
 			getErr:  errors.New("boom"),
 			wantErr: errorz.CodeInternal,
+		},
+		{
+			name:        "role not found maps to 404",
+			in:          UpdateInput{RoleID: &roleID},
+			getRes:      &User{Email: "a@acme.com"},
+			expectsRole: true,
+			roleErr:     repository.ErrNotFound,
+			wantErr:     errorz.CodeNotFound,
+		},
+		{
+			name:        "role wrong scope maps to 400",
+			in:          UpdateInput{RoleID: &roleID},
+			getRes:      &User{Email: "a@acme.com"},
+			expectsRole: true,
+			roleRes:     &roles.Role{Scope: roles.ScopeEvent},
+			wantErr:     errorz.CodeBadRequest,
 		},
 		{
 			name:       "update not found maps to 404",
@@ -178,23 +227,35 @@ func TestUserService_Update(t *testing.T) {
 			getRes:     &User{Email: "a@acme.com", PasswordHash: "old-hash"},
 			expectsSet: true,
 		},
+		{
+			name:        "happy path with role change re-validates scope",
+			in:          UpdateInput{RoleID: &roleID},
+			getRes:      &User{Email: "a@acme.com"},
+			expectsRole: true,
+			roleRes:     systemRole(),
+			expectsSet:  true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			repo := mockrepository.NewMockRepository[User, uuid.UUID](ctrl)
+			roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
 			repo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(tt.getRes, tt.getErr)
+			if tt.expectsRole {
+				roleRepo.EXPECT().GetByID(gomock.Any(), roleID).Return(tt.roleRes, tt.roleErr)
+			}
 			if tt.expectsSet {
 				repo.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(tt.updateErr)
 			}
 
-			svc := NewUserService(logger.NewNoOp(), repo)
+			svc := NewUserService(logger.NewNoOp(), repo, roleRepo)
 			got, err := svc.Update(context.Background(), uuid.New(), tt.in)
 			assertErrorzCode(t, err, tt.wantErr)
 			if tt.wantErr == "" {
-				if got.Email != "new@acme.com" {
-					t.Errorf("Email = %q, want %q", got.Email, "new@acme.com")
+				if tt.in.Email != nil && got.Email != *tt.in.Email {
+					t.Errorf("Email = %q, want %q", got.Email, *tt.in.Email)
 				}
 				if tt.in.Password != nil {
 					if got.PasswordHash == "old-hash" {
@@ -203,6 +264,9 @@ func TestUserService_Update(t *testing.T) {
 					if err := bcrypt.CompareHashAndPassword([]byte(got.PasswordHash), []byte(*tt.in.Password)); err != nil {
 						t.Errorf("stored hash does not match new password: %v", err)
 					}
+				}
+				if tt.in.RoleID != nil && got.RoleID != *tt.in.RoleID {
+					t.Errorf("RoleID = %v, want %v", got.RoleID, *tt.in.RoleID)
 				}
 			}
 		})
@@ -226,7 +290,7 @@ func TestUserService_Delete(t *testing.T) {
 			repo := mockrepository.NewMockRepository[User, uuid.UUID](ctrl)
 			repo.EXPECT().Delete(gomock.Any(), gomock.Any()).Return(tt.repoErr)
 
-			svc := NewUserService(logger.NewNoOp(), repo)
+			svc := NewUserService(logger.NewNoOp(), repo, nil)
 			err := svc.Delete(context.Background(), uuid.New())
 			assertErrorzCode(t, err, tt.wantErr)
 		})
@@ -252,7 +316,7 @@ func TestUserService_List(t *testing.T) {
 				List(gomock.Any(), gomock.Any()).
 				Return([]*User{{Email: "a@acme.com"}}, int64(1), tt.repoErr)
 
-			svc := NewUserService(logger.NewNoOp(), repo)
+			svc := NewUserService(logger.NewNoOp(), repo, nil)
 			params, err := query.ParseListParams(url.Values{}, query.ListParseConfig{})
 			if err != nil {
 				t.Fatalf("ParseListParams() error = %v", err)

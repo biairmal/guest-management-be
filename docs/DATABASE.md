@@ -81,15 +81,26 @@ System table of permission codes. Configurable by the system administrator; no s
 
 ### 3.3 roles
 
-System table of role names. Permissions are assigned via `role_permissions`; no soft delete.
+System table of role names. Permissions are assigned via `role_permissions`; no soft delete (see §5) — its
+repository is built with `internal/core/repository.NewRepositoryNoAudit` rather than the usual
+`NewRepository`, since there is no `deleted_at` column for the audit decorator to manage. Seeded with a
+starter catalog by migration 000014 (see §6); see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §3 for the
+role→permission grant table.
 
 | Column      | Type         | Nullable | Description |
 | ----------- | ------------ | -------- | ----------- |
 | id          | UUID         | No       | Primary key. |
-| name        | VARCHAR(128) | No       | Role name (e.g. Tenant Admin, Event Staff). |
+| name        | VARCHAR(128) | No       | Role name (e.g. Tenant Admin, Usher). |
 | description | TEXT         | Yes      | Optional description. |
+| scope       | VARCHAR(16)  | No       | `system` (assignable to `users.role_id`) or `event` (assignable to `event_staff_assignments.role_id`); DB `CHECK`-enforced, migration 000013. A role is one or the other, never both. |
 | created_at  | TIMESTAMPTZ  | No       | When the row was created. |
 | updated_at  | TIMESTAMPTZ  | No       | When the row was last updated. |
+
+`users.role_id` is validated by the `users` service (not the DB) to reference a `scope = 'system'` role;
+`event_staff_assignments.role_id` is validated by the `staffing` service to reference a `scope = 'event'` role.
+Exactly one user may ever hold the seeded Super Admin role, enforced by the partial unique index
+`idx_users_single_super_admin ON users(role_id) WHERE role_id = '<super-admin-uuid>'` (migration 000014) —
+see §6 and [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §4.
 
 ---
 
@@ -216,7 +227,13 @@ Links a user to an event with a specific role. Permissions for that assignment a
 | updated_at  | TIMESTAMPTZ | No       | When the row was last updated. |
 | deleted_at  | TIMESTAMPTZ | Yes      | When the row was soft-deleted; NULL if active. |
 
-**Constraint:** `UNIQUE (event_id, user_id)`.
+**Constraint:** partial unique index `idx_event_staff_assignments_event_user_active ON (event_id, user_id)
+WHERE deleted_at IS NULL` (migration 000015 — replaces migration 000007's original plain
+`UNIQUE (event_id, user_id)`, which would have permanently blocked re-assigning a removed user back to the
+same event since a soft-deleted row still held the unique slot). A user may hold at most one **active**
+assignment per event at a time; removing and later re-assigning the same user to the same event creates a new
+row rather than reactivating the old one, preserving full staffing history (see
+[docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §5).
 
 ---
 
@@ -363,7 +380,7 @@ erDiagram
 
     tenants { uuid id string name jsonb settings jsonb branding timestamptz deleted_at }
     permissions { uuid id varchar32 code string name }
-    roles { uuid id varchar128 name }
+    roles { uuid id varchar128 name varchar16 scope }
     role_permissions { uuid role_id uuid permission_id }
     users { uuid id uuid tenant_id string email uuid role_id bool is_tenant_master timestamptz deleted_at }
     event_categories { uuid id varchar32 source uuid tenant_id_nullable string name timestamptz deleted_at }
@@ -405,7 +422,17 @@ permissions, roles, role_permissions (system/reference data), scan_logs (audit t
 
 ## 6. Migrations
 
-Migrations are applied in order from `./migrations` using golang-migrate. Sequence: 000001 (tenants) → 000002 (permissions, roles, role_permissions) → 000003 (users) → 000004 (event_categories, workflow_step_templates) → 000005 (events, workflow_steps) → 000006 (message_templates) → 000007 (event_staff_assignments) → 000008 (ticket_types, ticket_type_workflow_steps) → 000009 (guests, tickets) → 000010 (scan_logs) → 000011 (indexes) → 000012 (users.email unique across tenants, for B3 `auth` login).
+Migrations are applied in order from `./migrations` using golang-migrate. Sequence: 000001 (tenants) → 000002 (permissions, roles, role_permissions) → 000003 (users) → 000004 (event_categories, workflow_step_templates) → 000005 (events, workflow_steps) → 000006 (message_templates) → 000007 (event_staff_assignments) → 000008 (ticket_types, ticket_type_workflow_steps) → 000009 (guests, tickets) → 000010 (scan_logs) → 000011 (indexes) → 000012 (users.email unique across tenants, for B3 `auth` login) → 000013 (`roles.scope`) → 000014 (seed the System tenant + starter roles/permissions/role_permissions + the single-Super-Admin partial unique index, for B6 `staffing`) → 000015 (`event_staff_assignments` active-only unique index).
+
+**000013–000015 (B6 `staffing`/role scoping):**
+
+- **000013** adds `roles.scope VARCHAR(16) NOT NULL CHECK (scope IN ('system', 'event'))` plus `idx_roles_scope`. Safe as a bare `NOT NULL` (no `DEFAULT`) because `roles` is still empty at this point in the migration sequence — 000014 is the first migration to insert any rows into it.
+- **000014** is this repo's first **data-seeding** migration (as opposed to schema-only). It inserts:
+  - one reserved **System tenant** (`id = 00000000-0000-0000-0000-000000000001`, `type = 'system'`) — the Super Admin is modeled as belonging to this tenant rather than none, so "every user has a `tenant_id`" stays true with no special case elsewhere (see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §4).
+  - the starter **permission catalog** (`manage_tenants`, `manage_users`, `manage_events`, `manage_staff`, `manage_guests`, `manage_workflows`, `check_in`) and **role catalog** (Super Admin/Tenant Admin/Tenant Staff — `system`-scope; Usher/Photobooth Staff — `event`-scope), all with fixed, well-known UUIDs so later migrations/seed data/tests can reference them by literal ID. See [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §3 for the full role→permission grant table.
+  - `role_permissions` rows wiring each role to its grants (Super Admin gets every permission via a `SELECT id FROM permissions` subquery, so the grant list never needs updating when a new permission is added later).
+  - a **partial unique index** `idx_users_single_super_admin ON users(role_id) WHERE role_id = '<super-admin-uuid>'` — the DB-level enforcement that at most one user in the whole system can ever hold the Super Admin role (a plain `UNIQUE` on `role_id` would also block every second Tenant Admin/Tenant Staff, which is not the intent).
+- **000015** fixes a design gap in 000007's `event_staff_assignments` schema: drops the plain `UNIQUE (event_id, user_id)` constraint (which permanently blocked re-assigning a removed user to the same event, since a soft-deleted row still holds the unique slot) and replaces it with a **partial unique index** `idx_event_staff_assignments_event_user_active ON event_staff_assignments(event_id, user_id) WHERE deleted_at IS NULL` — active-only uniqueness, so removing and later re-adding the same user to the same event is allowed and creates a new row (see §3.10 below and [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §5).
 
 To apply all pending migrations:
 
