@@ -1,0 +1,17 @@
+package category
+
+import (
+	"github.com/biairmal/go-sdk/lib/httpkit/handler"
+	"github.com/go-chi/chi/v5"
+)
+
+// InitCategoryRoutes registers event category routes on the given router.
+func InitCategoryRoutes(r *chi.Mux, categoryH *Handler) {
+	r.Route("/api/v1/event-categories", func(r chi.Router) {
+		r.Get("/", handler.Handle(categoryH.List))
+		r.Get("/{id}", handler.Handle(categoryH.GetByID))
+		r.Post("/", handler.Handle(categoryH.Create))
+		r.Put("/{id}", handler.Handle(categoryH.Update))
+		r.Delete("/{id}", handler.Handle(categoryH.Delete))
+	})
+}

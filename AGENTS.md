@@ -128,7 +128,7 @@ These are **MUST**-level unless stated otherwise. They are derived from the exis
 
 - **Validate request payloads at the HTTP boundary** via the shared validator (`go-sdk` `validator` when it lands, or `go-playground/validator` meanwhile), driven by `validate:"..."` struct tags on the input DTO. Validation failures become clean `400`s with per-field detail.
 - **Do not scatter hand-written `if in.X == ""` checks in the service** for shape/format validation. The service layer owns **business-rule invariants** (e.g. "tenant_id required when source is tenant"), not field-presence checks.
-- **Decode request bodies via go-sdk's `serializer.ParseJSON`**, never `encoding/json` directly — this falls out of the go-sdk-first rule above; go-sdk owns request decoding the same way it owns errors, logging, and repositories.
+- **Decode request bodies via stdlib `json.NewDecoder(r.Body).Decode(&body)`.** go-sdk's `serializer.ParseJSON(data []byte, v any)` takes an in-memory `[]byte` (its real use is decoding an already-fetched value, e.g. a cache read in `repository/cache`) — it is not an HTTP-body decoder, and passing `r.Body` (`io.ReadCloser`) to it doesn't compile. Don't reach for it here; `json.NewDecoder` already streams the body without an extra buffering copy.
 - **Input/output DTOs live in `<entity>_dto.go`**, not inline in `<entity>_service.go`. The service file holds only the `XService` interface and its implementation — struct definitions (`CreateInput`, `UpdateInput`, `SyncXInput`, etc.) belong in a dedicated DTO file so the service file is pure logic.
 
 ### API shape & options

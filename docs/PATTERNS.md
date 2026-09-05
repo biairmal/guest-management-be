@@ -121,7 +121,7 @@ type CreateInput struct {
 The service speaks domain types + `context.Context`, never HTTP. It translates repository sentinels into `errorz` codes and logs internal errors once. Modelled on [`events/category_service.go`](../internal/features/events/category_service.go):
 
 ```go
-type CategoryService interface {
+type Service interface {
     Create(ctx context.Context, in CreateInput) (*EventCategory, error)
     GetByID(ctx context.Context, id uuid.UUID) (*EventCategory, error)
     // ...
@@ -197,9 +197,9 @@ Handlers are `func(*http.Request) (any, error)`; parse input, call the service, 
 //	@Failure		400		{object}	object	"Invalid request body or validation error"
 //	@Failure		409		{object}	object	"Conflict"
 //	@Router			/api/v1/event-categories [post]
-func (h *CategoryHandler) Create(r *http.Request) (any, error) {
+func (h *Handler) Create(r *http.Request) (any, error) {
     var body CreateInput
-    if err := serializer.ParseJSON(r.Body, &body); err != nil {
+    if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
         return nil, errorz.BadRequest().WithMessage("invalid request body")
     }
     if err := h.validator.Struct(body); err != nil { // boundary validation → 400 w/ field detail
@@ -216,7 +216,7 @@ func (h *CategoryHandler) Create(r *http.Request) (any, error) {
 Routes register the adapter (modelled on [`events/category_routes.go`](../internal/features/events/category_routes.go)):
 
 ```go
-func InitCategoryRoutes(r chi.Router, h *CategoryHandler) {
+func InitCategoryRoutes(r chi.Router, h *Handler) {
     r.Route("/api/v1/event-categories", func(r chi.Router) {
         r.Get("/", handler.Handle(h.List))
         r.Post("/", handler.Handle(h.Create))
@@ -295,7 +295,7 @@ func TestCategoryService_Create(t *testing.T) {
             if tt.expects {
                 repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(tt.repoErr)
             }
-            svc := NewCategoryService(logger.NewNoOp(), repo)
+            svc := NewService(logger.NewNoOp(), repo)
             _, err := svc.Create(context.Background(), tt.in)
             assertErrorzCode(t, err, tt.wantErr)
         })

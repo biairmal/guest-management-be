@@ -20,14 +20,6 @@ type TenantHandler struct {
 	validator validation.Validator
 }
 
-// tenantListConfig declares the allow-listed sort/filter fields for tenant
-// list queries. Pagination (page/size/max size) is not set here, so it falls
-// back to the shared defaults in internal/core/query.
-var tenantListConfig = query.ListParseConfig{
-	AllowedSortFields:   []string{"id", "name", "type", "created_at", "updated_at"},
-	AllowedFilterFields: []string{"name", "type"},
-}
-
 // NewTenantHandler returns a TenantHandler that uses the given service and
 // validator. Both are interfaces, allowing easy testing and substitution.
 func NewTenantHandler(service TenantService, validator validation.Validator) *TenantHandler {
@@ -56,7 +48,7 @@ func NewTenantHandler(service TenantService, validator validation.Validator) *Te
 //	@Security		BearerAuth
 //	@Router			/api/v1/tenants [get]
 func (h *TenantHandler) List(r *http.Request) (any, error) {
-	params, err := query.ParseListParams(r.URL.Query(), tenantListConfig)
+	params, err := query.ParseListParams(r.URL.Query(), TenantListConfig)
 	if err != nil {
 		return nil, errorz.BadRequest().WithMessage(err.Error())
 	}

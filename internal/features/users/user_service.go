@@ -17,6 +17,14 @@ import (
 
 //go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=../../../mocks/users/mock_service.go -package=mockusers github.com/biairmal/guest-management-be/internal/features/users UserService
 
+// UserListConfig declares the allow-listed sort/filter fields for user list
+// queries, enforced here in the service via query.ValidateListParams and
+// reused by UserHandler.List for query.ParseListParams.
+var UserListConfig = query.ListParseConfig{
+	AllowedSortFields:   []string{"id", "tenant_id", "email", "role_id", "is_tenant_master", "created_at", "updated_at"},
+	AllowedFilterFields: []string{"tenant_id", "email", "role_id", "is_tenant_master"},
+}
+
 // UserService defines the application-level operations for users.
 type UserService interface {
 	Create(ctx context.Context, in CreateInput) (*User, error)
@@ -65,29 +73,6 @@ func (s *userServiceImpl) validateSystemScopeRole(ctx context.Context, roleID uu
 		return errorz.BadRequest().WithMessage("role_id must reference a system-scope role")
 	}
 	return nil
-}
-
-// CreateInput is the input for creating a user. tenant_id is set once at
-// creation and is not part of UpdateInput — users do not move tenants.
-//
-// swagger:model UserCreateInput
-type CreateInput struct {
-	TenantID       uuid.UUID `json:"tenant_id"                 validate:"required"`
-	Email          string    `json:"email"                     validate:"required,email"`
-	Password       string    `json:"password"                  validate:"required,min=8"`
-	RoleID         uuid.UUID `json:"role_id"                   validate:"required"`
-	IsTenantMaster bool      `json:"is_tenant_master,omitempty"`
-}
-
-// UpdateInput is the input for updating a user. Only non-nil fields are
-// applied; a non-nil Password is re-hashed before storage.
-//
-// swagger:model UserUpdateInput
-type UpdateInput struct {
-	Email          *string    `json:"email,omitempty"    validate:"omitempty,email"`
-	Password       *string    `json:"password,omitempty" validate:"omitempty,min=8"`
-	RoleID         *uuid.UUID `json:"role_id,omitempty"`
-	IsTenantMaster *bool      `json:"is_tenant_master,omitempty"`
 }
 
 // hashPassword returns the bcrypt hash of password, or an internal errorz on failure.
@@ -245,56 +230,13 @@ func (s *userServiceImpl) Delete(ctx context.Context, id uuid.UUID) error {
 
 // List returns users with filter, sort, and pagination from query.ListParams.
 func (s *userServiceImpl) List(ctx context.Context, params *query.ListParams) (*common.PageResponse[User], error) {
-	opts := listParamsToListOptions(params)
-	items, total, err := s.repo.List(ctx, opts)
+	if err := query.ValidateListParams(params, UserListConfig); err != nil {
+		return nil, errorz.BadRequest().WithMessage(err.Error())
+	}
+	items, total, err := s.repo.List(ctx, query.ToListOptions(params))
 	if err != nil {
 		s.logger.ErrorWithContext(ctx, "user list failed", logger.F("error", err))
 		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to list users")
 	}
 	return common.NewPageResponse(items, total, params.Page, params.Size), nil
-}
-
-// listParamsToListOptions converts query.ListParams to repository.ListOptions.
-func listParamsToListOptions(params *query.ListParams) *repository.ListOptions {
-	if params == nil {
-		return &repository.ListOptions{}
-	}
-
-	page, size := params.Page, params.Size
-	if page < 1 {
-		page = 1
-	}
-	if size < 1 {
-		size = 20
-	}
-	if size > 100 {
-		size = 100
-	}
-	offset := (page - 1) * size
-
-	// Convert simple equality filters to repository filter conditions.
-	var conditions []repository.FilterCondition
-	for field, value := range params.Filters {
-		conditions = append(conditions, repository.FilterCondition{
-			Field:    field,
-			Operator: repository.FilterOperatorEq,
-			Value:    value,
-		})
-	}
-
-	// Convert common.SortSpec to repository.Sort.
-	var sorts []repository.Sort
-	for _, s := range params.Sorts {
-		dir := repository.SortAsc
-		if s.Direction == common.SortDesc {
-			dir = repository.SortDesc
-		}
-		sorts = append(sorts, repository.Sort{Field: s.Field, Direction: dir})
-	}
-
-	return &repository.ListOptions{
-		Filter:     repository.Filter{Conditions: conditions},
-		Pagination: repository.Pagination{Limit: size, Offset: offset},
-		Sorts:      sorts,
-	}
 }

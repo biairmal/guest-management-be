@@ -173,7 +173,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_EventCategory"
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_category_EventCategory"
                         }
                     },
                     "400": {
@@ -214,7 +214,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.CreateInput"
+                            "$ref": "#/definitions/internal_features_events_category.CreateInput"
                         }
                     }
                 ],
@@ -222,7 +222,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.EventCategory"
+                            "$ref": "#/definitions/internal_features_events_category.EventCategory"
                         }
                     },
                     "400": {
@@ -307,7 +307,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_WorkflowStepTemplate"
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_workflowsteptemplate_WorkflowStepTemplate"
                         }
                     },
                     "400": {
@@ -355,7 +355,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.CreateWorkflowStepTemplateInput"
+                            "$ref": "#/definitions/internal_features_events_workflowsteptemplate.CreateWorkflowStepTemplateInput"
                         }
                     }
                 ],
@@ -363,7 +363,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.WorkflowStepTemplate"
+                            "$ref": "#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate"
                         }
                     },
                     "400": {
@@ -431,7 +431,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.WorkflowStepTemplate"
+                            "$ref": "#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate"
                         }
                     },
                     "400": {
@@ -492,7 +492,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.UpdateWorkflowStepTemplateInput"
+                            "$ref": "#/definitions/internal_features_events_workflowsteptemplate.UpdateWorkflowStepTemplateInput"
                         }
                     }
                 ],
@@ -500,7 +500,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.WorkflowStepTemplate"
+                            "$ref": "#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate"
                         }
                     },
                     "400": {
@@ -618,7 +618,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.EventCategory"
+                            "$ref": "#/definitions/internal_features_events_category.EventCategory"
                         }
                     },
                     "400": {
@@ -672,7 +672,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.UpdateInput"
+                            "$ref": "#/definitions/internal_features_events_category.UpdateInput"
                         }
                     }
                 ],
@@ -680,7 +680,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.EventCategory"
+                            "$ref": "#/definitions/internal_features_events_category.EventCategory"
                         }
                     },
                     "400": {
@@ -814,7 +814,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_Event"
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_event_Event"
                         }
                     },
                     "400": {
@@ -855,7 +855,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.CreateEventInput"
+                            "$ref": "#/definitions/internal_features_events_event.CreateEventInput"
                         }
                     }
                 ],
@@ -863,7 +863,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.Event"
+                            "$ref": "#/definitions/internal_features_events_event.Event"
                         }
                     },
                     "400": {
@@ -1355,7 +1355,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_WorkflowStep"
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_workflowstep_WorkflowStep"
                         }
                     },
                     "400": {
@@ -1405,7 +1405,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/internal_features_events.SyncWorkflowStepInput"
+                                "$ref": "#/definitions/internal_features_events_workflowstep.SyncWorkflowStepInput"
                             }
                         }
                     }
@@ -1416,7 +1416,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/internal_features_events.WorkflowStep"
+                                "$ref": "#/definitions/internal_features_events_workflowstep.WorkflowStep"
                             }
                         }
                     },
@@ -1471,7 +1471,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.CreateWorkflowStepInput"
+                            "$ref": "#/definitions/internal_features_events_workflowstep.CreateWorkflowStepInput"
                         }
                     }
                 ],
@@ -1479,7 +1479,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.WorkflowStep"
+                            "$ref": "#/definitions/internal_features_events_workflowstep.WorkflowStep"
                         }
                     },
                     "400": {
@@ -1547,7 +1547,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.WorkflowStep"
+                            "$ref": "#/definitions/internal_features_events_workflowstep.WorkflowStep"
                         }
                     },
                     "400": {
@@ -1608,7 +1608,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.UpdateWorkflowStepInput"
+                            "$ref": "#/definitions/internal_features_events_workflowstep.UpdateWorkflowStepInput"
                         }
                     }
                 ],
@@ -1616,7 +1616,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.WorkflowStep"
+                            "$ref": "#/definitions/internal_features_events_workflowstep.WorkflowStep"
                         }
                     },
                     "400": {
@@ -1734,7 +1734,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.Event"
+                            "$ref": "#/definitions/internal_features_events_event.Event"
                         }
                     },
                     "400": {
@@ -1788,7 +1788,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.UpdateEventInput"
+                            "$ref": "#/definitions/internal_features_events_event.UpdateEventInput"
                         }
                     }
                 ],
@@ -1796,7 +1796,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events.Event"
+                            "$ref": "#/definitions/internal_features_events_event.Event"
                         }
                     },
                     "400": {
@@ -2802,7 +2802,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "dto.PageResponse-internal_features_events_Event": {
+        "dto.PageResponse-internal_features_events_category_EventCategory": {
             "type": "object",
             "properties": {
                 "has_next": {
@@ -2814,7 +2814,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/internal_features_events.Event"
+                        "$ref": "#/definitions/internal_features_events_category.EventCategory"
                     }
                 },
                 "page": {
@@ -2831,7 +2831,7 @@ const docTemplate = `{
                 }
             }
         },
-        "dto.PageResponse-internal_features_events_EventCategory": {
+        "dto.PageResponse-internal_features_events_event_Event": {
             "type": "object",
             "properties": {
                 "has_next": {
@@ -2843,7 +2843,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/internal_features_events.EventCategory"
+                        "$ref": "#/definitions/internal_features_events_event.Event"
                     }
                 },
                 "page": {
@@ -2860,7 +2860,7 @@ const docTemplate = `{
                 }
             }
         },
-        "dto.PageResponse-internal_features_events_WorkflowStep": {
+        "dto.PageResponse-internal_features_events_workflowstep_WorkflowStep": {
             "type": "object",
             "properties": {
                 "has_next": {
@@ -2872,7 +2872,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/internal_features_events.WorkflowStep"
+                        "$ref": "#/definitions/internal_features_events_workflowstep.WorkflowStep"
                     }
                 },
                 "page": {
@@ -2889,7 +2889,7 @@ const docTemplate = `{
                 }
             }
         },
-        "dto.PageResponse-internal_features_events_WorkflowStepTemplate": {
+        "dto.PageResponse-internal_features_events_workflowsteptemplate_WorkflowStepTemplate": {
             "type": "object",
             "properties": {
                 "has_next": {
@@ -2901,7 +2901,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/internal_features_events.WorkflowStepTemplate"
+                        "$ref": "#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate"
                     }
                 },
                 "page": {
@@ -3077,7 +3077,74 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_events.CreateEventInput": {
+        "internal_features_events_category.CreateInput": {
+            "type": "object",
+            "required": [
+                "name",
+                "source"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string",
+                    "enum": [
+                        "app",
+                        "tenant"
+                    ]
+                },
+                "tenant_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_events_category.EventCategory": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_events_category.UpdateInput": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "source": {
+                    "type": "string",
+                    "enum": [
+                        "app",
+                        "tenant"
+                    ]
+                },
+                "tenant_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_events_event.CreateEventInput": {
             "type": "object",
             "required": [
                 "category_id",
@@ -3107,71 +3174,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_events.CreateInput": {
-            "type": "object",
-            "required": [
-                "name",
-                "source"
-            ],
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "source": {
-                    "type": "string",
-                    "enum": [
-                        "app",
-                        "tenant"
-                    ]
-                },
-                "tenant_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_features_events.CreateWorkflowStepInput": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "allows_multiple": {
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "order_index": {
-                    "type": "integer",
-                    "minimum": 0
-                }
-            }
-        },
-        "internal_features_events.CreateWorkflowStepTemplateInput": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "allows_multiple": {
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "order_index": {
-                    "type": "integer",
-                    "minimum": 0
-                },
-                "ticket_type_applicability": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                }
-            }
-        },
-        "internal_features_events.Event": {
+        "internal_features_events_event.Event": {
             "type": "object",
             "properties": {
                 "category_id": {
@@ -3209,54 +3212,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_events.EventCategory": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "deleted_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "source": {
-                    "type": "string"
-                },
-                "tenant_id": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_features_events.SyncWorkflowStepInput": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "allows_multiple": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "order_index": {
-                    "type": "integer",
-                    "minimum": 0
-                }
-            }
-        },
-        "internal_features_events.UpdateEventInput": {
+        "internal_features_events_event.UpdateEventInput": {
             "type": "object",
             "properties": {
                 "category_id": {
@@ -3277,26 +3233,46 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_events.UpdateInput": {
+        "internal_features_events_workflowstep.CreateWorkflowStepInput": {
             "type": "object",
+            "required": [
+                "name"
+            ],
             "properties": {
+                "allows_multiple": {
+                    "type": "boolean"
+                },
                 "name": {
-                    "type": "string",
-                    "minLength": 1
-                },
-                "source": {
-                    "type": "string",
-                    "enum": [
-                        "app",
-                        "tenant"
-                    ]
-                },
-                "tenant_id": {
                     "type": "string"
+                },
+                "order_index": {
+                    "type": "integer",
+                    "minimum": 0
                 }
             }
         },
-        "internal_features_events.UpdateWorkflowStepInput": {
+        "internal_features_events_workflowstep.SyncWorkflowStepInput": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "allows_multiple": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "order_index": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            }
+        },
+        "internal_features_events_workflowstep.UpdateWorkflowStepInput": {
             "type": "object",
             "properties": {
                 "allows_multiple": {
@@ -3312,29 +3288,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_events.UpdateWorkflowStepTemplateInput": {
-            "type": "object",
-            "properties": {
-                "allows_multiple": {
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string",
-                    "minLength": 1
-                },
-                "order_index": {
-                    "type": "integer",
-                    "minimum": 0
-                },
-                "ticket_type_applicability": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                }
-            }
-        },
-        "internal_features_events.WorkflowStep": {
+        "internal_features_events_workflowstep.WorkflowStep": {
             "type": "object",
             "properties": {
                 "allows_multiple": {
@@ -3363,7 +3317,53 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_events.WorkflowStepTemplate": {
+        "internal_features_events_workflowsteptemplate.CreateWorkflowStepTemplateInput": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "allows_multiple": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "order_index": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "ticket_type_applicability": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_features_events_workflowsteptemplate.UpdateWorkflowStepTemplateInput": {
+            "type": "object",
+            "properties": {
+                "allows_multiple": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "order_index": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "ticket_type_applicability": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_features_events_workflowsteptemplate.WorkflowStepTemplate": {
             "type": "object",
             "properties": {
                 "allows_multiple": {

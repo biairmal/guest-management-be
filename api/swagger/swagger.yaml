@@ -1,6 +1,6 @@
 basePath: /
 definitions:
-  dto.PageResponse-internal_features_events_Event:
+  dto.PageResponse-internal_features_events_category_EventCategory:
     properties:
       has_next:
         type: boolean
@@ -8,7 +8,7 @@ definitions:
         type: boolean
       items:
         items:
-          $ref: '#/definitions/internal_features_events.Event'
+          $ref: '#/definitions/internal_features_events_category.EventCategory'
         type: array
       page:
         type: integer
@@ -19,7 +19,7 @@ definitions:
       total_pages:
         type: integer
     type: object
-  dto.PageResponse-internal_features_events_EventCategory:
+  dto.PageResponse-internal_features_events_event_Event:
     properties:
       has_next:
         type: boolean
@@ -27,7 +27,7 @@ definitions:
         type: boolean
       items:
         items:
-          $ref: '#/definitions/internal_features_events.EventCategory'
+          $ref: '#/definitions/internal_features_events_event.Event'
         type: array
       page:
         type: integer
@@ -38,7 +38,7 @@ definitions:
       total_pages:
         type: integer
     type: object
-  dto.PageResponse-internal_features_events_WorkflowStep:
+  dto.PageResponse-internal_features_events_workflowstep_WorkflowStep:
     properties:
       has_next:
         type: boolean
@@ -46,7 +46,7 @@ definitions:
         type: boolean
       items:
         items:
-          $ref: '#/definitions/internal_features_events.WorkflowStep'
+          $ref: '#/definitions/internal_features_events_workflowstep.WorkflowStep'
         type: array
       page:
         type: integer
@@ -57,7 +57,7 @@ definitions:
       total_pages:
         type: integer
     type: object
-  dto.PageResponse-internal_features_events_WorkflowStepTemplate:
+  dto.PageResponse-internal_features_events_workflowsteptemplate_WorkflowStepTemplate:
     properties:
       has_next:
         type: boolean
@@ -65,7 +65,7 @@ definitions:
         type: boolean
       items:
         items:
-          $ref: '#/definitions/internal_features_events.WorkflowStepTemplate'
+          $ref: '#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate'
         type: array
       page:
         type: integer
@@ -180,7 +180,52 @@ definitions:
       token_type:
         type: string
     type: object
-  internal_features_events.CreateEventInput:
+  internal_features_events_category.CreateInput:
+    properties:
+      name:
+        type: string
+      source:
+        enum:
+        - app
+        - tenant
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - name
+    - source
+    type: object
+  internal_features_events_category.EventCategory:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      source:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_features_events_category.UpdateInput:
+    properties:
+      name:
+        minLength: 1
+        type: string
+      source:
+        enum:
+        - app
+        - tenant
+        type: string
+      tenant_id:
+        type: string
+    type: object
+  internal_features_events_event.CreateEventInput:
     properties:
       category_id:
         type: string
@@ -201,50 +246,7 @@ definitions:
     - start_date
     - tenant_id
     type: object
-  internal_features_events.CreateInput:
-    properties:
-      name:
-        type: string
-      source:
-        enum:
-        - app
-        - tenant
-        type: string
-      tenant_id:
-        type: string
-    required:
-    - name
-    - source
-    type: object
-  internal_features_events.CreateWorkflowStepInput:
-    properties:
-      allows_multiple:
-        type: boolean
-      name:
-        type: string
-      order_index:
-        minimum: 0
-        type: integer
-    required:
-    - name
-    type: object
-  internal_features_events.CreateWorkflowStepTemplateInput:
-    properties:
-      allows_multiple:
-        type: boolean
-      name:
-        type: string
-      order_index:
-        minimum: 0
-        type: integer
-      ticket_type_applicability:
-        items:
-          type: integer
-        type: array
-    required:
-    - name
-    type: object
-  internal_features_events.Event:
+  internal_features_events_event.Event:
     properties:
       category_id:
         type: string
@@ -269,38 +271,7 @@ definitions:
       updated_at:
         type: string
     type: object
-  internal_features_events.EventCategory:
-    properties:
-      created_at:
-        type: string
-      deleted_at:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      source:
-        type: string
-      tenant_id:
-        type: string
-      updated_at:
-        type: string
-    type: object
-  internal_features_events.SyncWorkflowStepInput:
-    properties:
-      allows_multiple:
-        type: boolean
-      id:
-        type: string
-      name:
-        type: string
-      order_index:
-        minimum: 0
-        type: integer
-    required:
-    - name
-    type: object
-  internal_features_events.UpdateEventInput:
+  internal_features_events_event.UpdateEventInput:
     properties:
       category_id:
         type: string
@@ -314,20 +285,33 @@ definitions:
       start_date:
         type: string
     type: object
-  internal_features_events.UpdateInput:
+  internal_features_events_workflowstep.CreateWorkflowStepInput:
     properties:
+      allows_multiple:
+        type: boolean
       name:
-        minLength: 1
         type: string
-      source:
-        enum:
-        - app
-        - tenant
-        type: string
-      tenant_id:
-        type: string
+      order_index:
+        minimum: 0
+        type: integer
+    required:
+    - name
     type: object
-  internal_features_events.UpdateWorkflowStepInput:
+  internal_features_events_workflowstep.SyncWorkflowStepInput:
+    properties:
+      allows_multiple:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      order_index:
+        minimum: 0
+        type: integer
+    required:
+    - name
+    type: object
+  internal_features_events_workflowstep.UpdateWorkflowStepInput:
     properties:
       allows_multiple:
         type: boolean
@@ -338,22 +322,7 @@ definitions:
         minimum: 0
         type: integer
     type: object
-  internal_features_events.UpdateWorkflowStepTemplateInput:
-    properties:
-      allows_multiple:
-        type: boolean
-      name:
-        minLength: 1
-        type: string
-      order_index:
-        minimum: 0
-        type: integer
-      ticket_type_applicability:
-        items:
-          type: integer
-        type: array
-    type: object
-  internal_features_events.WorkflowStep:
+  internal_features_events_workflowstep.WorkflowStep:
     properties:
       allows_multiple:
         type: boolean
@@ -372,7 +341,38 @@ definitions:
       updated_at:
         type: string
     type: object
-  internal_features_events.WorkflowStepTemplate:
+  internal_features_events_workflowsteptemplate.CreateWorkflowStepTemplateInput:
+    properties:
+      allows_multiple:
+        type: boolean
+      name:
+        type: string
+      order_index:
+        minimum: 0
+        type: integer
+      ticket_type_applicability:
+        items:
+          type: integer
+        type: array
+    required:
+    - name
+    type: object
+  internal_features_events_workflowsteptemplate.UpdateWorkflowStepTemplateInput:
+    properties:
+      allows_multiple:
+        type: boolean
+      name:
+        minLength: 1
+        type: string
+      order_index:
+        minimum: 0
+        type: integer
+      ticket_type_applicability:
+        items:
+          type: integer
+        type: array
+    type: object
+  internal_features_events_workflowsteptemplate.WorkflowStepTemplate:
     properties:
       allows_multiple:
         type: boolean
@@ -738,7 +738,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dto.PageResponse-internal_features_events_EventCategory'
+            $ref: '#/definitions/dto.PageResponse-internal_features_events_category_EventCategory'
         "400":
           description: Invalid query (e.g. invalid sort field)
           schema:
@@ -763,14 +763,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_events.CreateInput'
+          $ref: '#/definitions/internal_features_events_category.CreateInput'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/internal_features_events.EventCategory'
+            $ref: '#/definitions/internal_features_events_category.EventCategory'
         "400":
           description: Invalid request body or validation error
           schema:
@@ -827,7 +827,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dto.PageResponse-internal_features_events_WorkflowStepTemplate'
+            $ref: '#/definitions/dto.PageResponse-internal_features_events_workflowsteptemplate_WorkflowStepTemplate'
         "400":
           description: Invalid category id or query
           schema:
@@ -857,14 +857,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_events.CreateWorkflowStepTemplateInput'
+          $ref: '#/definitions/internal_features_events_workflowsteptemplate.CreateWorkflowStepTemplateInput'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/internal_features_events.WorkflowStepTemplate'
+            $ref: '#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate'
         "400":
           description: Invalid request body or validation error
           schema:
@@ -947,7 +947,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_events.WorkflowStepTemplate'
+            $ref: '#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate'
         "400":
           description: Invalid ID format
           schema:
@@ -986,14 +986,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_events.UpdateWorkflowStepTemplateInput'
+          $ref: '#/definitions/internal_features_events_workflowsteptemplate.UpdateWorkflowStepTemplateInput'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_events.WorkflowStepTemplate'
+            $ref: '#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate'
         "400":
           description: Invalid ID or request body
           schema:
@@ -1064,7 +1064,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_events.EventCategory'
+            $ref: '#/definitions/internal_features_events_category.EventCategory'
         "400":
           description: Invalid ID format
           schema:
@@ -1098,14 +1098,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_events.UpdateInput'
+          $ref: '#/definitions/internal_features_events_category.UpdateInput'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_events.EventCategory'
+            $ref: '#/definitions/internal_features_events_category.EventCategory'
         "400":
           description: Invalid ID or request body
           schema:
@@ -1160,7 +1160,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dto.PageResponse-internal_features_events_Event'
+            $ref: '#/definitions/dto.PageResponse-internal_features_events_event_Event'
         "400":
           description: Invalid query (e.g. invalid sort field)
           schema:
@@ -1185,14 +1185,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_events.CreateEventInput'
+          $ref: '#/definitions/internal_features_events_event.CreateEventInput'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/internal_features_events.Event'
+            $ref: '#/definitions/internal_features_events_event.Event'
         "400":
           description: Invalid request body or validation error
           schema:
@@ -1521,7 +1521,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dto.PageResponse-internal_features_events_WorkflowStep'
+            $ref: '#/definitions/dto.PageResponse-internal_features_events_workflowstep_WorkflowStep'
         "400":
           description: Invalid event id or query
           schema:
@@ -1551,14 +1551,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_events.CreateWorkflowStepInput'
+          $ref: '#/definitions/internal_features_events_workflowstep.CreateWorkflowStepInput'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/internal_features_events.WorkflowStep'
+            $ref: '#/definitions/internal_features_events_workflowstep.WorkflowStep'
         "400":
           description: Invalid request body or validation error
           schema:
@@ -1598,7 +1598,7 @@ paths:
         required: true
         schema:
           items:
-            $ref: '#/definitions/internal_features_events.SyncWorkflowStepInput'
+            $ref: '#/definitions/internal_features_events_workflowstep.SyncWorkflowStepInput'
           type: array
       produces:
       - application/json
@@ -1607,7 +1607,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/internal_features_events.WorkflowStep'
+              $ref: '#/definitions/internal_features_events_workflowstep.WorkflowStep'
             type: array
         "400":
           description: Invalid request body, duplicate order_index, or an id not belonging
@@ -1686,7 +1686,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_events.WorkflowStep'
+            $ref: '#/definitions/internal_features_events_workflowstep.WorkflowStep'
         "400":
           description: Invalid ID format
           schema:
@@ -1725,14 +1725,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_events.UpdateWorkflowStepInput'
+          $ref: '#/definitions/internal_features_events_workflowstep.UpdateWorkflowStepInput'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_events.WorkflowStep'
+            $ref: '#/definitions/internal_features_events_workflowstep.WorkflowStep'
         "400":
           description: Invalid ID or request body
           schema:
@@ -1803,7 +1803,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_events.Event'
+            $ref: '#/definitions/internal_features_events_event.Event'
         "400":
           description: Invalid ID format
           schema:
@@ -1837,14 +1837,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_events.UpdateEventInput'
+          $ref: '#/definitions/internal_features_events_event.UpdateEventInput'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_events.Event'
+            $ref: '#/definitions/internal_features_events_event.Event'
         "400":
           description: Invalid ID or request body
           schema:

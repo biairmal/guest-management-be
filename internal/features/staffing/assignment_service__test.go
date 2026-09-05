@@ -15,7 +15,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/biairmal/guest-management-be/internal/core/query"
-	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/biairmal/guest-management-be/internal/features/events/event"
 	"github.com/biairmal/guest-management-be/internal/features/roles"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 )
@@ -47,7 +47,7 @@ func ctxWithTenant(tenantID uuid.UUID) context.Context {
 
 func newService(
 	assignmentRepo repository.Repository[EventStaffAssignment, uuid.UUID],
-	eventRepo repository.Repository[events.Event, uuid.UUID],
+	eventRepo repository.Repository[event.Event, uuid.UUID],
 	userRepo repository.Repository[users.User, uuid.UUID],
 	roleRepo repository.Repository[roles.Role, uuid.UUID],
 ) StaffAssignmentService {
@@ -63,7 +63,7 @@ func TestStaffAssignmentService_Create(t *testing.T) {
 	t.Run("no tenant claim maps to 401", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		userRepo := mockrepository.NewMockRepository[users.User, uuid.UUID](ctrl)
 		roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
 		svc := newService(assignmentRepo, eventRepo, userRepo, roleRepo)
@@ -75,7 +75,7 @@ func TestStaffAssignmentService_Create(t *testing.T) {
 	t.Run("event not found maps to 404", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		userRepo := mockrepository.NewMockRepository[users.User, uuid.UUID](ctrl)
 		roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
 		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(nil, repository.ErrNotFound)
@@ -88,10 +88,10 @@ func TestStaffAssignmentService_Create(t *testing.T) {
 	t.Run("event wrong tenant maps to 404", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		userRepo := mockrepository.NewMockRepository[users.User, uuid.UUID](ctrl)
 		roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: uuid.New()}, nil)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: uuid.New()}, nil)
 		svc := newService(assignmentRepo, eventRepo, userRepo, roleRepo)
 
 		_, err := svc.Create(ctxWithTenant(tenantID), eventID, CreateAssignmentInput{UserID: userID, RoleID: roleID})
@@ -101,10 +101,10 @@ func TestStaffAssignmentService_Create(t *testing.T) {
 	t.Run("user not found maps to 404", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		userRepo := mockrepository.NewMockRepository[users.User, uuid.UUID](ctrl)
 		roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		userRepo.EXPECT().GetByID(gomock.Any(), userID).Return(nil, repository.ErrNotFound)
 		svc := newService(assignmentRepo, eventRepo, userRepo, roleRepo)
 
@@ -115,10 +115,10 @@ func TestStaffAssignmentService_Create(t *testing.T) {
 	t.Run("user wrong tenant maps to 404", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		userRepo := mockrepository.NewMockRepository[users.User, uuid.UUID](ctrl)
 		roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		userRepo.EXPECT().GetByID(gomock.Any(), userID).Return(&users.User{ID: userID, TenantID: uuid.New()}, nil)
 		svc := newService(assignmentRepo, eventRepo, userRepo, roleRepo)
 
@@ -129,10 +129,10 @@ func TestStaffAssignmentService_Create(t *testing.T) {
 	t.Run("role not found maps to 404", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		userRepo := mockrepository.NewMockRepository[users.User, uuid.UUID](ctrl)
 		roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		userRepo.EXPECT().GetByID(gomock.Any(), userID).Return(&users.User{ID: userID, TenantID: tenantID}, nil)
 		roleRepo.EXPECT().GetByID(gomock.Any(), roleID).Return(nil, repository.ErrNotFound)
 		svc := newService(assignmentRepo, eventRepo, userRepo, roleRepo)
@@ -144,10 +144,10 @@ func TestStaffAssignmentService_Create(t *testing.T) {
 	t.Run("role wrong scope maps to 400", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		userRepo := mockrepository.NewMockRepository[users.User, uuid.UUID](ctrl)
 		roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		userRepo.EXPECT().GetByID(gomock.Any(), userID).Return(&users.User{ID: userID, TenantID: tenantID}, nil)
 		roleRepo.EXPECT().GetByID(gomock.Any(), roleID).Return(&roles.Role{ID: roleID, Scope: roles.ScopeSystem}, nil)
 		svc := newService(assignmentRepo, eventRepo, userRepo, roleRepo)
@@ -159,10 +159,10 @@ func TestStaffAssignmentService_Create(t *testing.T) {
 	t.Run("active duplicate maps to 409", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		userRepo := mockrepository.NewMockRepository[users.User, uuid.UUID](ctrl)
 		roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		userRepo.EXPECT().GetByID(gomock.Any(), userID).Return(&users.User{ID: userID, TenantID: tenantID}, nil)
 		roleRepo.EXPECT().GetByID(gomock.Any(), roleID).Return(&roles.Role{ID: roleID, Scope: roles.ScopeEvent}, nil)
 		assignmentRepo.EXPECT().List(gomock.Any(), gomock.Any()).
@@ -176,10 +176,10 @@ func TestStaffAssignmentService_Create(t *testing.T) {
 	t.Run("duplicate check repo error maps to 500", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		userRepo := mockrepository.NewMockRepository[users.User, uuid.UUID](ctrl)
 		roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		userRepo.EXPECT().GetByID(gomock.Any(), userID).Return(&users.User{ID: userID, TenantID: tenantID}, nil)
 		roleRepo.EXPECT().GetByID(gomock.Any(), roleID).Return(&roles.Role{ID: roleID, Scope: roles.ScopeEvent}, nil)
 		assignmentRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), errors.New("boom"))
@@ -191,15 +191,15 @@ func TestStaffAssignmentService_Create(t *testing.T) {
 
 	createHappyPathMocks := func(ctrl *gomock.Controller) (
 		*mockrepository.MockRepository[EventStaffAssignment, uuid.UUID],
-		*mockrepository.MockRepository[events.Event, uuid.UUID],
+		*mockrepository.MockRepository[event.Event, uuid.UUID],
 		*mockrepository.MockRepository[users.User, uuid.UUID],
 		*mockrepository.MockRepository[roles.Role, uuid.UUID],
 	) {
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		userRepo := mockrepository.NewMockRepository[users.User, uuid.UUID](ctrl)
 		roleRepo := mockrepository.NewMockRepository[roles.Role, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		userRepo.EXPECT().GetByID(gomock.Any(), userID).Return(&users.User{ID: userID, TenantID: tenantID}, nil)
 		roleRepo.EXPECT().GetByID(gomock.Any(), roleID).Return(&roles.Role{ID: roleID, Scope: roles.ScopeEvent}, nil)
 		assignmentRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
@@ -260,7 +260,7 @@ func TestStaffAssignmentService_GetByID(t *testing.T) {
 	t.Run("no tenant claim maps to 401", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		svc := newService(assignmentRepo, eventRepo, nil, nil)
 
 		_, err := svc.GetByID(context.Background(), eventID, id)
@@ -270,7 +270,7 @@ func TestStaffAssignmentService_GetByID(t *testing.T) {
 	t.Run("event not found maps to 404", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(nil, repository.ErrNotFound)
 		svc := newService(assignmentRepo, eventRepo, nil, nil)
 
@@ -281,8 +281,8 @@ func TestStaffAssignmentService_GetByID(t *testing.T) {
 	t.Run("assignment not found maps to 404", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		assignmentRepo.EXPECT().GetByID(gomock.Any(), id).Return(nil, repository.ErrNotFound)
 		svc := newService(assignmentRepo, eventRepo, nil, nil)
 
@@ -293,8 +293,8 @@ func TestStaffAssignmentService_GetByID(t *testing.T) {
 	t.Run("assignment belongs to different event maps to 404", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		assignmentRepo.EXPECT().GetByID(gomock.Any(), id).Return(&EventStaffAssignment{ID: id, EventID: uuid.New()}, nil)
 		svc := newService(assignmentRepo, eventRepo, nil, nil)
 
@@ -305,8 +305,8 @@ func TestStaffAssignmentService_GetByID(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		assignmentRepo.EXPECT().GetByID(gomock.Any(), id).Return(&EventStaffAssignment{ID: id, EventID: eventID}, nil)
 		svc := newService(assignmentRepo, eventRepo, nil, nil)
 
@@ -328,11 +328,11 @@ func TestStaffAssignmentService_Update(t *testing.T) {
 
 	baseGetMocks := func(ctrl *gomock.Controller) (
 		*mockrepository.MockRepository[EventStaffAssignment, uuid.UUID],
-		*mockrepository.MockRepository[events.Event, uuid.UUID],
+		*mockrepository.MockRepository[event.Event, uuid.UUID],
 	) {
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		assignmentRepo.EXPECT().GetByID(gomock.Any(), id).Return(&EventStaffAssignment{ID: id, EventID: eventID}, nil)
 		return assignmentRepo, eventRepo
 	}
@@ -407,8 +407,8 @@ func TestStaffAssignmentService_Delete(t *testing.T) {
 	t.Run("get not found maps to 404", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		assignmentRepo.EXPECT().GetByID(gomock.Any(), id).Return(nil, repository.ErrNotFound)
 		svc := newService(assignmentRepo, eventRepo, nil, nil)
 
@@ -419,8 +419,8 @@ func TestStaffAssignmentService_Delete(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		assignmentRepo.EXPECT().GetByID(gomock.Any(), id).Return(&EventStaffAssignment{ID: id, EventID: eventID}, nil)
 		assignmentRepo.EXPECT().Delete(gomock.Any(), id).Return(nil)
 		svc := newService(assignmentRepo, eventRepo, nil, nil)
@@ -438,7 +438,7 @@ func TestStaffAssignmentService_List(t *testing.T) {
 	t.Run("no tenant claim maps to 401", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		svc := newService(assignmentRepo, eventRepo, nil, nil)
 
 		params, err := query.ParseListParams(url.Values{}, query.ListParseConfig{})
@@ -452,7 +452,7 @@ func TestStaffAssignmentService_List(t *testing.T) {
 	t.Run("event not found maps to 404", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
 		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(nil, repository.ErrNotFound)
 		svc := newService(assignmentRepo, eventRepo, nil, nil)
 
@@ -467,8 +467,8 @@ func TestStaffAssignmentService_List(t *testing.T) {
 	t.Run("always injects event_id filter regardless of query params", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		assignmentRepo.EXPECT().List(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, opts *repository.ListOptions) ([]*EventStaffAssignment, int64, error) {
 				found := false
@@ -503,8 +503,8 @@ func TestStaffAssignmentService_List(t *testing.T) {
 	t.Run("repo error maps to 500", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		assignmentRepo := mockrepository.NewMockRepository[EventStaffAssignment, uuid.UUID](ctrl)
-		eventRepo := mockrepository.NewMockRepository[events.Event, uuid.UUID](ctrl)
-		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&events.Event{ID: eventID, TenantID: tenantID}, nil)
+		eventRepo := mockrepository.NewMockRepository[event.Event, uuid.UUID](ctrl)
+		eventRepo.EXPECT().GetByID(gomock.Any(), eventID).Return(&event.Event{ID: eventID, TenantID: tenantID}, nil)
 		assignmentRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), errors.New("boom"))
 		svc := newService(assignmentRepo, eventRepo, nil, nil)
 

@@ -12,17 +12,22 @@ import (
 
 	"github.com/biairmal/guest-management-be/internal/core/authz"
 	"github.com/biairmal/guest-management-be/internal/core/query"
-	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/biairmal/guest-management-be/internal/features/events/event"
 	"github.com/biairmal/guest-management-be/internal/features/roles"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 )
 
 //go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=../../../mocks/staffing/mock_service.go -package=mockstaffing github.com/biairmal/guest-management-be/internal/features/staffing StaffAssignmentService
 
-// PermissionManageStaff is the permission code (see docs/STAFFING_RBAC.md
-// ss3) required to assign/remove/update event staff. Gated on every route
-// in assignment_routes.go via authz.RequirePermission.
-const PermissionManageStaff = "manage_staff"
+// AssignmentListConfig declares the allow-listed sort/filter fields for
+// staff assignment list queries, enforced here in the service via
+// query.ValidateListParams and reused by StaffAssignmentHandler.List for
+// query.ParseListParams. event_id is always scoped from the URL, not a
+// query filter.
+var AssignmentListConfig = query.ListParseConfig{
+	AllowedSortFields:   []string{"id", "user_id", "role_id", "created_at", "updated_at"},
+	AllowedFilterFields: []string{"user_id", "role_id"},
+}
 
 // StaffAssignmentService defines the application-level operations for
 // event-scoped staff assignments. Every operation takes the owning event's
@@ -44,9 +49,9 @@ type StaffAssignmentService interface {
 // staffAssignmentServiceImpl is the concrete implementation of StaffAssignmentService.
 type staffAssignmentServiceImpl struct {
 	repo      repository.Repository[EventStaffAssignment, uuid.UUID]
-	eventRepo repository.Repository[events.Event, uuid.UUID]
-	userRepo  repository.Repository[users.User, uuid.UUID]
-	roleRepo  repository.Repository[roles.Role, uuid.UUID]
+	eventRepo repository.ReadRepository[event.Event, uuid.UUID]
+	userRepo  repository.ReadRepository[users.User, uuid.UUID]
+	roleRepo  repository.ReadRepository[roles.Role, uuid.UUID]
 	logger    logger.Logger
 }
 
@@ -54,38 +59,19 @@ type staffAssignmentServiceImpl struct {
 // dependencies. eventRepo/userRepo/roleRepo are cross-feature
 // repository-type dependencies — never another feature's service — the
 // same direction as auth.Service depending on a users repository rather
-// than users.UserService.
+// than users.UserService. They're ReadRepository, not the full Repository:
+// this service only ever calls GetByID on them, never writes to another
+// feature's data.
 func NewStaffAssignmentService(
 	logger logger.Logger,
 	repo repository.Repository[EventStaffAssignment, uuid.UUID],
-	eventRepo repository.Repository[events.Event, uuid.UUID],
-	userRepo repository.Repository[users.User, uuid.UUID],
-	roleRepo repository.Repository[roles.Role, uuid.UUID],
+	eventRepo repository.ReadRepository[event.Event, uuid.UUID],
+	userRepo repository.ReadRepository[users.User, uuid.UUID],
+	roleRepo repository.ReadRepository[roles.Role, uuid.UUID],
 ) StaffAssignmentService {
 	return &staffAssignmentServiceImpl{
 		repo: repo, eventRepo: eventRepo, userRepo: userRepo, roleRepo: roleRepo, logger: logger,
 	}
-}
-
-// CreateAssignmentInput is the input for assigning a user to an event with
-// an event-scoped role. event_id is taken from the URL and tenant_id from
-// the caller's JWT claim; neither is part of this input (see
-// docs/FEATURES.md#staffing).
-//
-// swagger:model CreateAssignmentInput
-type CreateAssignmentInput struct {
-	UserID uuid.UUID `json:"user_id" validate:"required"`
-	RoleID uuid.UUID `json:"role_id" validate:"required"`
-}
-
-// UpdateAssignmentInput is the input for changing an existing assignment's
-// role. event_id and user_id are immutable after creation — re-assigning a
-// different user is a remove (Delete) plus a new assignment (Create), not
-// an update (see docs/STAFFING_RBAC.md ss5).
-//
-// swagger:model UpdateAssignmentInput
-type UpdateAssignmentInput struct {
-	RoleID *uuid.UUID `json:"role_id,omitempty"`
 }
 
 // loadTenantScopedEvent loads eventID and verifies it belongs to the
@@ -96,7 +82,7 @@ type UpdateAssignmentInput struct {
 // IDs (see docs/STAFFING_RBAC.md ss6).
 func (s *staffAssignmentServiceImpl) loadTenantScopedEvent(
 	ctx context.Context, eventID uuid.UUID,
-) (*events.Event, error) {
+) (*event.Event, error) {
 	tenantID, ok := authz.TenantIDFromContext(ctx)
 	if !ok {
 		return nil, errorz.Unauthorized().WithMessage("no tenant claim present")
@@ -298,11 +284,14 @@ func (s *staffAssignmentServiceImpl) Delete(ctx context.Context, eventID, id uui
 func (s *staffAssignmentServiceImpl) List(
 	ctx context.Context, eventID uuid.UUID, params *query.ListParams,
 ) (*common.PageResponse[EventStaffAssignment], error) {
+	if err := query.ValidateListParams(params, AssignmentListConfig); err != nil {
+		return nil, errorz.BadRequest().WithMessage(err.Error())
+	}
 	if _, err := s.loadTenantScopedEvent(ctx, eventID); err != nil {
 		return nil, err
 	}
 
-	opts := listParamsToListOptions(params)
+	opts := query.ToListOptions(params)
 	opts.Filter.Conditions = append(opts.Filter.Conditions, repository.FilterCondition{
 		Field:    "event_id",
 		Operator: repository.FilterOperatorEq,
@@ -315,47 +304,4 @@ func (s *staffAssignmentServiceImpl) List(
 		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to list staff assignments")
 	}
 	return common.NewPageResponse(items, total, params.Page, params.Size), nil
-}
-
-// listParamsToListOptions converts query.ListParams to repository.ListOptions.
-func listParamsToListOptions(params *query.ListParams) *repository.ListOptions {
-	if params == nil {
-		return &repository.ListOptions{}
-	}
-
-	page, size := params.Page, params.Size
-	if page < 1 {
-		page = 1
-	}
-	if size < 1 {
-		size = 20
-	}
-	if size > 100 {
-		size = 100
-	}
-	offset := (page - 1) * size
-
-	var conditions []repository.FilterCondition
-	for field, value := range params.Filters {
-		conditions = append(conditions, repository.FilterCondition{
-			Field:    field,
-			Operator: repository.FilterOperatorEq,
-			Value:    value,
-		})
-	}
-
-	var sorts []repository.Sort
-	for _, s := range params.Sorts {
-		dir := repository.SortAsc
-		if s.Direction == common.SortDesc {
-			dir = repository.SortDesc
-		}
-		sorts = append(sorts, repository.Sort{Field: s.Field, Direction: dir})
-	}
-
-	return &repository.ListOptions{
-		Filter:     repository.Filter{Conditions: conditions},
-		Pagination: repository.Pagination{Limit: size, Offset: offset},
-		Sorts:      sorts,
-	}
 }

@@ -20,16 +20,6 @@ type MessageTemplateHandler struct {
 	validator validation.Validator
 }
 
-// messageTemplateListConfig declares the allow-listed sort/filter fields for
-// message template list queries. Pagination (page/size/max size) is not set
-// here, so it falls back to the shared defaults in internal/core/query.
-var messageTemplateListConfig = query.ListParseConfig{
-	AllowedSortFields: []string{
-		"id", "source", "tenant_id", "event_id", "name", "channel", "created_at", "updated_at",
-	},
-	AllowedFilterFields: []string{"name", "source", "tenant_id", "event_id", "channel"},
-}
-
 // NewMessageTemplateHandler returns a MessageTemplateHandler that uses the
 // given service and validator. Both are interfaces, allowing easy testing
 // and substitution.
@@ -60,7 +50,7 @@ func NewMessageTemplateHandler(service MessageTemplateService, validator validat
 //	@Security		BearerAuth
 //	@Router			/api/v1/message-templates [get]
 func (h *MessageTemplateHandler) List(r *http.Request) (any, error) {
-	params, err := query.ParseListParams(r.URL.Query(), messageTemplateListConfig)
+	params, err := query.ParseListParams(r.URL.Query(), MessageTemplateListConfig)
 	if err != nil {
 		return nil, errorz.BadRequest().WithMessage(err.Error())
 	}

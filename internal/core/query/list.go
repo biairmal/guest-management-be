@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	common "github.com/biairmal/go-sdk/lib/common/dto"
+	"github.com/biairmal/go-sdk/lib/repository"
 )
 
 // Default pagination values applied when a ListParseConfig leaves the
@@ -86,6 +87,85 @@ func ParseListParams(q url.Values, cfg ListParseConfig) (*ListParams, error) {
 		BasePageRequest: *common.NewBasePageRequest(page, size, sorts),
 		Filters:         parseFilters(q, cfg),
 	}, nil
+}
+
+// ValidateListParams checks params' sort fields and filter keys against cfg's
+// allow-lists, returning an error naming the first disallowed field.
+//
+// This runs the same check as ParseListParams, but against an already-built
+// *ListParams instead of a raw HTTP query string, so it works regardless of
+// which transport produced params (HTTP, gRPC, a subscriber, ...). Call this
+// in the service — the service is the transport-agnostic authority on what's
+// filterable/sortable, not the handler. See docs/PATTERNS.md#list-query
+// --allow-list-parsing-and-enforcement for why this is deliberate
+// defense-in-depth alongside ParseListParams' own check, not duplication.
+func ValidateListParams(params *ListParams, cfg ListParseConfig) error {
+	if params == nil {
+		return nil
+	}
+	allowedSorts := toSet(cfg.AllowedSortFields)
+	for _, s := range params.Sorts {
+		if !allowedSorts[s.Field] {
+			return fmt.Errorf("sort field not allowed: %s", s.Field)
+		}
+	}
+	allowedFilters := toSet(cfg.AllowedFilterFields)
+	for field := range params.Filters {
+		if !allowedFilters[field] {
+			return fmt.Errorf("filter field not allowed: %s", field)
+		}
+	}
+	return nil
+}
+
+// ToListOptions converts params to a *repository.ListOptions: page/size are
+// clamped to sane bounds (defaulting to page 1, size 20, max 100) and turned
+// into a limit/offset, simple equality filters become repository.FilterCondition
+// entries, and sorts map to repository.Sort. A nil params returns zero-value
+// options (page 1, default size, no filters/sorts).
+//
+// Every feature service shares this conversion — never hand-roll a
+// per-feature copy (see docs/PATTERNS.md#list-query--allow-list-parsing-and-enforcement).
+func ToListOptions(params *ListParams) *repository.ListOptions {
+	if params == nil {
+		return &repository.ListOptions{}
+	}
+
+	page, size := params.Page, params.Size
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = DefaultSize
+	}
+	if size > DefaultMaxSize {
+		size = DefaultMaxSize
+	}
+	offset := (page - 1) * size
+
+	var conditions []repository.FilterCondition
+	for field, value := range params.Filters {
+		conditions = append(conditions, repository.FilterCondition{
+			Field:    field,
+			Operator: repository.FilterOperatorEq,
+			Value:    value,
+		})
+	}
+
+	var sorts []repository.Sort
+	for _, s := range params.Sorts {
+		dir := repository.SortAsc
+		if s.Direction == common.SortDesc {
+			dir = repository.SortDesc
+		}
+		sorts = append(sorts, repository.Sort{Field: s.Field, Direction: dir})
+	}
+
+	return &repository.ListOptions{
+		Filter:     repository.Filter{Conditions: conditions},
+		Pagination: repository.Pagination{Limit: size, Offset: offset},
+		Sorts:      sorts,
+	}
 }
 
 // parsePage parses the "page" query parameter, defaulting to cfg.DefaultPage.

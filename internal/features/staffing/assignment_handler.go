@@ -20,14 +20,6 @@ type StaffAssignmentHandler struct {
 	validator validation.Validator
 }
 
-// assignmentListConfig declares the allow-listed sort/filter fields for
-// staff assignment list queries. event_id is always scoped from the URL,
-// not a query filter. Pagination falls back to the shared defaults.
-var assignmentListConfig = query.ListParseConfig{
-	AllowedSortFields:   []string{"id", "user_id", "role_id", "created_at", "updated_at"},
-	AllowedFilterFields: []string{"user_id", "role_id"},
-}
-
 // NewStaffAssignmentHandler returns a StaffAssignmentHandler that uses the
 // given service and validator. Both are interfaces, allowing easy testing
 // and substitution.
@@ -72,7 +64,7 @@ func (h *StaffAssignmentHandler) List(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	params, err := query.ParseListParams(r.URL.Query(), assignmentListConfig)
+	params, err := query.ParseListParams(r.URL.Query(), AssignmentListConfig)
 	if err != nil {
 		return nil, errorz.BadRequest().WithMessage(err.Error())
 	}

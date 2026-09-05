@@ -21,7 +21,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | A5 | Foundations | **Testing foundation** (generated-mock setup + first table-driven tests) | A2 | ✅ |
 | A6 | Foundations | Shared building blocks in `internal/core` (base repo, list-query parser, validator) | A5, go-sdk `validator` | ✅ |
 | A7 | Foundations | Cross-cutting middleware/observability + go-sdk `lifecycle` shutdown | go-sdk phases | ✅ |
-| A8 | Foundations | Post-B6 cleanup: shared list helpers, decode/DTO/constants hygiene, `events` entity split | A6 | ⬜ |
+| A8 | Foundations | Post-B6 cleanup: shared list helpers, decode/DTO/constants hygiene, `events` entity split | A6 | ✅ |
 | B1 | Domain | `tenants` | A6 | ✅ |
 | B2 | Domain | `users` | B1 | ✅ |
 | B3 | Domain | `auth` (login + route protection) | B2, go-sdk `auth` | ✅ |
@@ -149,9 +149,12 @@ this item is bringing existing code into line with them. Suggested order (each s
    handler to the service file (exported, e.g. `CategoryListConfig`), call `query.ValidateListParams` first thing in
    each service `List` method, and have the handler's `ParseListParams` call reuse that same exported value instead of
    declaring its own copy. See [PATTERNS.md#list-query--allow-list-parsing-and-enforcement](PATTERNS.md#list-query--allow-list-parsing-and-enforcement).
-3. **`serializer.ParseJSON` swap** — replace every `json.NewDecoder(r.Body).Decode(&body)` with
-   `serializer.ParseJSON(r.Body, &body)` (go-sdk). Confirmed in 15 spots across `events`, `staffing`, `users`,
-   `tenants`, `templates`, `auth` handlers — grep `json.NewDecoder` for the full list.
+3. ~~`serializer.ParseJSON` swap~~ — **reversed during implementation.** go-sdk's `serializer.ParseJSON(data []byte, v any)`
+   takes `[]byte`, not `io.Reader`; `serializer.ParseJSON(r.Body, &body)` doesn't compile (`r.Body` is
+   `io.ReadCloser`). Its real use is decoding an already-fetched value (see `repository/cache/decorator.go`'s cache
+   reads), not an HTTP body. `json.NewDecoder(r.Body).Decode(&body)` — what every handler already does — is correct
+   as-is: it streams the body without `ParseJSON`'s required full-body buffering. `AGENTS.md`/`PATTERNS.md`/
+   `NEW_FEATURE_CHECKLIST.md` corrected to stop prescribing the swap. No handler code changed.
 4. **DTO split** — move `CreateInput`/`UpdateInput`/etc. out of every `<entity>_service.go` into a new
    `<entity>_dto.go`; the service file keeps only the `XService` interface + implementation.
 5. **Constants file** — `staffing_constants.go` for `PermissionManageStaff` (currently inline at the top of
@@ -173,6 +176,26 @@ this roadmap — `ReadRepository` narrowing in step 6 is the right-sized fix).
 
 - **Verify:** `make check` green; `make swagger-generate` re-run if any DTO moved package; `make mocks` re-run for
   every mocked interface touched (staffing's narrowed repos, any new/moved service interface after the entity split).
+
+**Shipped** — all 7 steps landed (3 reversed as documented above), `make check` green (format, lint, test-unit,
+coverage, deps-verify). Two things surfaced only during implementation, not anticipated in the plan above:
+
+- **Stutter naming.** Once split, `category.CategoryService`/`category.CategoryHandler` (and the `event`/`workflowstep`/
+  `workflowsteptemplate` equivalents) tripped `revive`'s stutter check. Renamed to `category.Service`/`category.Handler`
+  per entity package (constructors `NewService`/`NewHandler`); model types (`EventCategory`, `Event`, `WorkflowStep`,
+  `WorkflowStepTemplate`) don't stutter and were left as-is. `PATTERNS.md`'s multi-entity example should read `Service`/
+  `Handler`, not `CategoryService`/`CategoryHandler`, next time it's touched.
+- **Mock package collision.** All 4 entities' `Service` interfaces previously mocked into one shared `mocks/events`
+  package (`mockevents`) — post-rename that's 4 distinct `Service` interfaces all generating a `MockService` in the same
+  package, a redeclaration. Split mock destinations to mirror the source split: `mocks/events/category` (`mockcategory`),
+  `mocks/events/event` (`mockevent`), `mocks/events/workflowstep` (`mockworkflowstep`),
+  `mocks/events/workflowsteptemplate` (`mockworkflowsteptemplate`). Nothing currently consumes these mocks (no feature
+  mocks another feature's service), so this was a build-fix with no behavioral impact.
+
+Also: `staffing`'s `events.Event` reference became `event.Event` after the split; the local variable named `event` in
+`assignment_service.go` (`event, err := s.eventRepo.GetByID(...)`) shadows the package identifier within its function
+body, but compiles clean because neither function references the `event` package again after the local declaration —
+flagged as a risk beforehand, turned out to be a non-issue, no rename needed.
 
 ---
 

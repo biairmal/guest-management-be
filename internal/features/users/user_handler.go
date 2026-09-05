@@ -20,14 +20,6 @@ type UserHandler struct {
 	validator validation.Validator
 }
 
-// userListConfig declares the allow-listed sort/filter fields for user list
-// queries. Pagination (page/size/max size) is not set here, so it falls back
-// to the shared defaults in internal/core/query.
-var userListConfig = query.ListParseConfig{
-	AllowedSortFields:   []string{"id", "tenant_id", "email", "role_id", "is_tenant_master", "created_at", "updated_at"},
-	AllowedFilterFields: []string{"tenant_id", "email", "role_id", "is_tenant_master"},
-}
-
 // NewUserHandler returns a UserHandler that uses the given service and
 // validator. Both are interfaces, allowing easy testing and substitution.
 func NewUserHandler(service UserService, validator validation.Validator) *UserHandler {
@@ -58,7 +50,7 @@ func NewUserHandler(service UserService, validator validation.Validator) *UserHa
 //	@Security		BearerAuth
 //	@Router			/api/v1/users [get]
 func (h *UserHandler) List(r *http.Request) (any, error) {
-	params, err := query.ParseListParams(r.URL.Query(), userListConfig)
+	params, err := query.ParseListParams(r.URL.Query(), UserListConfig)
 	if err != nil {
 		return nil, errorz.BadRequest().WithMessage(err.Error())
 	}

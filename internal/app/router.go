@@ -4,7 +4,10 @@ import (
 	"github.com/biairmal/go-sdk/lib/logger"
 	coreauthz "github.com/biairmal/guest-management-be/internal/core/authz"
 	appauth "github.com/biairmal/guest-management-be/internal/features/auth"
-	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/biairmal/guest-management-be/internal/features/events/category"
+	"github.com/biairmal/guest-management-be/internal/features/events/event"
+	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
+	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
@@ -18,10 +21,10 @@ import (
 // permission code, a cross-cutting collaborator beyond the usual
 // InitXRoutes(mux, handler) shape.
 func (a *App) initializeRoutes(_ logger.Logger, mux *chi.Mux, handler *handler, checker *coreauthz.Checker) {
-	events.InitCategoryRoutes(mux, handler.categoryHandler)
-	events.InitEventRoutes(mux, handler.eventHandler)
-	events.InitWorkflowStepRoutes(mux, handler.workflowStepHandler)
-	events.InitWorkflowStepTemplateRoutes(mux, handler.workflowStepTemplateHandler)
+	category.InitCategoryRoutes(mux, handler.categoryHandler)
+	event.InitEventRoutes(mux, handler.eventHandler)
+	workflowstep.InitWorkflowStepRoutes(mux, handler.workflowStepHandler)
+	workflowsteptemplate.InitWorkflowStepTemplateRoutes(mux, handler.workflowStepTemplateHandler)
 	tenants.InitTenantRoutes(mux, handler.tenantHandler)
 	users.InitUserRoutes(mux, handler.userHandler)
 	appauth.InitAuthRoutes(mux, handler.authHandler)

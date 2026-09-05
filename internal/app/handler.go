@@ -4,7 +4,10 @@ import (
 	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/guest-management-be/internal/core/validation"
 	appauth "github.com/biairmal/guest-management-be/internal/features/auth"
-	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/biairmal/guest-management-be/internal/features/events/category"
+	"github.com/biairmal/guest-management-be/internal/features/events/event"
+	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
+	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
@@ -12,10 +15,10 @@ import (
 )
 
 type handler struct {
-	categoryHandler             *events.CategoryHandler
-	eventHandler                *events.EventHandler
-	workflowStepHandler         *events.WorkflowStepHandler
-	workflowStepTemplateHandler *events.WorkflowStepTemplateHandler
+	categoryHandler             *category.Handler
+	eventHandler                *event.Handler
+	workflowStepHandler         *workflowstep.Handler
+	workflowStepTemplateHandler *workflowsteptemplate.Handler
 	tenantHandler               *tenants.TenantHandler
 	userHandler                 *users.UserHandler
 	authHandler                 *appauth.Handler
@@ -25,10 +28,10 @@ type handler struct {
 
 func (a *App) initializeHandler(_ logger.Logger, validator validation.Validator, service *service) *handler {
 	return &handler{
-		categoryHandler:     events.NewCategoryHandler(service.categoryService, validator),
-		eventHandler:        events.NewEventHandler(service.eventService, validator),
-		workflowStepHandler: events.NewWorkflowStepHandler(service.workflowStepService, validator),
-		workflowStepTemplateHandler: events.NewWorkflowStepTemplateHandler(
+		categoryHandler:     category.NewHandler(service.categoryService, validator),
+		eventHandler:        event.NewHandler(service.eventService, validator),
+		workflowStepHandler: workflowstep.NewHandler(service.workflowStepService, validator),
+		workflowStepTemplateHandler: workflowsteptemplate.NewHandler(
 			service.workflowStepTemplateService, validator,
 		),
 		tenantHandler:          tenants.NewTenantHandler(service.tenantService, validator),

@@ -6,7 +6,10 @@ import (
 	sdkrepository "github.com/biairmal/go-sdk/lib/repository"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
-	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/biairmal/guest-management-be/internal/features/events/category"
+	"github.com/biairmal/guest-management-be/internal/features/events/event"
+	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
+	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 	"github.com/biairmal/guest-management-be/internal/features/roles"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
@@ -17,10 +20,10 @@ import (
 
 // repositories holds all feature repositories wired for the application.
 type repositories struct {
-	categoryRepository             sdkrepository.Repository[events.EventCategory, uuid.UUID]
-	eventRepository                sdkrepository.Repository[events.Event, uuid.UUID]
-	workflowStepRepository         sdkrepository.Repository[events.WorkflowStep, uuid.UUID]
-	workflowStepTemplateRepository sdkrepository.Repository[events.WorkflowStepTemplate, uuid.UUID]
+	categoryRepository             sdkrepository.Repository[category.EventCategory, uuid.UUID]
+	eventRepository                sdkrepository.Repository[event.Event, uuid.UUID]
+	workflowStepRepository         sdkrepository.Repository[workflowstep.WorkflowStep, uuid.UUID]
+	workflowStepTemplateRepository sdkrepository.Repository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID]
 	tenantRepository               sdkrepository.Repository[tenants.Tenant, uuid.UUID]
 	userRepository                 sdkrepository.Repository[users.User, uuid.UUID]
 	messageTemplateRepository      sdkrepository.Repository[templates.MessageTemplate, uuid.UUID]
@@ -74,15 +77,17 @@ func (a *App) initializeRepository(
 	)
 
 	return &repositories{
-		categoryRepository:             events.NewCategoryRepository(log, db, categoryCacheOpts),
-		eventRepository:                events.NewEventRepository(log, db, eventCacheOpts),
-		workflowStepRepository:         events.NewWorkflowStepRepository(log, db, workflowStepCacheOpts),
-		workflowStepTemplateRepository: events.NewWorkflowStepTemplateRepository(log, db, workflowStepTemplateCacheOpts),
-		tenantRepository:               tenants.NewTenantRepository(log, db, tenantCacheOpts),
-		userRepository:                 users.NewUserRepository(log, db, userCacheOpts),
-		messageTemplateRepository:      templates.NewMessageTemplateRepository(log, db, messageTemplateCacheOpts),
-		roleRepository:                 roles.NewRoleRepository(log, db, roleCacheOpts),
-		rolePermissionRepository:       rolePermissionRepository,
-		staffAssignmentRepository:      staffing.NewStaffAssignmentRepository(log, db, staffAssignmentCacheOpts),
+		categoryRepository:     category.NewCategoryRepository(log, db, categoryCacheOpts),
+		eventRepository:        event.NewEventRepository(log, db, eventCacheOpts),
+		workflowStepRepository: workflowstep.NewWorkflowStepRepository(log, db, workflowStepCacheOpts),
+		workflowStepTemplateRepository: workflowsteptemplate.NewWorkflowStepTemplateRepository(
+			log, db, workflowStepTemplateCacheOpts,
+		),
+		tenantRepository:          tenants.NewTenantRepository(log, db, tenantCacheOpts),
+		userRepository:            users.NewUserRepository(log, db, userCacheOpts),
+		messageTemplateRepository: templates.NewMessageTemplateRepository(log, db, messageTemplateCacheOpts),
+		roleRepository:            roles.NewRoleRepository(log, db, roleCacheOpts),
+		rolePermissionRepository:  rolePermissionRepository,
+		staffAssignmentRepository: staffing.NewStaffAssignmentRepository(log, db, staffAssignmentCacheOpts),
 	}, nil
 }

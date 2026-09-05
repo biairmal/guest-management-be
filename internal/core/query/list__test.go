@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	common "github.com/biairmal/go-sdk/lib/common/dto"
+	"github.com/biairmal/go-sdk/lib/repository"
 )
 
 func TestParseListParamsDefaults(t *testing.T) {
@@ -174,4 +175,92 @@ func TestParseListParamsFilters(t *testing.T) {
 			t.Errorf("filters[%q] = %q, want %q", k, params.Filters[k], v)
 		}
 	}
+}
+
+func TestValidateListParams(t *testing.T) {
+	cfg := ListParseConfig{
+		AllowedSortFields:   []string{"name"},
+		AllowedFilterFields: []string{"name"},
+	}
+
+	tests := []struct {
+		name    string
+		params  *ListParams
+		wantErr bool
+	}{
+		{name: "nil params", params: nil},
+		{name: "empty params", params: &ListParams{}},
+		{
+			name: "allowed sort field",
+			params: &ListParams{
+				BasePageRequest: *common.NewBasePageRequest(1, 20, []common.SortSpec{{Field: "name", Direction: common.SortAsc}}),
+			},
+		},
+		{
+			name: "disallowed sort field",
+			params: &ListParams{
+				BasePageRequest: *common.NewBasePageRequest(1, 20, []common.SortSpec{{Field: "secret", Direction: common.SortAsc}}),
+			},
+			wantErr: true,
+		},
+		{
+			name:   "allowed filter field",
+			params: &ListParams{Filters: map[string]string{"name": "x"}},
+		},
+		{
+			name:    "disallowed filter field",
+			params:  &ListParams{Filters: map[string]string{"secret": "x"}},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateListParams(tt.params, cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateListParams() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestToListOptions(t *testing.T) {
+	t.Run("nil params", func(t *testing.T) {
+		opts := ToListOptions(nil)
+		if opts == nil || opts.Pagination.Limit != 0 || opts.Pagination.Offset != 0 {
+			t.Errorf("ToListOptions(nil) = %+v, want zero-value options", opts)
+		}
+	})
+
+	t.Run("clamps and converts", func(t *testing.T) {
+		params := &ListParams{
+			BasePageRequest: *common.NewBasePageRequest(2, 500, []common.SortSpec{{Field: "name", Direction: common.SortDesc}}),
+			Filters:         map[string]string{"name": "x"},
+		}
+		opts := ToListOptions(params)
+
+		if opts.Pagination.Limit != DefaultMaxSize {
+			t.Errorf("Limit = %d, want clamped to %d", opts.Pagination.Limit, DefaultMaxSize)
+		}
+		if opts.Pagination.Offset != (2-1)*DefaultMaxSize {
+			t.Errorf("Offset = %d, want %d", opts.Pagination.Offset, (2-1)*DefaultMaxSize)
+		}
+		if len(opts.Filter.Conditions) != 1 || opts.Filter.Conditions[0].Field != "name" ||
+			opts.Filter.Conditions[0].Operator != repository.FilterOperatorEq {
+			t.Errorf("Filter.Conditions = %+v, want one eq condition on name", opts.Filter.Conditions)
+		}
+		if len(opts.Sorts) != 1 || opts.Sorts[0] != (repository.Sort{Field: "name", Direction: repository.SortDesc}) {
+			t.Errorf("Sorts = %+v, want [{name DESC}]", opts.Sorts)
+		}
+	})
+
+	t.Run("defaults zero page and size", func(t *testing.T) {
+		opts := ToListOptions(&ListParams{})
+		if opts.Pagination.Limit != DefaultSize {
+			t.Errorf("Limit = %d, want default %d", opts.Pagination.Limit, DefaultSize)
+		}
+		if opts.Pagination.Offset != 0 {
+			t.Errorf("Offset = %d, want 0", opts.Pagination.Offset)
+		}
+	})
 }

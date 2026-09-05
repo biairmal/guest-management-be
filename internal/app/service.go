@@ -6,7 +6,10 @@ import (
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
 	coreauthz "github.com/biairmal/guest-management-be/internal/core/authz"
 	appauth "github.com/biairmal/guest-management-be/internal/features/auth"
-	"github.com/biairmal/guest-management-be/internal/features/events"
+	"github.com/biairmal/guest-management-be/internal/features/events/category"
+	"github.com/biairmal/guest-management-be/internal/features/events/event"
+	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
+	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 	"github.com/biairmal/guest-management-be/internal/features/roles"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
@@ -15,10 +18,10 @@ import (
 )
 
 type service struct {
-	categoryService             events.CategoryService
-	eventService                events.EventService
-	workflowStepService         events.WorkflowStepService
-	workflowStepTemplateService events.WorkflowStepTemplateService
+	categoryService             category.Service
+	eventService                event.Service
+	workflowStepService         workflowstep.Service
+	workflowStepTemplateService workflowsteptemplate.Service
 	tenantService               tenants.TenantService
 	userService                 users.UserService
 	authService                 appauth.Service
@@ -35,13 +38,13 @@ func (a *App) initializeService(
 	authzChecker := coreauthz.NewChecker(logger, permissionResolver)
 
 	return &service{
-		categoryService: events.NewCategoryService(logger, repositories.categoryRepository),
-		eventService: events.NewEventService(
+		categoryService: category.NewService(logger, repositories.categoryRepository),
+		eventService: event.NewService(
 			logger, repositories.eventRepository,
 			repositories.workflowStepTemplateRepository, repositories.workflowStepRepository,
 		),
-		workflowStepService: events.NewWorkflowStepService(logger, repositories.workflowStepRepository),
-		workflowStepTemplateService: events.NewWorkflowStepTemplateService(
+		workflowStepService: workflowstep.NewService(logger, repositories.workflowStepRepository),
+		workflowStepTemplateService: workflowsteptemplate.NewService(
 			logger, repositories.workflowStepTemplateRepository,
 		),
 		tenantService: tenants.NewTenantService(logger, repositories.tenantRepository),

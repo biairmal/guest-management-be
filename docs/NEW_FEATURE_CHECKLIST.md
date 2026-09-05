@@ -37,7 +37,7 @@ Follow these steps in order when adding a feature vertical slice. The rules refe
 
 ## 8. Handler + validation
 
-- `<entity>_handler.go`: `func(*http.Request)(any,error)` handlers. Parse with `serializer.ParseJSON` (never `encoding/json` directly), validate the DTO at the boundary via the shared validator, call the service, return `response.OK/Created/NoContent`.
+- `<entity>_handler.go`: `func(*http.Request)(any,error)` handlers. Parse with `json.NewDecoder(r.Body).Decode(&body)` (go-sdk's `serializer.ParseJSON` takes `[]byte`, not `io.Reader` — it's for decoding an already-fetched value like a cache read, not an HTTP body), validate the DTO at the boundary via the shared validator, call the service, return `response.OK/Created/NoContent`.
 - **Add Swagger annotations** to every handler (`@Summary`, `@Param`, `@Success`, `@Failure`, `@Router`). Template: [PATTERNS.md#handler--go-sdk-adapter--swagger](PATTERNS.md#handler--go-sdk-adapter--swagger).
 
 ## 9. Routes + list query
