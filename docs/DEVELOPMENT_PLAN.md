@@ -32,7 +32,11 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B7 | Domain | `tickets` (ticket types + tickets) | B4 | ✅ |
 | B8 | Domain | `guests` | B4, B7 | ✅ |
 | B9 | Domain | `scans` (check-in / scan logs) | B8 | ✅ |
-| B10 | Domain | `post-event-comms` (thank-you message + documentation links, sent after event completion) | B8, B9 | ⬜ (not started — future work, see phase notes) |
+| B10 | Domain | `post-event-comms` (thank-you message + documentation links, sent after event completion) | B8, B9 | ⬜ (not started — Story written, see phase notes) |
+| B11 | Domain | `users` hardening (permission gate, JWT tenant scoping, forced-password-reset flag, tenant-master ownership transfer) | B2, B3, B6 | ⬜ (not started — Story written, see phase notes) |
+| B12 | Domain | `ticket-type-templates` (default ticket types per event category) | B4, B5, B7 | ⬜ (not started — Story written, see phase notes) |
+| B13 | Domain | `event-reports` (live guest/workflow-step counts) | B8, B9 | ⬜ (not started — Story written, see phase notes) |
+| B14 | Domain | `incidents` (event incident tickets) | B4, B6 | ⬜ (not started — Story written, see phase notes) |
 
 ---
 
@@ -217,9 +221,34 @@ Tracked here rather than silently deferred so it doesn't get lost.
   on that event's `scans` endpoints; a user with no assignment on that event and no system permission still gets
   403.
 
-No Story yet — write one (`product-manager`) when this is picked up. Not a blocker for B9 shipping: B9 reuses the
-same system-role-only `Checker` every other gated feature already relies on, so it's neither better nor worse off
-than `tickets`/`guests`/`staffing` are today.
+Not a blocker for B9 shipping: B9 reuses the same system-role-only `Checker` every other gated feature already
+relies on, so it's neither better nor worse off than `tickets`/`guests`/`staffing` are today.
+
+#### Story (product-manager)
+
+As a tenant staff member holding only an event-scoped role assignment (e.g. Usher) with no elevated system-level
+role, I want the system to honor my event-scoped permissions when I call permission-gated endpoints on that
+event, so that I can perform my assigned duties (e.g. scanning tickets) without needing a tenant-wide role I
+shouldn't have (REQUIREMENT.md §2.2 "Event Customization" staffing, STAFFING_RBAC.md §1).
+
+**Acceptance criteria**
+1. A user with no system-level permission grant, but an active `event_staff_assignments` row on event E whose
+   role grants `check_in`, can successfully `POST /api/v1/events/{E}/scans` (201) — the event-scoped grant alone
+   is sufficient.
+2. The same user, who has no assignment on a different event F, is rejected (403) calling the same endpoint on F.
+3. A user with neither a system-level permission grant nor any `event_staff_assignments` row on event E is
+   rejected (403) calling a permission-gated endpoint on E.
+4. A user whose system-level role already grants the permission (e.g. Tenant Admin's `manage_staff`) continues
+   to be authorized on any event in their tenant with no regression, regardless of whether an event-scoped
+   assignment also exists for them.
+
+No new domain concepts — `EventStaffAssignment` and its `role_id` are already modeled and shipped (B6); this
+story only makes the existing `authz.Checker` consult them. No REQUIREMENT.md changes needed.
+
+This is a fix to a shared, already-designed component (`internal/core/authz`), not a new feature slice — the
+phase notes above already carry solutions-architect-level implementation detail (where the fix belongs, what
+scope it needs). Can likely go straight to `backend-developer`; re-run `solutions-architect` only if the existing
+notes turn out to be insufficient once implementation starts.
 
 ---
 
@@ -242,6 +271,10 @@ each phase names its migration and tables. Ordered by data dependency.
 | **B8** | `guests` | `000009` — `guests`, `tickets` | CRUD `/api/v1/events/{event_id}/guests`; assign ticket type; send invitation; guest RSVP; issue tickets |
 | **B9** | `scans` | `000010` — `scan_logs` | `POST/GET /api/v1/events/{event_id}/scans` check-in; scan history |
 | **B10** | `post-event-comms` | not yet designed | Thank-you message + documentation links sent after event completion (REQUIREMENT.md §4.7) |
+| **B11** | `users` hardening | none — columns added to existing `users` table + one new endpoint | Permission gate on existing `/api/v1/users`; `POST /api/v1/users/{id}/transfer-master` (shape TBD) |
+| **B12** | `ticket-type-templates` | not yet designed | CRUD `/api/v1/event-categories/{category_id}/ticket-type-templates`; copied into `ticket_types` on event create |
+| **B13** | `event-reports` | not yet designed, read-only over existing tables | `GET /api/v1/events/{event_id}/report` (shape TBD) |
+| **B14** | `incidents` | not yet designed | CRUD-ish `/api/v1/events/{event_id}/incidents` |
 
 ### Phase notes
 
@@ -272,10 +305,18 @@ each phase names its migration and tables. Ordered by data dependency.
 - **B7–B9 `tickets`/`guests`/`scans`** — the check-in critical path. `scans` is write-heavy and latency-sensitive;
   when it becomes a hotspot, it's the first candidate to extract into its own service (the slice boundary already
   isolates it).
-- **B10 `post-event-comms`** — deferred future work, not being built now. Covers REQUIREMENT.md §4.7 (thank-you
-  message after event completion) plus sending guests documentation links related to the event. No Story yet —
-  write one when this phase is actually picked up, once `guests`/`scans` exist to know what "event completion"
-  and "which guest" resolve against.
+- **B10 `post-event-comms`** — covers REQUIREMENT.md §4.7 (thank-you message after event completion, now
+  including documentation links). Story below; not yet designed (`solutions-architect`) or implemented.
+- **B11 `users` hardening** — closes three gaps in the shipped `users`/`auth` slices found while comparing the
+  product owner's tenant-master description against what's implemented: no permission gate on `/api/v1/users`,
+  no forced-password-reset flag, no tenant-master ownership transfer. Story below.
+- **B12 `ticket-type-templates`** — new slice mirroring `workflow_step_templates` (B4/B5) one level down: default
+  ticket types per event category, copied onto new events the same way workflow steps are. Story below; not yet
+  designed.
+- **B13 `event-reports`** — new read-only slice aggregating existing `guests`/`scan_logs` data into live event
+  counts (REQUIREMENT.md §4.9). Story below; not yet designed.
+- **B14 `incidents`** — new slice, brand-new domain concept (REQUIREMENT.md §3.13, §4.10): event-scoped incident
+  tickets staff can raise and other event staff can see. Story below; not yet designed.
 
 ### B7. `tickets` (ticket types)
 
@@ -787,6 +828,175 @@ every other nested-resource feature.
   (e.g. to "undo" a scan) — no acceptance criterion asks for that, and `scan_logs` remains the permanent,
   un-editable record of what actually happened regardless of `status`.
 
+### B10. `post-event-comms`
+
+#### Story (product-manager)
+
+As a tenant staff member, I want the system to send each admitted guest a thank-you message with documentation
+links once their event has ended, so that guests receive a proper close to the event without me manually
+messaging every attendee (REQUIREMENT.md §4.7).
+
+**Acceptance criteria**
+1. A staff member can trigger post-event comms for an event via an authenticated endpoint once the event's
+   `end_date` has passed; calling it before `end_date` has passed is rejected (400).
+2. Triggering it sends a thank-you message (via the same best-effort publish mechanism `guests` uses for
+   invitations, B8) to every guest on the event who has an issued `Ticket` — resolved against the
+   event/tenant/app `message_templates` hierarchy (B5) for a thank-you template.
+3. The thank-you message includes documentation links (event-specific or general).
+4. Triggering post-event comms a second time for the same event does not resend to a guest already sent one
+   (idempotent per guest); the response reports how many guests were newly notified vs. already notified.
+5. A guest with no issued ticket is not sent a thank-you message.
+6. The endpoint requires a valid access token and an appropriate permission gate; an unauthenticated call gets
+   401.
+
+**Open questions for solutions-architect:**
+- Trigger mechanism: automatic (needs a scheduler/cron — no such infra exists in this codebase yet) vs. a
+  staff-triggered endpoint for MVP. Given no scheduler exists anywhere today, a manual trigger endpoint is the
+  lower-risk default — confirm or override.
+- Where `documentation_links` live (a new column on `events`, a small new table, or folded into the message
+  template's `variables` payload) — decide during design; update REQUIREMENT.md §3.4/§4.7 once settled if it
+  becomes its own persisted field.
+- Whether "admitted" (AC2/AC5) means "has an issued `Ticket`" (as written above) or specifically "has at least
+  one `scan_logs` row" (i.e. actually checked in) — the raw ask ("thank you for coming") leans toward the
+  latter; decide and adjust AC2/AC5 if so.
+- Idempotency tracking mechanism (e.g. a `guests.thanked_at` column) — new domain detail, needs a REQUIREMENT.md
+  note once decided.
+
+No new top-level domain entity — `Guest`, `Ticket`, and `message_templates` already exist; REQUIREMENT.md §4.7
+is already updated with the documentation-links and no-duplicate-send requirements this story adds.
+
+### B11. `users` hardening (tenant user administration)
+
+#### Story (product-manager)
+
+As a tenant master, I want to manage my tenant's users under proper permission control, have new users
+encouraged to change their password on first login, and be able to transfer my tenant-master role to another
+user, so that user administration for my tenant is secure and I'm not permanently locked into holding it
+(REQUIREMENT.md §2.1, §3.2, §4.8).
+
+**Acceptance criteria**
+1. Every `/api/v1/users` endpoint (list/get/create/update/delete) requires the caller to hold the `manage_users`
+   permission (already seeded, STAFFING_RBAC.md §3) — a caller without it gets 403; no/invalid token gets 401.
+2. `tenant_id` scoping is resolved from the caller's JWT `tenant_id` claim, not the request body (mirroring
+   `staffing`, FEATURES.md#staffing) — a caller cannot list/read/create/update/delete a user belonging to
+   another tenant no matter what `tenant_id` they name in the body; cross-tenant attempts resolve 404, same
+   not-found convention as `staffing`/`tickets`.
+3. A newly created user has `must_change_password` set `true` by default. Logging in as that user still succeeds
+   (valid token pair issued), and the login response reports `must_change_password: true`.
+4. Setting a new password for a user (self-service, or a `manage_users`-permitted master updating another user
+   via `PUT /api/v1/users/{id}`) clears `must_change_password` back to `false`.
+5. A tenant master can transfer `is_tenant_master` to another active user in the same tenant; on success exactly
+   one user in the tenant holds `is_tenant_master = true` (the new one) and the previous master no longer does.
+6. Transferring tenant-master ownership to a user in a different tenant is rejected (400/404, per the existing
+   cross-tenant convention).
+
+**Open questions for solutions-architect:**
+- Endpoint shape for the ownership transfer (e.g. `POST /api/v1/users/{id}/transfer-master` vs. a field on an
+  existing endpoint) — decide.
+- Whether the transfer action needs an extra check beyond holding `manage_users` (i.e. caller must themselves be
+  the current tenant master) — the raw ask is "master tenant can transfer their ownership," which reads as
+  master-only, not any `manage_users` holder. Decide and encode if so.
+- This story does not extend JWT-tenant-scoping to `events`' own still-explicit-`tenant_id`-in-body gap (a
+  separately tracked, pre-existing item) — confirm that stays out of scope here.
+
+New domain field — `mustChangePassword` added to `User` in REQUIREMENT.md §3.2. `isTenantMaster` and its
+single-master-per-tenant invariant already existed (FEATURES.md#users); this story adds the transfer *operation*,
+not a new field.
+
+### B12. `ticket-type-templates`
+
+#### Story (product-manager)
+
+As a tenant staff member creating an event, I want default ticket types to be created automatically for the
+event based on its category, so that I don't have to manually define Regular/VIP (or whatever a category
+typically needs) every time (REQUIREMENT.md §3.6, §3.12, §4.2).
+
+**Acceptance criteria**
+1. A tenant staff member can create/list/update/delete ticket-type templates scoped to an event category
+   (mirroring `workflow-step-templates`' endpoint shape, B5), each with a `name` and default `rules`.
+2. Creating an event under a category that has ticket-type templates results in the event automatically having a
+   matching `TicketType` created for each template (same name/rules) — verifiable via
+   `GET /api/v1/events/{event_id}/ticket-types` immediately after event creation, with no manual ticket-type
+   create call needed.
+3. A category with no ticket-type templates results in an event created with zero ticket types (unchanged from
+   today) — an organizer creates them manually, same as today.
+4. A ticket-type template belonging to a different category is never copied onto an event created under another
+   category.
+5. Each auto-created ticket type retains the existing default of applying to all of the event's current workflow
+   steps (B7 AC7) — no special-casing here.
+6. Deleting or updating a ticket-type template after an event has already been created from it does not
+   retroactively change that event's already-created ticket types (templates seed at creation time only, same as
+   `workflow_step_templates`).
+
+**Open question for solutions-architect:** endpoint permission gating (reuse `manage_events`, matching
+`ticket-types`' own gate, or leave ungated like `workflow-step-templates`?) and whether the template-copy-on-create
+step is best-effort/non-blocking, matching `EventService.Create`'s existing workflow-step-template copy —
+recommend yes, for consistency, but confirm during design.
+
+This is a new domain entity — `TicketTypeTemplate` — already added to REQUIREMENT.md §3.12, with
+`EventCategoryBase.ticketTypeTemplates[]` (§3.5) and the event-creation copy behavior (§4.2, §7) updated to match.
+
+### B13. `event-reports`
+
+#### Story (product-manager)
+
+As an event organizer, I want a live summary of my event's guest counts — how many guests are at each RSVP
+stage and how many have completed each workflow step — so that I can monitor the event from a "helicopter view"
+without manually tallying scan logs (REQUIREMENT.md §4.9).
+
+**Acceptance criteria**
+1. An authenticated staff member with appropriate permission can `GET` a report for an event returning counts of
+   guests grouped by `rsvp_status` (`none`/`invited`/`confirmed`/`declined`).
+2. The same report (or a related endpoint) returns, per workflow step of the event, the count of distinct
+   tickets that have completed that step at least once (derived from `scan_logs`).
+3. The report is scoped to the event in the URL; requesting a report for an event in another tenant is rejected
+   404 (same convention as other event-scoped features).
+4. The counts reflect live data — a scan or RSVP recorded before a report call is reflected in the
+   immediately-following report call (no caching staleness beyond a plain DB read).
+5. The endpoint requires a valid access token; an unauthenticated call gets 401.
+
+**Open questions for solutions-architect:**
+- Which permission gates this (a new `view_reports` code vs. reusing `manage_events`/`manage_guests`) — decide
+  during design.
+- Per-guest "current step" drill-down (as opposed to aggregate counts) is explicitly **not** in this story's
+  scope — keep MVP to aggregate counts only; raise it separately if actually needed.
+
+No new persisted domain entity — this is a read-model over existing `Guest`/`ScanLog` data (REQUIREMENT.md §4.9
+already reflects this as a functional requirement, not a new entity). Confirm during design whether any
+supporting index is needed for the aggregation queries at scale — an implementation concern, not a story concern.
+
+### B14. `incidents`
+
+#### Story (product-manager)
+
+As event staff, I want to create and view incident tickets for my event, so that something requiring attention
+(e.g. a medical issue, an equipment failure) is visible to other staff working the same event
+(REQUIREMENT.md §3.13, §4.10).
+
+**Acceptance criteria**
+1. A staff member with access to an event can create an incident with a `title`, `description`, and `severity`,
+   scoped to that event; it starts in `open` status.
+2. Listing incidents for an event returns only that event's incidents, paginated; fetching an incident by an id
+   belonging to a different event resolves 404 (no cross-event leak).
+3. Any other staff member with access to the same event (event-scoped or system-level permission on that event)
+   can list/view that event's incidents — this satisfies "alerting others" for the first release as visibility,
+   not a push/real-time notification.
+4. An incident's `status` can be updated (e.g. `open` → `in_progress` → `resolved`) by staff with access to the
+   event.
+5. Every incident endpoint requires a valid access token; an unauthenticated call gets 401; a caller with no
+   access to the event gets 403/404 per the existing event-scoping convention.
+
+**Open questions for solutions-architect:**
+- Which permission gates create/update/list (a new `report_incidents`/`manage_incidents` code, or reuse an
+  existing one) — decide during design.
+- **"Alert others" — deliberately scoped down to visibility-via-listing for MVP, not a notification mechanism.**
+  The raw ask ("someone needs to report it and alert others") could be read as wanting a push
+  notification/websocket. Don't build one speculatively — confirm with the product owner whether listing
+  satisfies MVP before any real-time delivery mechanism is considered.
+
+New domain entity — `Incident` — already added to REQUIREMENT.md §3.13 and §4.10, and to the domain diagram
+(§6).
+
 ### Cross-references to go-sdk
 
 | This service needs | Provided by go-sdk phase |
@@ -799,3 +1009,22 @@ every other nested-resource feature.
 
 When one of these is missing, prefer **adding it to `go-sdk`** (it's a reusable cross-cutting concern) over
 building an app-local version.
+
+---
+
+## Track C — Roadmap (post-MVP)
+
+Ideas the product owner raised but explicitly deferred ("not needed for first release" / "not mvp" / "maybe" /
+"in the future") — recorded here so they aren't lost, but **not stories** and not scheduled work. Promote a row
+to Track B (with a `product-manager` Story) only when it's actually picked up.
+
+| Item | Note |
+|---|---|
+| Tenant management system | Super admin can create tenants / revoke tenant access — monetization-driven; explicitly "not needed for first release." |
+| Tenant-level default settings (beyond branding) | App owner pushes default settings to tenants beyond branding; branding itself is already covered structurally by `tenants.branding`. |
+| Multi-role-per-user | One role per user is enough for first release ("higher permission wins" only matters once this lands); support holding multiple roles later — `roles`/`users`/`authz` would need to move from a single `role_id` to a set. |
+| Guest self-registration | A public self-registration form for guests, instead of always being registered by staff — explicitly "maybe." |
+| Staff-facing mobile/operations app | A dedicated app/UI for event-day staff operations (check-in, scanning) beyond the current API — explicitly "in the future... for now keep it simple." |
+| Staff chat/communication | In-app messaging between event staff — explicitly "not mvp though." |
+| Role & permission management system | Admin CRUD for roles/permissions (custom roles beyond the seeded catalog, editing grants) — beyond the current seed-only `roles` slice; explicitly confirmed roadmap, not first release. |
+| Subscription system | Billing/plan/subscription state per tenant, for monetizing tenants — pairs with the tenant management system item above (same monetization driver), but a distinct capability. |

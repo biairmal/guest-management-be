@@ -105,6 +105,9 @@ Two types:
     - email
     - passwordHash
     - role (TenantAdmin, TenantStaff, EventStaff)
+    - isTenantMaster (at most one true per tenant)
+    - mustChangePassword (true on creation — encourages, but does not enforce, a password
+      change on first login; cleared once the password is changed)
 ```
 
 ## 3.3 EventStaffAssignment
@@ -151,6 +154,7 @@ Unified structure:
     - source (APP or TENANT)
     - name
     - workflowStepTemplates[]
+    - ticketTypeTemplates[]
 
 ## 3.6 WorkflowStepTemplate
 
@@ -224,6 +228,36 @@ Represents scanning a QR for workflow processing.
     - timestamp
     - operatorUserId (optional — the staff user who performed the scan, if recorded)
 
+## 3.12 TicketTypeTemplate
+
+Defines the default ticket types for a category, mirroring `WorkflowStepTemplate` (§3.6). Copied onto
+every new event in the category at creation time (best-effort, same as workflow step templates), the
+same way `WorkflowStepTemplate` seeds `WorkflowStep`.
+
+    TicketTypeTemplate
+    - id
+    - categoryId
+    - name (Regular, VIP, etc.)
+    - rules (opaque JSON, same shape as TicketType.rules)
+
+## 3.13 Incident
+
+An event-scoped report raised by staff when something needs attention during an event (e.g. a medical
+issue, an equipment failure), visible to other staff working the same event so they're made aware of it.
+No push/real-time alerting is prescribed by this entity — "alerting others" for the first release means
+the incident is listable/visible to other event staff, not a notification delivered to them.
+
+    Incident
+    - id
+    - eventId
+    - reportedByUserId
+    - title
+    - description
+    - severity (Low, Medium, High)
+    - status (Open, InProgress, Resolved)
+    - createdAt
+    - updatedAt
+
 ------------------------------------------------------------------------
 
 
@@ -250,6 +284,9 @@ Represents scanning a QR for workflow processing.
 -   Tickets are QR-based.
 -   Multi-use or single-use rules based on ticket type.
 -   Distribution can be triggered automatically or manually.
+-   Event creation seeds default ticket types from the category's `TicketTypeTemplate`s (§3.12), the
+    same way workflow steps are seeded from `WorkflowStepTemplate` — a category with no ticket type
+    templates leaves the new event with zero ticket types, unchanged from today.
 
 ## 4.3 Workflow Handling
 
@@ -299,6 +336,35 @@ Represents scanning a QR for workflow processing.
 -   After event completion:
     -   System can automatically send thank-you messages.
     -   Template is customizable at tenant level.
+    -   Thank-you messages include documentation links (event-specific or general) relevant to the guest.
+    -   Only guests who were actually admitted (hold an issued `Ticket`) receive a thank-you message;
+        re-triggering the send must not send a duplicate to a guest already thanked.
+
+## 4.8 Tenant User Administration
+
+-   A tenant master can add, update, and remove users within their own tenant, gated on the
+    `manage_users` permission (STAFFING_RBAC.md §3) — no user administration action crosses tenant
+    boundaries.
+-   A newly created user is encouraged, not forced, to change their password on first login
+    (`mustChangePassword`, §3.2) — the system surfaces the flag; it does not lock the user out of other
+    actions until they comply.
+-   A tenant master can reset another user's password (an authorized update, same as any other user
+    field) and can transfer their `isTenantMaster` status to another active user within the same tenant.
+
+## 4.9 Event Reporting
+
+-   An organizer can retrieve a live, read-only summary of an event's guest counts by RSVP status and,
+    per workflow step, how many distinct tickets have completed that step — a "helicopter view" derived
+    from existing `Guest`/`ScanLog` data, not a new persisted read model.
+
+## 4.10 Incident Reporting
+
+-   Event staff can create an `Incident` (§3.13) scoped to an event to report something needing
+    attention.
+-   Other staff working the same event can view/list that event's incidents to stay aware of what's
+    happening — this satisfies "alerting others" for the first release; a real-time push/notification
+    channel is a separate, future concern (not prescribed here).
+-   An incident's status can be updated as it's handled (e.g. Open → InProgress → Resolved).
 
 ------------------------------------------------------------------------
 
@@ -340,12 +406,14 @@ Hierarchy: 1. App default\
     Tenant
     ├── Users (TenantStaff, TenantAdmin)
     ├── TenantEventCategory
-    │       └── WorkflowStepTemplate
+    │       ├── WorkflowStepTemplate
+    │       └── TicketTypeTemplate
     └── Events
             ├── EventStaffAssignment → User
             ├── WorkflowStep (from templates + custom)
-            ├── TicketType
+            ├── TicketType (from templates + custom)
             │       └── WorkflowSteps (many-to-many)
+            ├── Incident
             └── Guests
                 └── Ticket
                         └── ScanLog
@@ -356,9 +424,10 @@ Hierarchy: 1. App default\
 
 # 📦 7. Workflow Template Logic Summary
 
-1.  App default templates store the baseline workflows.
+1.  App default templates store the baseline workflows (and default ticket types, §3.12).
 2.  Tenant templates override them (add/remove/modify).
-3.  Event creation copies tenant templates.
+3.  Event creation copies tenant templates — both `WorkflowStepTemplate` → `WorkflowStep` and
+    `TicketTypeTemplate` → `TicketType`.
 4.  Event-level customization allows final adjustments.
 
 ------------------------------------------------------------------------
