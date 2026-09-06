@@ -57,15 +57,21 @@ func (s *eventServiceImpl) Create(ctx context.Context, in CreateEventInput) (*Ev
 		return nil, errorz.BadRequest().WithMessage("end_date must not be before start_date")
 	}
 
+	rsvpRequired := true
+	if in.RsvpRequired != nil {
+		rsvpRequired = *in.RsvpRequired
+	}
+
 	entity := &Event{
-		ID:          uuid.New(),
-		TenantID:    in.TenantID,
-		CategoryID:  in.CategoryID,
-		Name:        in.Name,
-		Description: in.Description,
-		StartDate:   in.StartDate,
-		EndDate:     in.EndDate,
-		IsMultiDay:  isMultiDay(in.StartDate, in.EndDate),
+		ID:           uuid.New(),
+		TenantID:     in.TenantID,
+		CategoryID:   in.CategoryID,
+		Name:         in.Name,
+		Description:  in.Description,
+		StartDate:    in.StartDate,
+		EndDate:      in.EndDate,
+		IsMultiDay:   isMultiDay(in.StartDate, in.EndDate),
+		RsvpRequired: rsvpRequired,
 	}
 
 	if err := s.repo.Create(ctx, entity); err != nil {
@@ -161,6 +167,9 @@ func (s *eventServiceImpl) Update(ctx context.Context, id uuid.UUID, in UpdateEv
 	}
 	if in.EndDate != nil {
 		entity.EndDate = *in.EndDate
+	}
+	if in.RsvpRequired != nil {
+		entity.RsvpRequired = *in.RsvpRequired
 	}
 	if entity.EndDate.Before(entity.StartDate) {
 		return nil, errorz.BadRequest().WithMessage("end_date must not be before start_date")

@@ -171,10 +171,54 @@ func TestParseListParamsFilters(t *testing.T) {
 		t.Fatalf("filters = %v, want %v", params.Filters, want)
 	}
 	for k, v := range want {
-		if params.Filters[k] != v {
-			t.Errorf("filters[%q] = %q, want %q", k, params.Filters[k], v)
+		got := params.Filters[k]
+		if got.Value != v || got.Operator != repository.FilterOperatorEq {
+			t.Errorf("filters[%q] = %+v, want {%q eq}", k, got, v)
 		}
 	}
+}
+
+func TestParseListParamsFilterOperatorSuffix(t *testing.T) {
+	cfg := ListParseConfig{AllowedFilterFields: []string{"name"}}
+
+	t.Run("no suffix defaults to eq", func(t *testing.T) {
+		params, err := ParseListParams(url.Values{"name": {"Ali"}}, cfg)
+		if err != nil {
+			t.Fatalf("ParseListParams() error = %v, want nil", err)
+		}
+		got := params.Filters["name"]
+		if got.Value != "Ali" || got.Operator != repository.FilterOperatorEq {
+			t.Errorf("filters[name] = %+v, want {Ali eq}", got)
+		}
+	})
+
+	t.Run("like suffix", func(t *testing.T) {
+		params, err := ParseListParams(url.Values{"name": {"Ali;like"}}, cfg)
+		if err != nil {
+			t.Fatalf("ParseListParams() error = %v, want nil", err)
+		}
+		got := params.Filters["name"]
+		if got.Value != "Ali" || got.Operator != repository.FilterOperatorLike {
+			t.Errorf("filters[name] = %+v, want {Ali like}", got)
+		}
+	})
+
+	t.Run("trailing empty suffix defaults to eq", func(t *testing.T) {
+		params, err := ParseListParams(url.Values{"name": {"Ali;"}}, cfg)
+		if err != nil {
+			t.Fatalf("ParseListParams() error = %v, want nil", err)
+		}
+		got := params.Filters["name"]
+		if got.Value != "Ali" || got.Operator != repository.FilterOperatorEq {
+			t.Errorf("filters[name] = %+v, want {Ali eq}", got)
+		}
+	})
+
+	t.Run("unrecognized operator is rejected", func(t *testing.T) {
+		if _, err := ParseListParams(url.Values{"name": {"Ali;gt"}}, cfg); err == nil {
+			t.Error("ParseListParams() error = nil, want error for unsupported operator")
+		}
+	})
 }
 
 func TestValidateListParams(t *testing.T) {
@@ -205,11 +249,11 @@ func TestValidateListParams(t *testing.T) {
 		},
 		{
 			name:   "allowed filter field",
-			params: &ListParams{Filters: map[string]string{"name": "x"}},
+			params: &ListParams{Filters: map[string]FilterValue{"name": {Value: "x", Operator: repository.FilterOperatorEq}}},
 		},
 		{
 			name:    "disallowed filter field",
-			params:  &ListParams{Filters: map[string]string{"secret": "x"}},
+			params:  &ListParams{Filters: map[string]FilterValue{"secret": {Value: "x", Operator: repository.FilterOperatorEq}}},
 			wantErr: true,
 		},
 	}
@@ -235,7 +279,7 @@ func TestToListOptions(t *testing.T) {
 	t.Run("clamps and converts", func(t *testing.T) {
 		params := &ListParams{
 			BasePageRequest: *common.NewBasePageRequest(2, 500, []common.SortSpec{{Field: "name", Direction: common.SortDesc}}),
-			Filters:         map[string]string{"name": "x"},
+			Filters:         map[string]FilterValue{"name": {Value: "x", Operator: repository.FilterOperatorEq}},
 		}
 		opts := ToListOptions(params)
 
@@ -251,6 +295,16 @@ func TestToListOptions(t *testing.T) {
 		}
 		if len(opts.Sorts) != 1 || opts.Sorts[0] != (repository.Sort{Field: "name", Direction: repository.SortDesc}) {
 			t.Errorf("Sorts = %+v, want [{name DESC}]", opts.Sorts)
+		}
+	})
+
+	t.Run("like operator wraps value with %", func(t *testing.T) {
+		params := &ListParams{Filters: map[string]FilterValue{"name": {Value: "x", Operator: repository.FilterOperatorLike}}}
+		opts := ToListOptions(params)
+
+		if len(opts.Filter.Conditions) != 1 || opts.Filter.Conditions[0].Value != "%x%" ||
+			opts.Filter.Conditions[0].Operator != repository.FilterOperatorLike {
+			t.Errorf("Filter.Conditions = %+v, want one like condition with value %%x%%", opts.Filter.Conditions)
 		}
 	})
 

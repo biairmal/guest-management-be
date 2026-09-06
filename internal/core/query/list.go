@@ -21,6 +21,16 @@ const (
 	DefaultMaxSize = 100
 )
 
+// supportedFilterOperators whitelists which repository.FilterOperator values
+// a filter value's ";operator" suffix (see FilterValue) may select. Kept
+// intentionally short — eq (the default) and like are all any feature needs
+// today; add another go-sdk FilterOperator here (gt, in, ...) when a feature
+// actually needs it, not speculatively.
+var supportedFilterOperators = map[repository.FilterOperator]bool{
+	repository.FilterOperatorEq:   true,
+	repository.FilterOperatorLike: true,
+}
+
 // ListParseConfig configures allow-listed sort/filter fields and pagination
 // bounds for ParseListParams. A feature typically only needs to set
 // AllowedSortFields and AllowedFilterFields; DefaultPage, DefaultSize, and
@@ -48,25 +58,35 @@ func (c ListParseConfig) withDefaults() ListParseConfig {
 	return c
 }
 
-// ListParams is the parsed result of ParseListParams: pagination and sorting
-// (via the embedded common.BasePageRequest) plus simple equality filters,
-// shared by every list endpoint so no feature needs its own params type.
-type ListParams struct {
-	common.BasePageRequest
-	Filters map[string]string // field -> value (simple equality filters)
+// FilterValue is one parsed filter: the raw value and the operator it should
+// be matched with. A query value carries its operator inline as
+// "value;operator" (e.g. "Ali;like"); no ";operator" suffix defaults to
+// FilterOperatorEq, same as every filter before this existed.
+type FilterValue struct {
+	Value    string
+	Operator repository.FilterOperator
 }
 
-// ParseListParams parses pagination, sort, and equality-filter query
-// parameters per an allow-list config shared by every list endpoint.
+// ListParams is the parsed result of ParseListParams: pagination and sorting
+// (via the embedded common.BasePageRequest) plus filters, shared by every
+// list endpoint so no feature needs its own params type.
+type ListParams struct {
+	common.BasePageRequest
+	Filters map[string]FilterValue // field -> value+operator
+}
+
+// ParseListParams parses pagination, sort, and filter query parameters per
+// an allow-list config shared by every list endpoint.
 //
 // Expected query format:
 //
-//	name=Event1&page=1&size=20&sort=column1,DESC&sort=column2,ASC
+//		name=Event1&page=1&size=20&sort=column1,DESC&sort=column2,ASC
 //
-// - page: 1-based page number (int, defaults to cfg.DefaultPage).
-// - size: items per page (int, defaults to cfg.DefaultSize, clamped to cfg.MaxSize).
-// - sort: repeatable, format "field,DIRECTION" where DIRECTION is ASC or DESC (case-insensitive).
-// - Any key matching cfg.AllowedFilterFields is treated as a simple equality filter.
+//	  - page: 1-based page number (int, defaults to cfg.DefaultPage).
+//	  - size: items per page (int, defaults to cfg.DefaultSize, clamped to cfg.MaxSize).
+//	  - sort: repeatable, format "field,DIRECTION" where DIRECTION is ASC or DESC (case-insensitive).
+//	  - Any key matching cfg.AllowedFilterFields is a filter; its value may carry
+//	    an operator suffix ("value;operator", e.g. "Ali;like") — see FilterValue.
 func ParseListParams(q url.Values, cfg ListParseConfig) (*ListParams, error) {
 	cfg = cfg.withDefaults()
 
@@ -82,10 +102,14 @@ func ParseListParams(q url.Values, cfg ListParseConfig) (*ListParams, error) {
 	if err != nil {
 		return nil, err
 	}
+	filters, err := parseFilters(q, cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ListParams{
 		BasePageRequest: *common.NewBasePageRequest(page, size, sorts),
-		Filters:         parseFilters(q, cfg),
+		Filters:         filters,
 	}, nil
 }
 
@@ -120,9 +144,10 @@ func ValidateListParams(params *ListParams, cfg ListParseConfig) error {
 
 // ToListOptions converts params to a *repository.ListOptions: page/size are
 // clamped to sane bounds (defaulting to page 1, size 20, max 100) and turned
-// into a limit/offset, simple equality filters become repository.FilterCondition
-// entries, and sorts map to repository.Sort. A nil params returns zero-value
-// options (page 1, default size, no filters/sorts).
+// into a limit/offset, filters become repository.FilterCondition entries
+// (a FilterOperatorLike value is wrapped "%value%"), and sorts map to
+// repository.Sort. A nil params returns zero-value options (page 1, default
+// size, no filters/sorts).
 //
 // Every feature service shares this conversion — never hand-roll a
 // per-feature copy (see docs/PATTERNS.md#list-query--allow-list-parsing-and-enforcement).
@@ -144,10 +169,14 @@ func ToListOptions(params *ListParams) *repository.ListOptions {
 	offset := (page - 1) * size
 
 	var conditions []repository.FilterCondition
-	for field, value := range params.Filters {
+	for field, fv := range params.Filters {
+		value := fv.Value
+		if fv.Operator == repository.FilterOperatorLike {
+			value = "%" + value + "%"
+		}
 		conditions = append(conditions, repository.FilterCondition{
 			Field:    field,
-			Operator: repository.FilterOperatorEq,
+			Operator: fv.Operator,
 			Value:    value,
 		})
 	}
@@ -228,20 +257,42 @@ func parseSorts(q url.Values, cfg ListParseConfig) ([]common.SortSpec, error) {
 	return sorts, nil
 }
 
-// parseFilters extracts simple equality filters for keys in
-// cfg.AllowedFilterFields, ignoring pagination/sort keys.
-func parseFilters(q url.Values, cfg ListParseConfig) map[string]string {
+// parseFilters extracts filters for keys in cfg.AllowedFilterFields, ignoring
+// pagination/sort keys. Each raw value is split on the first ";" into a value
+// and an optional operator suffix (see FilterValue); an unrecognized operator
+// is rejected, same as an unknown sort/filter field.
+func parseFilters(q url.Values, cfg ListParseConfig) (map[string]FilterValue, error) {
 	allowedFilters := toSet(cfg.AllowedFilterFields)
-	filters := make(map[string]string)
+	filters := make(map[string]FilterValue)
 	for key := range q {
 		if key == "page" || key == "size" || key == "sort" {
 			continue
 		}
-		if allowedFilters[key] {
-			filters[key] = q.Get(key)
+		if !allowedFilters[key] {
+			continue
 		}
+		fv, err := parseFilterValue(q.Get(key))
+		if err != nil {
+			return nil, fmt.Errorf("filter %s: %w", key, err)
+		}
+		filters[key] = fv
 	}
-	return filters
+	return filters, nil
+}
+
+// parseFilterValue splits raw on the first ";" into a value and an operator
+// suffix. No suffix (or an empty one, e.g. trailing ";") defaults to
+// FilterOperatorEq. An unrecognized operator is an error.
+func parseFilterValue(raw string) (FilterValue, error) {
+	value, opStr, hasOp := strings.Cut(raw, ";")
+	if !hasOp || opStr == "" {
+		return FilterValue{Value: value, Operator: repository.FilterOperatorEq}, nil
+	}
+	op := repository.FilterOperator(strings.ToLower(opStr))
+	if !supportedFilterOperators[op] {
+		return FilterValue{}, fmt.Errorf("unsupported filter operator: %s", opStr)
+	}
+	return FilterValue{Value: value, Operator: op}, nil
 }
 
 // toSet converts a string slice to a set for O(1) lookup.

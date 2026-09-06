@@ -13,7 +13,7 @@ const eventsTable = "events"
 // eventColumns are the columns selected on reads (GetByID, List).
 var eventColumns = []string{
 	"id", "tenant_id", "category_id", "name", "description",
-	"start_date", "end_date", "is_multi_day", "created_at", "updated_at", "deleted_at",
+	"start_date", "end_date", "is_multi_day", "rsvp_required", "created_at", "updated_at", "deleted_at",
 }
 
 // NewEventRepository returns a soft-delete-aware repository for events.

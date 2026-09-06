@@ -91,6 +91,21 @@ func TestEventService_Create(t *testing.T) {
 			expects: true,
 		},
 	}
+	falseVal := false
+	tests = append(tests, struct {
+		name    string
+		in      CreateEventInput
+		expects bool
+		repoErr error
+		wantErr string
+	}{
+		name: "rsvp_required false is preserved, not defaulted",
+		in: CreateEventInput{
+			TenantID: uuid.New(), CategoryID: uuid.New(), Name: "x",
+			StartDate: start, EndDate: start.Add(time.Hour), RsvpRequired: &falseVal,
+		},
+		expects: true,
+	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -115,6 +130,13 @@ func TestEventService_Create(t *testing.T) {
 				}
 				if got.IsMultiDay != isMultiDay(tt.in.StartDate, tt.in.EndDate) {
 					t.Errorf("IsMultiDay = %v, want %v", got.IsMultiDay, isMultiDay(tt.in.StartDate, tt.in.EndDate))
+				}
+				wantRsvpRequired := true
+				if tt.in.RsvpRequired != nil {
+					wantRsvpRequired = *tt.in.RsvpRequired
+				}
+				if got.RsvpRequired != wantRsvpRequired {
+					t.Errorf("RsvpRequired = %v, want %v", got.RsvpRequired, wantRsvpRequired)
 				}
 			}
 		})
@@ -258,6 +280,13 @@ func TestEventService_Update(t *testing.T) {
 			getRes:     &Event{Name: "x", StartDate: start, EndDate: end},
 			expectsSet: true,
 		},
+		{
+			name:       "rsvp_required can be toggled off",
+			in:         UpdateEventInput{RsvpRequired: ptrBool(false)},
+			expectsGet: true,
+			getRes:     &Event{Name: "x", StartDate: start, EndDate: end, RsvpRequired: true},
+			expectsSet: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -274,8 +303,11 @@ func TestEventService_Update(t *testing.T) {
 			svc := NewService(logger.NewNoOp(), repo, nil, nil)
 			got, err := svc.Update(context.Background(), uuid.New(), tt.in)
 			assertErrorzCode(t, err, tt.wantErr)
-			if tt.wantErr == "" && !got.IsMultiDay {
+			if tt.wantErr == "" && tt.name == "happy path partial update recomputes is_multi_day" && !got.IsMultiDay {
 				t.Errorf("IsMultiDay = %v, want true", got.IsMultiDay)
+			}
+			if tt.wantErr == "" && tt.in.RsvpRequired != nil && got.RsvpRequired != *tt.in.RsvpRequired {
+				t.Errorf("RsvpRequired = %v, want %v", got.RsvpRequired, *tt.in.RsvpRequired)
 			}
 		})
 	}
@@ -339,3 +371,5 @@ func TestEventService_List(t *testing.T) {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+func ptrBool(b bool) *bool { return &b }

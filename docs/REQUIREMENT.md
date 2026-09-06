@@ -128,6 +128,7 @@ Links a user to a specific event.
     - startDate
     - endDate
     - isMultiDay
+    - rsvpRequired (default true — when false, a guest's ticket is issued at invitation time instead of waiting on RSVP confirmation)
     - staffAssignments[]
     - workflows[] (generated from templates + customized)
     - ticketTypes[]
@@ -206,6 +207,8 @@ QR-based admission artifact.
     - name
     - email
     - phone
+    - ticketTypeId
+    - invitationToken (opaque, unguessable — lets an unauthenticated guest reach their own RSVP link)
     - rsvpStatus (None, Invited, Confirmed, Declined)
     - ticketId
 
@@ -229,9 +232,14 @@ Represents scanning a QR for workflow processing.
 ## 4.1 Invitation & RSVP
 
 -   System sends invitation emails.
+-   Each invited guest gets a unique `invitationToken` embedded in their invitation link; the guest
+    confirms/declines through that link **without logging in** (guests are not `User` accounts).
 -   Guest can confirm/decline RSVP.
 -   Tenant can customize invitation templates.
 -   RSVP must update guest status.
+-   Confirming RSVP triggers ticket issuance for guests who already have a ticket type assigned (see §4.2) —
+    **only when the event requires RSVP** (`rsvpRequired = true`). When an event doesn't require RSVP, the
+    guest's ticket is issued as soon as the invitation is sent, not gated on any RSVP response.
 
 ## 4.2 Ticket Distribution
 
@@ -317,6 +325,10 @@ Hierarchy: 1. App default\
 -   Password authentication
 -   Role-based authorization
 -   Tenant data isolation
+-   Guest PII — `email` and `phone` — is encrypted at rest (`name` stays plaintext, so it remains searchable
+    by partial match). Authorized staff still see plaintext values through the API; only storage is opaque.
+    Exact-match search on `email`/`phone` works via a deterministic blind index alongside the ciphertext, so a
+    search must supply the complete value — no partial match on encrypted fields.
 
 ------------------------------------------------------------------------
 

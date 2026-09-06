@@ -2,6 +2,7 @@ package app
 
 import (
 	sdkauth "github.com/biairmal/go-sdk/lib/auth"
+	sdkcrypto "github.com/biairmal/go-sdk/lib/crypto"
 	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/go-sdk/lib/redis"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
@@ -21,6 +22,7 @@ type App struct {
 	authIssuer    sdkauth.Issuer
 	authValidator sdkauth.Validator
 	authConfig    *appconfig.AuthConfig
+	cryptoConfig  *sdkcrypto.Config
 	repositories  *repositories
 	service       *service
 	handler       *handler
@@ -34,15 +36,18 @@ type App struct {
 // authValidator/authConfig feed the auth feature's login/refresh flow; the
 // same authValidator (unwrapped) is used by main.go, wrapped in
 // appauth.AccessOnlyValidator, for the protected-route middleware.
+// cryptoConfig feeds guests' PII field encryption (internal/app/pii_encryptor.go).
 func NewApp(
 	logger logger.Logger, db *sqlkit.DB, router *chi.Mux, validator validation.Validator,
 	redisClient redis.Client, featureConfig *appconfig.FeatureConfig,
 	authIssuer sdkauth.Issuer, authValidator sdkauth.Validator, authConfig *appconfig.AuthConfig,
+	cryptoConfig *sdkcrypto.Config,
 ) *App {
 	return &App{
 		logger: logger, db: db, router: router, validator: validator,
 		redisClient: redisClient, featureConfig: featureConfig,
 		authIssuer: authIssuer, authValidator: authValidator, authConfig: authConfig,
+		cryptoConfig: cryptoConfig,
 	}
 }
 

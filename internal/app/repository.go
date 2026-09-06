@@ -10,6 +10,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/events/event"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
+	"github.com/biairmal/guest-management-be/internal/features/guests"
 	"github.com/biairmal/guest-management-be/internal/features/roles"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
@@ -33,6 +34,9 @@ type repositories struct {
 	staffAssignmentRepository        sdkrepository.Repository[staffing.EventStaffAssignment, uuid.UUID]
 	ticketTypeRepository             sdkrepository.Repository[tickets.TicketType, uuid.UUID]
 	ticketTypeWorkflowStepRepository tickets.TicketTypeWorkflowStepRepository
+	guestRepository                  sdkrepository.Repository[guests.Guest, uuid.UUID]
+	ticketRepository                 sdkrepository.Repository[guests.Ticket, uuid.UUID]
+	guestPIIEncryptor                guests.PIIEncryptor
 }
 
 func (a *App) initializeRepository(
@@ -78,10 +82,26 @@ func (a *App) initializeRepository(
 	if err != nil {
 		return nil, err
 	}
+	guestCacheOpts, err := featureConfig.Guests.Repository.GuestCache.ToOptions(redisClient)
+	if err != nil {
+		return nil, err
+	}
+	ticketCacheOpts, err := featureConfig.Guests.Repository.TicketCache.ToOptions(redisClient)
+	if err != nil {
+		return nil, err
+	}
 
 	rolePermissionRepository := roles.NewCachedRolePermissionRepository(
 		roles.NewRolePermissionRepository(log, db), redisClient, featureConfig.Roles.Repository.RolePermissionCache,
 	)
+
+	// guestPIIEncryptor is constructed once here and reused by both the guest
+	// repository (encrypt/decrypt on write/read) and the guest service (the
+	// blind-index filter rewrite in List) — see pii_encryptor.go.
+	guestPIIEncryptor, err := newCryptoPIIEncryptor(*a.cryptoConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	return &repositories{
 		categoryRepository:     category.NewCategoryRepository(log, db, categoryCacheOpts),
@@ -98,5 +118,8 @@ func (a *App) initializeRepository(
 		staffAssignmentRepository:        staffing.NewStaffAssignmentRepository(log, db, staffAssignmentCacheOpts),
 		ticketTypeRepository:             tickets.NewTicketTypeRepository(log, db, ticketTypeCacheOpts),
 		ticketTypeWorkflowStepRepository: tickets.NewTicketTypeWorkflowStepRepository(log, db),
+		guestRepository:                  guests.NewGuestRepository(log, db, guestCacheOpts, guestPIIEncryptor),
+		ticketRepository:                 guests.NewTicketRepository(log, db, ticketCacheOpts),
+		guestPIIEncryptor:                guestPIIEncryptor,
 	}, nil
 }

@@ -67,6 +67,7 @@ Manages **events** — a tenant's scheduled occasion, classified under an event 
 - `tenant_id` is **immutable** after creation — an event cannot move tenants; it is not part of `UpdateEventInput`.
 - `end_date` must not be before `start_date`, both on create and on the resulting record after a partial update.
 - `is_multi_day` is **derived**, not caller-supplied: `true` when `start_date` and `end_date` fall on different calendar days (each evaluated in its own timestamp's location), recomputed whenever either date changes.
+- `rsvp_required` defaults to `true` when omitted on create and can be toggled via a partial update; it decides whether [guests](#guests) issue a ticket only on RSVP confirm (`true`, the default) or immediately at invitation time (`false`) — see [guests](#guests) for the consuming behavior.
 - **Create seeds default workflow steps from the category's templates**: right after the event row is inserted, `EventService` looks up `workflow_step_templates` for `category_id` (ordered by `order_index`) and copies each one into a `workflow_steps` row for the new event — the customizable starting point a UI shows immediately after event creation. A category with no templates copies nothing. This is **best-effort**: a template lookup or copy failure is logged but does not fail event creation. Templates themselves are managed via [Workflow step templates](#workflow-step-templates). The caller can always add/edit/remove the resulting steps via [Workflow steps → Sync](#workflow-steps).
 
 > Field-presence/format checks (`required`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateEventInput`/`UpdateEventInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the date-ordering rule and `is_multi_day` derivation stay in the service as business invariants.
@@ -499,6 +500,100 @@ Base path `/api/v1/events/{event_id}/ticket-types`. Every route requires a valid
 - **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
 - **Replace workflow steps** — full-replace via `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs` (delete-then-reinsert every association for the ticket type); **not wrapped in a database transaction** (no feature in this codebase uses one yet, same as [workflow steps](#workflow-steps)' Sync) — a failure partway through is recovered by resubmitting the same call.
 - **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a ticket type or workflow step belonging to a different event is also reported as 404/400 respectively (see Invariants); a missing `manage_events` permission →403; unexpected errors become 500 and are logged with context.
+
+---
+
+## guests
+
+Source: `internal/features/guests`. Tables: `guests`, `tickets` (see [DATABASE.md](DATABASE.md)). Flat layout —
+`Ticket` ships **model + repository only** (no HTTP surface, mirroring [roles](#roles)); it's created internally
+by `GuestService` and surfaced only through `GET .../guests/{id}`.
+
+### Intent
+
+Manages an event's **guest list**: CRUD, assigning a ticket type, sending an invitation, and the public guest-facing
+RSVP flow that (depending on the event's `rsvp_required`) issues a QR-coded `Ticket` either on RSVP confirm or
+immediately at invitation time (REQUIREMENT.md §3.10, §4.1, §4.2). Always scoped to a parent event via the URL
+(except the public RSVP endpoint); there is no top-level guest listing.
+
+### Invariants
+
+- `name` and `email` are required on create; `phone` and `ticket_type_id` are optional. `rsvp_status` starts at
+  `none`.
+- `event_id` is **immutable** and always taken from the URL, never the body — it is not part of
+  `CreateGuestInput`/`UpdateGuestInput`.
+- Every read/update/delete/invitation-send is scoped to the `{event_id}` in the URL: a guest that exists but
+  belongs to a different event resolves as `errorz.NotFound` (404), not a cross-event leak — the same convention
+  as [ticket-types](#tickets)/[workflow-steps](#workflow-steps).
+- A provided `ticket_type_id` (on create or update) must belong to the guest's own event — validated the same way
+  `tickets` validates a workflow-step ID (400 otherwise).
+- **`email`/`phone` are encrypted at rest; `name` is not.** `name` stays plaintext specifically so it supports
+  partial-match search (`?name=Ali;like` — see **List query** below). Encryption sits behind an
+  app-local `PIIEncryptor` interface (`internal/features/guests/pii_encryptor.go`), so the scheme can change
+  without touching `guest_repository.go`/`guest_service.go`; the concrete implementation
+  (`internal/app/pii_encryptor.go`'s `cryptoPIIEncryptor`) wraps go-sdk's `crypto.Encryptor` (Phase 9, shipped) —
+  AES-256-GCM for `Encrypt`/`Decrypt`, HMAC-SHA256 for `BlindIndex`. Keys come from `Config.Crypto`
+  (`GUEST_PII_ENCRYPTION_KEY`/`GUEST_PII_BLIND_INDEX_KEY`, both standard-base64, no safe default — see
+  `.env.example`).
+- **Exact-match search on `email`/`phone` via a blind index, not ciphertext comparison** — `email_hash`/
+  `phone_hash` columns hold a deterministic digest (`PIIEncryptor.BlindIndex`) of the normalized value
+  (lowercased/trimmed for email, digits-only for phone). A list filter on `email`/`phone` is rewritten by the
+  service to match against the hash column; a `;like` (or any non-`eq`) operator on either is rejected (400) —
+  a hash has no notion of partial match, so honoring one would be dishonest.
+- **`POST .../invitation` requires `ticket_type_id` already set** (400 otherwise). It generates a unique,
+  unguessable `invitation_token` (returned only in this response — there's no real email/SMS channel yet) and
+  sets `rsvp_status` to `invited`. If the event's `rsvp_required` is `false`, it also issues the guest's `Ticket`
+  immediately; otherwise the ticket waits for RSVP confirm.
+- **The public RSVP endpoint is looked up by token alone, with no event/auth scoping** — the caller is an
+  unauthenticated guest with no session. An unknown token is `errorz.NotFound` (404). Confirming issues the
+  guest's `Ticket` if one hasn't already been issued (idempotent — a no-op if `rsvp_required` was `false` and one
+  was already issued at invitation time); **declining never touches an already-issued ticket** — a per-product
+  decision to keep this simple rather than voiding it.
+- **Invitation delivery is a publish, not a real send** — `GuestService.SendInvitation` calls an app-local
+  `InvitationPublisher` interface (`internal/features/guests/invitation_publisher.go`) best-effort (a failure is
+  logged but doesn't fail the call, same treatment as `EventService.Create`'s template-copy). The only
+  implementation today, `LoggingInvitationPublisher`, just logs the message — go-sdk has no Kafka/queue package
+  yet to wire a real one to.
+
+> Field-presence/format checks (`required`, `email`) are enforced at the HTTP boundary via `validate:"..."` tags
+> on `CreateGuestInput`/`UpdateGuestInput`/`RSVPInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary));
+> the event/ticket-type scoping, PII encryption, and RSVP/ticket-issuance rules stay in the service as business
+> invariants no struct tag or DB constraint can express.
+
+### Endpoints
+
+Base path `/api/v1/events/{event_id}/guests`. Every route requires a valid access token **and** the
+`manage_guests` permission (`authz.RequirePermission`, seeded in B6's catalog, previously unused by any slice):
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List for the event (paginated, filtered, sorted) | 200 | 400 · 401 · 403 |
+| `POST` | `/` | Create a guest under the event | 201 | 400 invalid body/ticket type cross-event · 401 · 403 · 422 |
+| `GET` | `/{id}` | Get one, scoped to the event — includes the issued ticket/QR summary once one exists | 200 | 400 bad UUID · 401 · 403 · 404 |
+| `PUT` | `/{id}` | Partial update (`name`, `email`, `phone`, `ticket_type_id`) | 200 | 400 · 401 · 403 · 404 |
+| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 401 · 403 · 404 |
+| `POST` | `/{id}/invitation` | Send invitation — requires `ticket_type_id` already set | 200 | 400 no ticket type assigned · 401 · 403 · 404 |
+
+Public, unauthenticated (route-policy `public: true`, same mechanism as `auth`'s `/login`/`/refresh`):
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `POST` | `/api/v1/guests/rsvp/{token}` | Guest confirms/declines (`{"status":"confirmed"\|"declined"}`) | 200 | 400 invalid status · 404 unknown token |
+
+**List query:** `?page=1&size=20&sort=name,ASC&name=Ali;like&rsvp_status=invited`.
+- `page` 1-based; `size` default 20, clamped to 100.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, name, rsvp_status, created_at, updated_at`); unknown field → 400.
+- Filters: `name` (exact by default, or partial via a `;like` suffix — see [PATTERNS.md](PATTERNS.md#list-query--allow-list-parsing-and-enforcement) for the general `value;operator` syntax), `email`, `phone` (exact only), `rsvp_status` (exact); `event_id` is always forced from the URL and is not a query filter.
+- **Implementation note:** a hand-built raw query string must percent-encode a literal `;` (`%3B`) in a filter value — any real HTTP client library does this automatically.
+
+### States & lifecycle
+
+- **Create** — service generates the `id` (UUID); a provided `ticket_type_id` is validated against the event first; `rsvp_status` starts at `none`; `created_at`/`updated_at` are stamped by the audit repository decorator. `email`/`phone` are encrypted and their blind-index hashes computed by `guest_repository.go` transparently — the service never sees ciphertext.
+- **Update** — partial; a provided `ticket_type_id` is re-validated; `event_id` cannot change; `updated_at` re-stamped by the decorator.
+- **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
+- **Send invitation** — sets `rsvp_status=invited`, generates `invitation_token`, calls `InvitationPublisher` (best-effort); issues the `Ticket` immediately only when the event's `rsvp_required` is `false`.
+- **RSVP** — looked up by `invitation_token`; confirming sets `rsvp_status=confirmed` and issues the `Ticket` if one doesn't already exist; declining sets `rsvp_status=declined` and never touches an existing ticket.
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrInvalidEntity`→422); a ticket type belonging to a different event is `errorz.BadRequest` (400); a guest belonging to a different event is `errorz.NotFound` (404); a missing `manage_guests` permission →403; unexpected errors become 500 and are logged with context.
 
 ---
 

@@ -96,6 +96,9 @@ auth:
       - method: POST
         pattern: /api/v1/auth/refresh
         public: true
+      - method: POST
+        pattern: /api/v1/guests/rsvp/*
+        public: true
     local:
       algorithm: HS256
       hs256_secret: ${AUTH_HS256_SECRET}
@@ -104,6 +107,14 @@ auth:
       hs256_secret: ${AUTH_HS256_SECRET}
       default_ttl: ${AUTH_ACCESS_TTL:15m}
       issuer: guest-management-be
+
+crypto:
+  # Field-level PII encryption (guests.email/phone) — see go-sdk/lib/crypto.
+  # Both keys are standard-base64-encoded and have no safe default; every
+  # environment must set its own (32 decoded bytes for encryption_key, at
+  # least 16 for blind_index_key, and the two must differ).
+  encryption_key: ${GUEST_PII_ENCRYPTION_KEY}
+  blind_index_key: ${GUEST_PII_BLIND_INDEX_KEY}
 
 # Per-feature config: app.<feature>.<layer>.*. Each feature's config is one
 # contiguous block (easy to lift out if the feature becomes its own service),
@@ -175,6 +186,18 @@ app:
   tickets:
     repository:
       ticket_type_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind
+  guests:
+    repository:
+      guest_cache:
+        enabled: true
+        ttl: 5m
+        prefix: guest-management
+        strategy: write_around # write_around, write_through, write_behind
+      ticket_cache:
         enabled: true
         ttl: 5m
         prefix: guest-management

@@ -76,6 +76,25 @@ definitions:
       total_pages:
         type: integer
     type: object
+  dto.PageResponse-internal_features_guests_Guest:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_guests.Guest'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
   dto.PageResponse-internal_features_staffing_EventStaffAssignment:
     properties:
       has_next:
@@ -254,6 +273,12 @@ definitions:
         type: string
       name:
         type: string
+      rsvp_required:
+        description: |-
+          RsvpRequired defaults to true when omitted — see event_service.go Create.
+          When false, a guest's ticket is issued at invitation time instead of
+          waiting on RSVP confirmation (see internal/features/guests).
+        type: boolean
       start_date:
         type: string
       tenant_id:
@@ -283,6 +308,8 @@ definitions:
         type: boolean
       name:
         type: string
+      rsvp_required:
+        type: boolean
       start_date:
         type: string
       tenant_id:
@@ -301,6 +328,8 @@ definitions:
       name:
         minLength: 1
         type: string
+      rsvp_required:
+        type: boolean
       start_date:
         type: string
     type: object
@@ -412,6 +441,97 @@ definitions:
           type: integer
         type: array
       updated_at:
+        type: string
+    type: object
+  internal_features_guests.CreateGuestInput:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
+      ticket_type_id:
+        type: string
+    required:
+    - email
+    - name
+    type: object
+  internal_features_guests.Guest:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      email:
+        type: string
+      event_id:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
+      rsvp_status:
+        type: string
+      ticket:
+        $ref: '#/definitions/internal_features_guests.Ticket'
+      ticket_id:
+        type: string
+      ticket_type_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_features_guests.RSVPInput:
+    properties:
+      status:
+        enum:
+        - confirmed
+        - declined
+        type: string
+    required:
+    - status
+    type: object
+  internal_features_guests.SendInvitationOutput:
+    properties:
+      guest:
+        $ref: '#/definitions/internal_features_guests.Guest'
+      invitation_token:
+        type: string
+    type: object
+  internal_features_guests.Ticket:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      event_id:
+        type: string
+      guest_id:
+        type: string
+      id:
+        type: string
+      qr_code:
+        type: string
+      status:
+        type: string
+      ticket_type_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_features_guests.UpdateGuestInput:
+    properties:
+      email:
+        type: string
+      name:
+        minLength: 1
+        type: string
+      phone:
+        type: string
+      ticket_type_id:
         type: string
     type: object
   internal_features_staffing.CreateAssignmentInput:
@@ -1284,6 +1404,315 @@ paths:
       summary: Create event
       tags:
       - events
+  /api/v1/events/{event_id}/guests:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns a paginated list of guests for an event. Query: page,
+        size, sort=field,dir (repeatable), filter by allowed fields (name, email,
+        phone, rsvp_status); name supports a partial match via "value;like", email/phone
+        only support exact match. Requires the manage_guests permission.'
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: size
+        type: integer
+      - description: 'Sort: field,dir (e.g. sort=name,ASC)'
+        in: query
+        name: sort
+        type: string
+      - description: Filter by name — exact, or partial via name=value;like
+        in: query
+        name: name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PageResponse-internal_features_guests_Guest'
+        "400":
+          description: Invalid event id or query
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_guests permission
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List event guests
+      tags:
+      - guests
+    post:
+      consumes:
+      - application/json
+      description: Creates a new guest under an event; rsvp_status starts at none.
+        ticket_type_id, if provided, must belong to this event. Requires the manage_guests
+        permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Guest payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_guests.CreateGuestInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_guests.Guest'
+        "400":
+          description: Invalid request body or ticket type not on this event
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_guests permission
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create guest
+      tags:
+      - guests
+  /api/v1/events/{event_id}/guests/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Soft-deletes a guest by ID, scoped to its event. Requires the manage_guests
+        permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Guest UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_guests permission
+          schema:
+            type: object
+        "404":
+          description: Guest not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete guest
+      tags:
+      - guests
+    get:
+      consumes:
+      - application/json
+      description: Returns a single guest by UUID, scoped to its event, including
+        the issued ticket/QR summary once one exists. Requires the manage_guests permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Guest UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_guests.Guest'
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_guests permission
+          schema:
+            type: object
+        "404":
+          description: Guest not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get guest by ID
+      tags:
+      - guests
+    put:
+      consumes:
+      - application/json
+      description: Partially updates a guest's name/email/phone/ticket_type_id. Only
+        provided fields are applied; event_id is immutable. A provided ticket_type_id
+        must belong to this event. Requires the manage_guests permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Guest UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_guests.UpdateGuestInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_guests.Guest'
+        "400":
+          description: Invalid ID, request body, or ticket type not on this event
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_guests permission
+          schema:
+            type: object
+        "404":
+          description: Guest not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update guest
+      tags:
+      - guests
+  /api/v1/events/{event_id}/guests/{id}/invitation:
+    post:
+      consumes:
+      - application/json
+      description: Requires a ticket type already assigned. Generates an invitation
+        token (returned only in this response — there's no email channel yet) and
+        sets rsvp_status to invited. If the event's rsvp_required is false, also issues
+        the guest's ticket immediately. Requires the manage_guests permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Guest UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_guests.SendInvitationOutput'
+        "400":
+          description: No ticket type assigned
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_guests permission
+          schema:
+            type: object
+        "404":
+          description: Guest not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Send guest invitation
+      tags:
+      - guests
   /api/v1/events/{event_id}/staff:
     get:
       consumes:
@@ -2254,6 +2683,47 @@ paths:
       summary: Update event
       tags:
       - events
+  /api/v1/guests/rsvp/{token}:
+    post:
+      consumes:
+      - application/json
+      description: Confirms or declines an invitation by its token — no authentication
+        required. Confirming issues the guest's ticket if one hasn't already been
+        issued.
+      parameters:
+      - description: Invitation token
+        in: path
+        name: token
+        required: true
+        type: string
+      - description: RSVP status
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_guests.RSVPInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_guests.Guest'
+        "400":
+          description: Invalid request body
+          schema:
+            type: object
+        "404":
+          description: Invitation not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      summary: Guest RSVP
+      tags:
+      - guests
   /api/v1/message-templates:
     get:
       consumes:

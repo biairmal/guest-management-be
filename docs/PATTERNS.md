@@ -269,7 +269,7 @@ params, err := query.ParseListParams(r.URL.Query(), events.CategoryListConfig)
 
 `ParseListParams`, `ValidateListParams`, and `ToListOptions` together mean a feature never needs its own `XxxListParams` type, list-parsing code, or `listParamsToListOptions` conversion — only the one allow-list config above, declared once.
 
-`ParseListParams` returns `*query.ListParams` (embeds `common.BasePageRequest` + `Filters map[string]string`) directly — a feature does not need its own `XxxListParams` type or `ParseXxxListParams` wrapper function.
+`ParseListParams` returns `*query.ListParams` (embeds `common.BasePageRequest` + `Filters map[string]query.FilterValue`) directly — a feature does not need its own `XxxListParams` type or `ParseXxxListParams` wrapper function. A filter value carries its operator inline as `value;operator` (e.g. `?name=Ali;like`); no suffix defaults to exact match. `ToListOptions` wraps a `like` value `%value%` automatically.
 
 ## Table-driven test
 

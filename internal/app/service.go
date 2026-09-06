@@ -10,6 +10,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/events/event"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
+	"github.com/biairmal/guest-management-be/internal/features/guests"
 	"github.com/biairmal/guest-management-be/internal/features/roles"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
@@ -29,6 +30,7 @@ type service struct {
 	messageTemplateService      templates.MessageTemplateService
 	staffAssignmentService      staffing.StaffAssignmentService
 	ticketTypeService           tickets.TicketTypeService
+	guestService                guests.GuestService
 	authzChecker                *coreauthz.Checker
 }
 
@@ -63,6 +65,11 @@ func (a *App) initializeService(
 		ticketTypeService: tickets.NewTicketTypeService(
 			logger, repositories.ticketTypeRepository,
 			repositories.ticketTypeWorkflowStepRepository, repositories.workflowStepRepository,
+		),
+		guestService: guests.NewGuestService(
+			logger, repositories.guestRepository, repositories.ticketRepository,
+			repositories.eventRepository, repositories.ticketTypeRepository,
+			repositories.guestPIIEncryptor, guests.NewLoggingInvitationPublisher(logger),
 		),
 		authzChecker: authzChecker,
 	}

@@ -71,7 +71,7 @@ func main() {
 	// config (app.<feature>.* in config.yaml); internal/app resolves each
 	// feature's section itself when it wires that feature's repositories.
 	application := app.NewApp(
-		log, deps.db, r, val, deps.redisClient, &cfg.App, deps.authIssuer, deps.authValidator, &cfg.Auth,
+		log, deps.db, r, val, deps.redisClient, &cfg.App, deps.authIssuer, deps.authValidator, &cfg.Auth, &cfg.Crypto,
 	)
 	if err := application.Initialize(); err != nil {
 		panic("Failed to initialize application: " + err.Error())
@@ -114,6 +114,7 @@ func loadConfig() appconfig.Config {
 		{"rate limit", cfg.RateLimit.Validate},
 		{"lifecycle", cfg.Lifecycle.Validate},
 		{"auth", cfg.Auth.Validate},
+		{"crypto", cfg.Crypto.Validate},
 	}
 	for _, v := range validators {
 		if err := v.fn(); err != nil {

@@ -1,0 +1,1 @@
+ALTER TABLE events ADD COLUMN rsvp_required BOOLEAN NOT NULL DEFAULT true;

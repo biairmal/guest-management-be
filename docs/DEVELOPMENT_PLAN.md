@@ -29,8 +29,9 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B5 | Domain | `templates` (event + message templates) | B4 | ✅ |
 | B6 | Domain | `staffing` (event staff assignments, roles/permissions) | B2, B4 | ✅ |
 | B7 | Domain | `tickets` (ticket types + tickets) | B4 | ✅ |
-| B8 | Domain | `guests` | B4, B7 | ⬜ |
+| B8 | Domain | `guests` | B4, B7 | ✅ |
 | B9 | Domain | `scans` (check-in / scan logs) | B8 | ⬜ |
+| B10 | Domain | `post-event-comms` (thank-you message + documentation links, sent after event completion) | B8, B9 | ⬜ (not started — future work, see phase notes) |
 
 ---
 
@@ -215,8 +216,9 @@ each phase names its migration and tables. Ordered by data dependency.
 | **B5** | `templates` | `000004` (event templates), `000006` (`message_templates`) | CRUD `/api/v1/event-categories/{category_id}/workflow-step-templates`, `/api/v1/message-templates` |
 | **B6** | `staffing` | `000002` (roles/permissions), `000007` (`event_staff_assignments`) | assign/list staff on an event; permission checks |
 | **B7** | `tickets` | `000008` — `ticket_types` + junction | CRUD ticket types; associate to events |
-| **B8** | `guests` | `000009` — `guests`, `tickets` | CRUD `/api/v1/guests`; issue tickets |
+| **B8** | `guests` | `000009` — `guests`, `tickets` | CRUD `/api/v1/events/{event_id}/guests`; assign ticket type; send invitation; guest RSVP; issue tickets |
 | **B9** | `scans` | `000010` — `scan_logs` | `POST /api/v1/scans` check-in; scan history |
+| **B10** | `post-event-comms` | not yet designed | Thank-you message + documentation links sent after event completion (REQUIREMENT.md §4.7) |
 
 ### Phase notes
 
@@ -247,6 +249,10 @@ each phase names its migration and tables. Ordered by data dependency.
 - **B7–B9 `tickets`/`guests`/`scans`** — the check-in critical path. `scans` is write-heavy and latency-sensitive;
   when it becomes a hotspot, it's the first candidate to extract into its own service (the slice boundary already
   isolates it).
+- **B10 `post-event-comms`** — deferred future work, not being built now. Covers REQUIREMENT.md §4.7 (thank-you
+  message after event completion) plus sending guests documentation links related to the event. No Story yet —
+  write one when this phase is actually picked up, once `guests`/`scans` exist to know what "event completion"
+  and "which guest" resolve against.
 
 ### B7. `tickets` (ticket types)
 
@@ -355,6 +361,245 @@ to `tickets`, not a shared import from `events`.
   (see FEATURES.md#workflow-steps' Sync note); a failed replace is recovered by resubmitting, consistent with
   existing Sync behavior.
 
+### B8. `guests`
+
+#### Story (product-manager)
+
+As a tenant staff member running an event, I want to manage the event's guest list, assign each guest a ticket
+type, and invite them to RSVP — with a QR-coded ticket issued automatically once they confirm — so that guests
+are admitted through check-in with only the access their ticket type grants them (REQUIREMENT.md §3.10, §4.1,
+§4.2).
+
+Guest fields stay exactly as modeled in REQUIREMENT.md §3.10 (`name`, `email`, `phone`) — no per-event custom
+field builder. If that turns out to be needed, that's new scope to raise separately, not assumed here.
+
+**Acceptance criteria**
+1. Creating a guest under an event with `name` and `email` succeeds and the guest is scoped to that event; `rsvp_status` starts at `none`.
+2. Listing guests for an event returns only that event's active (non-deleted) guests, paginated.
+3. Fetching, updating, or deleting a guest that belongs to a different event resolves as 404, not a cross-event leak (same convention as `ticket-types`/`workflow-steps`).
+4. A ticket type can be assigned to a guest, restricted to ticket types belonging to the same event as the guest; a ticket type from a different event is rejected (400).
+5. Sending an invitation to a guest requires a ticket type to already be assigned (400 otherwise), moves `rsvp_status` from `none` to `invited`, and generates a unique, unguessable `invitationToken` for that guest.
+6. An unauthenticated RSVP endpoint, addressed by `invitationToken` (no login — guests are not `User` accounts), lets the guest confirm or decline. An unknown/invalid token returns 404.
+7. An event has an `rsvpRequired` setting (default `true`) that decides when a guest's ticket is issued:
+   - **`rsvpRequired = true`** (default): confirming RSVP sets `rsvp_status` to `confirmed` and issues the guest's `Ticket` (QR code); declining sets `declined` and issues no ticket. Same behavior as before this setting existed.
+   - **`rsvpRequired = false`**: sending the invitation (AC5) issues the guest's `Ticket` immediately, without waiting for any RSVP response. The RSVP endpoint remains reachable so the guest can still record confirm/decline for the organizer's records, but that response no longer gates ticket issuance.
+8. Retrieving a guest reports their current `rsvp_status`, assigned ticket type, and — once issued — their ticket/QR reference.
+9. Deleting a guest is a soft delete: it disappears from subsequent list/get calls.
+10. Every staff-facing endpoint (list/get/create/update/delete, assign ticket type, send invitation) requires a valid access token; an unauthenticated call gets 401. The RSVP endpoint is the one deliberate exception — public by design, gated by token validity instead of a session.
+
+**Open questions for solutions-architect:**
+- **PII encryption approach.** Migration `000009` currently stores `guests.name`/`email`/`phone` as plain
+  `TEXT`, and no encryption/crypto helper exists anywhere in this workspace yet (checked `go-sdk` — no
+  `crypto`/`cipher` package). The user wants these fields encrypted at rest with no raw PII in the database.
+  Needs a decision on: where encryption/decryption happens (repository-layer, transparent to the service —
+  consistent with AGENTS.md's cross-cutting-concern-goes-in-go-sdk guidance), key management, and how guest
+  lookup/dedup-by-email still works once `email` is ciphertext (equality filtering needs either a deterministic
+  blind-index column or dropping email-based lookup). This likely means a follow-up migration altering
+  `000009`'s column shapes, not just app-code — flag before `backend-developer` starts.
+- **Invitation delivery mechanism.** No outbound email/SMS provider integration exists anywhere in this codebase
+  today. Decide whether B8 includes wiring a minimal real sender (e.g. SMTP) or ships a stub/log-only "send"
+  for now with real delivery as a fast-follow — either way, `message_templates` (B5) already has the
+  invitation/ticket-delivery template bodies to resolve against.
+- **Permission gating.** `manage_guests` is already seeded in the roles/permissions catalog (`roles`, B6) but
+  unused by any slice yet — confirm all staff-facing guest endpoints gate on it (mirroring how `tickets` gates
+  on `manage_events`), and confirm the RSVP endpoint needs no permission check at all (token possession is the
+  only gate, since the caller isn't authenticated).
+- **RSVP route shape.** Needs a route-policy entry marking it `public` (same mechanism `auth`'s `/login`/`/refresh`
+  use) — decide the exact path, e.g. `POST /api/v1/guests/rsvp/{token}`.
+- **`rsvpRequired` touches an already-shipped slice.** It's a new column on `events` (B4, already ✅), not a
+  `guests`-owned field — needs a small migration adding `rsvp_required BOOLEAN NOT NULL DEFAULT true` plus
+  exposing it on `events`' `CreateEventInput`/`UpdateEventInput`. Decide whether that lands as a preceding patch
+  to the `events` slice or bundled into B8's migration set.
+- **Decline after early ticket issuance.** When `rsvpRequired = false`, a ticket is already issued by the time
+  the guest could hit the RSVP endpoint. If they then decline, decide whether that's purely informational
+  (`rsvp_status = declined`, ticket stands) or should invalidate/void the already-issued ticket — not obvious
+  from the request, and touches `Ticket.status` semantics (REQUIREMENT.md §3.9).
+
+No new domain concepts beyond what's now reflected in REQUIREMENT.md (`invitationToken` added to §3.10; PII
+encryption added to §5.4) — `Guest` and `Ticket` were already modeled, just not yet implemented.
+
+#### Technical Design (solutions-architect)
+
+**Slice boundary:** new slice `internal/features/guests`, **flat layout** — not split into per-entity
+subpackages despite modeling two entities (`Guest`, `Ticket`). `Ticket` ships **model + repository only** this
+phase (no DTO/service/handler/routes — same call already made for `roles` in B6, and the same shape
+`workflow_step_templates` had in B4 before it grew its own HTTP surface in B5): nothing in the Story's
+acceptance criteria needs a top-level `/tickets` endpoint, only a QR/ticket summary surfaced through
+`GET .../guests/{id}`. Splitting a repo-only companion entity into its own subpackage would be ceremony with
+no navigability payoff — flat stays until a second HTTP-facing entity actually shows up.
+Files: `guest_model.go`, `guest_repository.go`, `guest_dto.go`, `guest_service.go`, `guest_handler.go`,
+`guest_routes.go`, `guest_service__test.go`, `ticket_model.go`, `ticket_repository.go`,
+`invitation_publisher.go`, `pii_encryptor.go`, `guests_constants.go`.
+
+**Data model:**
+- `guests` (migration `000009`, exists) needs several new columns via a follow-up migration:
+  `ticket_type_id UUID NULL REFERENCES ticket_types(id)` (must be set before an invitation can be sent),
+  `invitation_token TEXT NULL UNIQUE` (set on send; the public RSVP endpoint looks guests up by it), and — see
+  PII encryption below — `email_hash TEXT NULL` / `phone_hash TEXT NULL` (each indexed) alongside the existing
+  `email`/`phone` columns. `name` stays plain `TEXT`, unchanged.
+- `tickets` (migration `000009`, exists) — used unmodified. `TicketRepository` is a plain typed
+  `repository.Repository[Ticket, uuid.UUID]` via `internal/core/repository.NewRepository`, nothing special.
+- `events` (migration `000005`, shipped in B4) needs one new column from a small preceding migration:
+  `rsvp_required BOOLEAN NOT NULL DEFAULT true`, exposed on `events.CreateEventInput`/`UpdateEventInput`.
+  `GuestService` reads it through a cross-feature `repository.ReadRepository[events.Event, uuid.UUID]` field —
+  the same established pattern `tickets` already uses for its `workflowstep` read
+  (AGENTS.md#repository-pattern--anti-duplication).
+- **`ticket_type_id` cross-event validation** — same pattern as `tickets`' own workflow-step validation:
+  `GuestService` holds `repository.ReadRepository[tickets.TicketType, uuid.UUID]`, loads the submitted ID on
+  create/update, and checks `.EventID` matches the guest's own event (400 otherwise).
+- **PII encryption, revised per product owner: only `email`/`phone` are encrypted; `name` stays plaintext**
+  so it can be searched with a partial-match `LIKE` — a `name` column full of ciphertext couldn't support that
+  at all.
+- **Encryption sits behind an app-local `PIIEncryptor` interface — same abstraction shape as
+  `InvitationPublisher`, for the same reason: the product owner may change the underlying scheme later.**
+  `internal/features/guests/pii_encryptor.go`:
+  ```go
+  type PIIEncryptor interface {
+      Encrypt(plaintext string) (string, error)
+      Decrypt(ciphertext string) (string, error)
+      BlindIndex(value string) (string, error)
+  }
+  ```
+  `guest_repository.go` depends only on this interface — it wraps the result of
+  `internal/core/repository.NewRepository`, calling `Encrypt` on `email`/`phone` immediately before every
+  `Create`/`Update` and `Decrypt` on every row returned by `GetByID`/`List`. `internal/app` wires the only
+  implementation this phase, `cryptoPIIEncryptor`, a thin adapter over the new go-sdk `crypto` package (below)
+  plus the two configured keys. Swapping the scheme later (different cipher, a KMS-backed implementation, a
+  remote encryption service) is a change to that one adapter + its wiring in `internal/app` — `guest_repository.go`
+  and everything else in the slice stays untouched, exactly like `InvitationPublisher`. No column-type change
+  either — ciphertext fits the existing `TEXT` columns.
+- **Exact-match search on encrypted `email`/`phone` via a blind index — not by comparing ciphertext.**
+  AES-GCM (the default implementation) is deliberately non-deterministic: encrypting the same email twice
+  yields two different ciphertexts, so a `WHERE email = encrypt(?)` lookup can never match regardless of
+  implementation. This is why `PIIEncryptor` exposes `BlindIndex` as its own method, separate from
+  `Encrypt`/`Decrypt`: it's a **deterministic** HMAC-SHA256 of the normalized value
+  (`strings.ToLower(strings.TrimSpace(...))` for email; digits-only for phone — normalization is `guests`'
+  own business rule, done before calling `BlindIndex`), stored in `email_hash`/`phone_hash`. A search request
+  goes through the same normalize-then-hash step and is matched by equality against the hash column — which is
+  exactly why it can only match a **complete, correctly-formatted** value, never a partial one: a hash has no
+  notion of "starts with". This is the accepted tradeoff (per product owner) in exchange for not
+  storing/indexing plaintext PII at all. `PIIEncryptor` itself, `guest_repository.go`'s two-field wrapping, and
+  the hash columns stay **local to `guests`**, not promoted to `internal/core` — `guests` is the only consumer
+  today (same "don't extract until a second consumer exists" call this codebase already made in A8).
+- **`name` search needs a shared-infra change — per-request operator, not a per-field config.** Per product
+  owner's direction, a filter value carries its own operator inline: `?name=Ali;like` (operator suffixed after
+  `;`); no suffix (`?name=Ali`) defaults to exact match, same as every filter today. This applies to
+  `internal/core/query` generally (every feature's list endpoints get it, not just `guests`) rather than a
+  guest-specific config, and it's actually **simpler** than a static `LikeFilterFields` allow-list: the client
+  picks the operator per request, `AllowedFilterFields` still only gates *which fields* are filterable at all.
+  Concretely:
+  - `ListParams.Filters` changes from `map[string]string` to `map[string]FilterValue` where
+    `FilterValue{Value string; Operator repository.FilterOperator}`. Nothing outside `internal/core/query`
+    touches `.Filters` directly today (every shipped feature just passes `params` straight into
+    `query.ToListOptions`), so this is safe to change now.
+  - `parseFilters` splits each raw value on the first `;`; a present suffix is looked up against a small
+    **whitelist** of supported operators — just `eq` (default) and `like` for this pass, an intentionally
+    short list; an unrecognized suffix is a `400` (fail closed, same as an unknown sort/filter field today).
+    Adding another go-sdk `FilterOperator` later (`gt`, `in`, ...) is one line in that whitelist, not a
+    redesign.
+  - `ToListOptions` wraps the value `%value%` only when the resolved operator is `like`; otherwise it's passed
+    through as today.
+  - **Implementation caution:** `;` is a reserved query-string character in some HTTP stacks/`net/url`
+    versions — a client building the query string by hand must percent-encode it (`%3B`) or the value can be
+    silently mis-parsed. Any real HTTP client library (axios, fetch, Postman, `net/http`'s own `url.Values.Encode`)
+    does this automatically; only a hand-built raw query string is at risk. Worth a one-line callout in
+    `tester`'s Postman collection and `FEATURES.md` once implemented.
+- **`email`/`phone` only ever resolve to exact match, enforced in the service — not by trusting the client's
+  chosen operator.** The client still filters by `?email=...`/`?phone=...` (allow-listed normally, and may say
+  `;like` like any other field), but a blind-index column has no notion of partial match, so
+  `GuestService.List` **rejects** (400) an `email`/`phone` filter whose resolved operator isn't `eq` before
+  going any further. For an `eq` (or bare) `email`/`phone` filter, the service normalizes and hashes the value
+  and rewrites the map entry to the real column (`email_hash`/`phone_hash`) before calling
+  `query.ToListOptions` — `ValidateListParams` still runs first, against the client-facing `email`/`phone`
+  names, so the allow-list check is unaffected. `ToListOptions` itself isn't reimplemented, only fed a
+  pre-transformed map — the same shape of business-logic-before-shared-helper every other service already does.
+
+**New go-sdk dependency — `crypto` package, consumed only by the `cryptoPIIEncryptor` adapter.** Per the
+product owner's direction, field-level PII encryption belongs in `go-sdk`, not this app: `guest-management-be`
+should only ever pass secret keys through config, never implement a cipher itself — and per the abstraction
+above, only one file (`internal/app`'s adapter) ever imports `go-sdk/crypto` directly. Added as a new phase
+stub to [go-sdk/docs/DEVELOPMENT_PLAN.md](../../go-sdk/docs/DEVELOPMENT_PLAN.md):
+- `Encrypt(key, plaintext []byte) (string, error)` / `Decrypt(key []byte, ciphertext string) ([]byte, error)` —
+  AES-256-GCM, random nonce prepended to the ciphertext (semantically secure — same input, different output
+  every time, by design).
+- `BlindIndex(key []byte, value string) string` — deterministic HMAC-SHA256 (hex-encoded), for exact-match
+  lookup only. Uses a **separate key** from `Encrypt`/`Decrypt` (standard key-separation practice — an
+  encryption key and a deterministic-MAC key serve different security purposes and shouldn't be reused).
+- The SDK's usual `Config`/`DefaultConfig()` carries both keys (e.g. `EncryptionKey`, `BlindIndexKey`), loaded
+  from env, never committed.
+
+This service consumes it once it lands; designing the SDK package itself is out of scope for this document.
+**Update:** shipped and wired — `internal/app/pii_encryptor.go`'s `cryptoPIIEncryptor` adapts
+`go-sdk/lib/crypto.Encryptor` to `guests.PIIEncryptor`; keys are `Config.Crypto.EncryptionKey`/`BlindIndexKey`
+(env `GUEST_PII_ENCRYPTION_KEY`/`GUEST_PII_BLIND_INDEX_KEY`, see `.env.example`).
+
+**Invitation delivery — app-local abstraction, no go-sdk dependency yet.** `go-sdk` has no Kafka/queue package,
+and building one is out of scope here (per product owner: an app-local interface now, wired to a real
+`go-sdk` producer later). `internal/features/guests/invitation_publisher.go` declares:
+```go
+type InvitationPublisher interface {
+    PublishInvitation(ctx context.Context, msg InvitationMessage) error
+}
+```
+`GuestService.SendInvitation` calls it after generating the token — **best-effort**, the same non-blocking
+treatment as `EventService.Create`'s template-copy (FEATURES.md#events): a publish failure is logged but does
+not fail the invitation-send call, since the guest row/token are already correctly persisted. `internal/app`
+wires a `LoggingInvitationPublisher` (logs the message, does nothing else) as the only implementation this
+phase. Swapping in a real Kafka-backed publisher later is a change to `internal/app`'s wiring alone, once
+go-sdk ships one — `guests` code doesn't change. Kept feature-local rather than in `internal/core`, since
+`guests` is the only consumer right now.
+
+**API surface** (mirrors `tickets`' nested-resource shape; gated on the already-seeded `manage_guests`
+permission — seeded in B6's catalog but unused by any slice until now):
+
+Base path `/api/v1/events/{event_id}/guests`:
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List guests for the event (paginated, filtered, sorted) | 200 | 400 · 401 · 403 |
+| `POST` | `/` | Create a guest (`name`, `email`, `phone?`, `ticket_type_id?`) | 201 | 400 · 401 · 403 · 409 · 422 |
+| `GET` | `/{id}` | Get one, scoped to the event — includes `ticket_type_id`, `rsvp_status`, and the ticket/QR summary once issued | 200 | 400 · 401 · 403 · 404 |
+| `PUT` | `/{id}` | Partial update (`name`, `email`, `phone`, `ticket_type_id`) | 200 | 400 ticket type cross-event · 401 · 403 · 404 |
+| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 401 · 403 · 404 |
+| `POST` | `/{id}/invitation` | Send invitation — requires `ticket_type_id` already set; sets `rsvp_status=invited`, generates `invitation_token`, calls `InvitationPublisher`; if the event's `rsvp_required=false`, also issues the `Ticket` immediately | 200 | 400 no ticket type assigned · 401 · 403 · 404 |
+
+Public, unauthenticated (route-policy `public: true`, same mechanism as `auth`'s `/login`/`/refresh`):
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `POST` | `/api/v1/guests/rsvp/{token}` | Guest confirms/declines (`{"status":"confirmed"\|"declined"}`); confirming issues the `Ticket` when `rsvp_required=true` and one isn't already issued | 200 | 400 invalid status · 404 unknown token |
+
+`invitation_token` is returned in the `POST .../invitation` response body — there's no real email channel yet
+to deliver the RSVP link through, so this is the only way to reach it (needed for `tester`'s e2e coverage of
+the RSVP flow).
+
+List query allow-list: sort `id, name, rsvp_status, created_at, updated_at`; filter `name` (exact by default,
+`?name=Ali;like` for partial), `email`, `phone` (exact only — a `;like` suffix on either is rejected, see PII
+encryption above), `rsvp_status` (exact); `event_id` forced from the URL, same convention as every other
+nested-resource feature.
+
+**Non-goals:**
+- **No real Kafka producer/consumer, no real email/SMS/WhatsApp delivery.** B8 only produces an
+  `InvitationMessage` through a logging stub; wiring an actual send is a fast-follow once go-sdk ships Kafka
+  support and a provider is chosen.
+- **No generic `internal/core` field-encryption decorator** — kept local to `guest_repository.go`'s two
+  encrypted fields (`email`, `phone`) until a second consumer needs it.
+- **No `ILIKE`/case-insensitive search, no trigram/GIN index for `name`** — plain `LIKE` and a normal B-tree
+  are enough at guest-list scale; revisit if a tenant's guest list grows large enough for `LIKE '%x%'` scans
+  to matter.
+- **No operators beyond `eq`/`like` in the new `;operator` filter syntax this pass** — `internal/core/query`'s
+  whitelist starts with just those two; `gt`/`lt`/`in`/`is_null`/etc. are one-line additions to the whitelist
+  whenever a feature actually needs one, not built speculatively now.
+- **No email/phone uniqueness constraint on `guests`** — the hash columns exist for lookup, not dedup; no
+  Story acceptance criterion asks for guest uniqueness (unlike `users`' email uniqueness).
+- **No voiding of an early-issued ticket on a later decline** (`rsvp_required=false` case) — per product
+  owner, the ticket stands regardless of what the guest answers afterward.
+- **No `Ticket` HTTP endpoints** — consumed internally by `GuestService` only.
+- **No custom per-event guest fields** — `Guest` keeps the fixed `name`/`email`/`phone` shape from
+  REQUIREMENT.md §3.10.
+- **No dedicated `PUT .../ticket-type` endpoint** — ticket-type assignment is just a field on
+  `CreateGuestInput`/`UpdateGuestInput`; a separate endpoint doesn't earn its keep for one field.
+
 ### Cross-references to go-sdk
 
 | This service needs | Provided by go-sdk phase |
@@ -363,6 +608,7 @@ to `tickets`, not a shared import from `events`.
 | Login + route protection (B3) | `auth` |
 | Metrics/tracing/rate-limit/breaker (A7) | `metrics`, `tracer`, `ratelimit`, `circuitbreaker` |
 | Graceful shutdown (A7) | `lifecycle` |
+| PII field encryption (B8) | `crypto` — shipped, see go-sdk `DEVELOPMENT_PLAN.md` Phase 9; wired via `internal/app/pii_encryptor.go` |
 
 When one of these is missing, prefer **adding it to `go-sdk`** (it's a reusable cross-cutting concern) over
 building an app-local version.

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/biairmal/go-sdk/lib/crypto"
 	"github.com/biairmal/go-sdk/lib/lifecycle"
 	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/go-sdk/lib/redis"
@@ -24,5 +25,6 @@ type Config struct {
 	RateLimit RateLimitConfig
 	Lifecycle lifecycle.Config
 	Auth      AuthConfig
+	Crypto    crypto.Config
 	App       FeatureConfig
 }
