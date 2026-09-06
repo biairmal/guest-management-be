@@ -95,6 +95,25 @@ definitions:
       total_pages:
         type: integer
     type: object
+  dto.PageResponse-internal_features_scans_ScanLog:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_scans.ScanLog'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
   dto.PageResponse-internal_features_staffing_EventStaffAssignment:
     properties:
       has_next:
@@ -532,6 +551,31 @@ definitions:
       phone:
         type: string
       ticket_type_id:
+        type: string
+    type: object
+  internal_features_scans.RecordScanInput:
+    properties:
+      qr_code:
+        type: string
+      workflow_step_id:
+        type: string
+    required:
+    - qr_code
+    - workflow_step_id
+    type: object
+  internal_features_scans.ScanLog:
+    properties:
+      event_id:
+        type: string
+      id:
+        type: string
+      operator_user_id:
+        type: string
+      scanned_at:
+        type: string
+      ticket_id:
+        type: string
+      workflow_step_id:
         type: string
     type: object
   internal_features_staffing.CreateAssignmentInput:
@@ -1713,6 +1757,122 @@ paths:
       summary: Send guest invitation
       tags:
       - guests
+  /api/v1/events/{event_id}/scans:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns a paginated list of scans for an event. Query: page, size,
+        sort=field,dir (repeatable), filter by allowed fields (ticket_id, workflow_step_id).
+        Requires the check_in permission.'
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: size
+        type: integer
+      - description: 'Sort: field,dir (e.g. sort=scanned_at,DESC)'
+        in: query
+        name: sort
+        type: string
+      - description: Filter by ticket UUID (exact match)
+        in: query
+        name: ticket_id
+        type: string
+      - description: Filter by workflow step UUID (exact match)
+        in: query
+        name: workflow_step_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PageResponse-internal_features_scans_ScanLog'
+        "400":
+          description: Invalid event id or query
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing check_in permission
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List scan history
+      tags:
+      - scans
+    post:
+      consumes:
+      - application/json
+      description: Resolves qr_code to a ticket scoped to this event and records a
+        scan against workflow_step_id, enforcing the step's allows_multiple rule,
+        ticket-type entitlement, and ticket status. Requires the check_in permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Scan payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_scans.RecordScanInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_scans.ScanLog'
+        "400":
+          description: Invalid request body, workflow step not on this event, or ticket
+            type not entitled to this step
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing check_in permission
+          schema:
+            type: object
+        "404":
+          description: Ticket or workflow step not found for this event
+          schema:
+            type: object
+        "409":
+          description: Ticket invalidated, or workflow step already completed
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Record a scan
+      tags:
+      - scans
   /api/v1/events/{event_id}/staff:
     get:
       consumes:

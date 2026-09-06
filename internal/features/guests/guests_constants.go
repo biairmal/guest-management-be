@@ -15,6 +15,16 @@ const (
 	RsvpStatusDeclined  = "declined"
 )
 
-// TicketStatusActive is the status a Ticket is issued with. Transitions to
-// used/invalidated are B9 (scans/check-in) concerns, out of scope here.
-const TicketStatusActive = "active"
+// Ticket.Status values. TicketStatusActive is the status a Ticket is issued
+// with. TicketStatusUsed/TicketStatusInvalidated are B9 (scans/check-in)
+// concerns: scans.ScanLogService.RecordScan flips a ticket from active to
+// used on its first successful scan of any workflow step (a one-way
+// transition, never reverted); nothing in this codebase sets
+// TicketStatusInvalidated yet (no B9 acceptance criterion requires an
+// invalidation trigger — the check is present so RecordScan can reject an
+// already-invalidated ticket per AC4 whenever one exists).
+const (
+	TicketStatusActive      = "active"
+	TicketStatusUsed        = "used"
+	TicketStatusInvalidated = "invalidated"
+)

@@ -22,6 +22,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | A6 | Foundations | Shared building blocks in `internal/core` (base repo, list-query parser, validator) | A5, go-sdk `validator` | ✅ |
 | A7 | Foundations | Cross-cutting middleware/observability + go-sdk `lifecycle` shutdown | go-sdk phases | ✅ |
 | A8 | Foundations | Post-B6 cleanup: shared list helpers, decode/DTO/constants hygiene, `events` entity split | A6 | ✅ |
+| A9 | Foundations | Event-scoped permission resolution in `authz.Checker` (gap found during B9 design) | B6 | ⬜ (not started — future work, see phase notes) |
 | B1 | Domain | `tenants` | A6 | ✅ |
 | B2 | Domain | `users` | B1 | ✅ |
 | B3 | Domain | `auth` (login + route protection) | B2, go-sdk `auth` | ✅ |
@@ -30,7 +31,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B6 | Domain | `staffing` (event staff assignments, roles/permissions) | B2, B4 | ✅ |
 | B7 | Domain | `tickets` (ticket types + tickets) | B4 | ✅ |
 | B8 | Domain | `guests` | B4, B7 | ✅ |
-| B9 | Domain | `scans` (check-in / scan logs) | B8 | ⬜ |
+| B9 | Domain | `scans` (check-in / scan logs) | B8 | ✅ |
 | B10 | Domain | `post-event-comms` (thank-you message + documentation links, sent after event completion) | B8, B9 | ⬜ (not started — future work, see phase notes) |
 
 ---
@@ -198,6 +199,28 @@ Also: `staffing`'s `events.Event` reference became `event.Event` after the split
 body, but compiles clean because neither function references the `event` package again after the local declaration —
 flagged as a risk beforehand, turned out to be a non-issue, no rename needed.
 
+### A9. Event-scoped permission resolution in `authz.Checker`
+
+Gap identified during B9 (`scans`) design, not by this item itself: `internal/core/authz.Checker.Require` only
+resolves a caller's **system-level** `role_id` claim — nothing checks a per-event `event_staff_assignments` row's
+own `role_id`. B6 seeded event-scoped roles (Usher, Photobooth Staff) specifically so a user could hold
+scanning-only access on one event without a matching system role, but no gated feature (`tickets`, `guests`,
+`staffing`, and now `scans`) can actually recognize that grant — every one of them checks only the system role.
+Tracked here rather than silently deferred so it doesn't get lost.
+
+- Fix belongs in `internal/core/authz` (the shared `Checker`), not any one feature slice — every event-scoped
+  feature benefits identically once it lands.
+- Needs an `event_id` in scope for the check (already present on every gated route as `{event_id}` in the path)
+  so the checker can look up that caller's active `event_staff_assignments` row for that event and consult its
+  `role_id`'s permissions, in addition to (or as a fallback from) the existing system-role check.
+- **Verify:** a user holding only an event-scoped Usher assignment (no elevated system role) can pass `check_in`
+  on that event's `scans` endpoints; a user with no assignment on that event and no system permission still gets
+  403.
+
+No Story yet — write one (`product-manager`) when this is picked up. Not a blocker for B9 shipping: B9 reuses the
+same system-role-only `Checker` every other gated feature already relies on, so it's neither better nor worse off
+than `tickets`/`guests`/`staffing` are today.
+
 ---
 
 ## Track B — Domain buildout
@@ -217,7 +240,7 @@ each phase names its migration and tables. Ordered by data dependency.
 | **B6** | `staffing` | `000002` (roles/permissions), `000007` (`event_staff_assignments`) | assign/list staff on an event; permission checks |
 | **B7** | `tickets` | `000008` — `ticket_types` + junction | CRUD ticket types; associate to events |
 | **B8** | `guests` | `000009` — `guests`, `tickets` | CRUD `/api/v1/events/{event_id}/guests`; assign ticket type; send invitation; guest RSVP; issue tickets |
-| **B9** | `scans` | `000010` — `scan_logs` | `POST /api/v1/scans` check-in; scan history |
+| **B9** | `scans` | `000010` — `scan_logs` | `POST/GET /api/v1/events/{event_id}/scans` check-in; scan history |
 | **B10** | `post-event-comms` | not yet designed | Thank-you message + documentation links sent after event completion (REQUIREMENT.md §4.7) |
 
 ### Phase notes
@@ -599,6 +622,170 @@ nested-resource feature.
   REQUIREMENT.md §3.10.
 - **No dedicated `PUT .../ticket-type` endpoint** — ticket-type assignment is just a field on
   `CreateGuestInput`/`UpdateGuestInput`; a separate endpoint doesn't earn its keep for one field.
+
+### B9. `scans`
+
+#### Story (product-manager)
+
+As event staff running check-in, I want to scan a guest's ticket QR code against a specific workflow step and
+have the system enforce that step's one-time-vs-repeatable rule, so that single-use steps (e.g. souvenir
+pickup) can't be claimed twice while repeatable steps (e.g. photo booth) accumulate an accurate, permanent count
+of every visit for post-event reporting (REQUIREMENT.md §4.3, §4.5).
+
+**Acceptance criteria**
+1. Recording a scan for a ticket against a workflow step that the ticket's ticket type is entitled to, and that
+   the ticket hasn't yet completed, succeeds and persists a `scan_logs` row (ticket, workflow step, event,
+   timestamp).
+2. Recording a second scan for the same ticket against the same workflow step is **rejected** when that step's
+   `allowsMultiple = false` — a distinct "already completed" error (409), and no second `scan_logs` row is
+   created.
+3. Recording repeated scans for the same ticket against a workflow step with `allowsMultiple = true` succeeds
+   every time with no cap, and each call persists its **own** `scan_logs` row — none are deduplicated,
+   overwritten, or merged.
+4. Scanning a ticket that does not belong to the event being scanned at, or whose status is `invalidated`, is
+   rejected — not logged as a successful scan.
+5. Scanning a ticket against a workflow step that its ticket type does not include (per
+   `ticket_type_workflow_steps`, B7) is rejected — the ticket type isn't entitled to that step.
+6. Scanning a ticket against a workflow step that belongs to a different event than the ticket is rejected
+   (same cross-event guard convention as B7/B8), independent of criterion 5.
+7. A scan-history endpoint returns the recorded scans for a given ticket and/or workflow step, so that the
+   count of completions for a multi-use step (criterion 3) and the single completion of a single-use step
+   (criterion 1) are both independently verifiable through the API after the fact.
+8. Every scan endpoint (recording a scan and retrieving scan history) requires a valid access token; an
+   unauthenticated call gets 401. Unlike B8's guest-facing RSVP, this is a staff action with no public
+   counterpart.
+
+**Open questions for solutions-architect:**
+- **Endpoint shape.** Whether recording a scan is `POST /api/v1/scans` with `qr_code` + `workflow_step_id` in
+  the body, a path nested under the ticket/event, and whether the client identifies the ticket by its `qr_code`
+  (what the guest actually presents) or a resolved `ticket_id`.
+- **Scan-history endpoint shape.** Whether it's a raw `scan_logs` listing (filterable by `ticket_id` and/or
+  `workflow_step_id`, paginated, client counts rows) or the endpoint itself returns an aggregated count —
+  criterion 7 only requires the data be retrievable and accurate, not a specific response shape.
+- **Permission gating.** REQUIREMENT.md §4.6 lists "Only scanning" as a distinct staff permission tier from
+  guest/workflow/full-admin management. Decide whether B9 introduces a new permission code (e.g.
+  `record_scans`) seeded alongside `manage_events`/`manage_guests`/`manage_staff`, or reuses an existing one —
+  and whether the scan-history read endpoint needs the same or a different permission than recording a scan.
+- **Ticket status transition semantics.** `Ticket.status` is `active | used | invalidated` (B8, shipped), but
+  with a ticket now scanned repeatedly across multiple workflow steps over an event's lifetime, it's not
+  specified anywhere what (if anything) flips a ticket from `active` to `used` — decide whether B9 leaves
+  `status` untouched (only `invalidated` blocks a scan, per criterion 4) or defines a transition trigger (e.g.
+  last workflow step in the ticket type's set).
+
+No new domain concepts — `WorkflowStep.allowsMultiple`, `ScanLog`, and the §4.5 validation list were already
+modeled; REQUIREMENT.md's `ScanLog` entity (§3.11) is updated in this pass only to add the already-DB-modeled
+`operatorUserId` (optional, DATABASE.md §3.15) that was implied but missing from the domain listing.
+
+#### Technical Design (solutions-architect)
+
+**Permission gating — corrected per product owner.** B9 gates on the **existing** seeded `check_in` permission
+(migration `000014`, `docs/STAFFING_RBAC.md` §3 — *"scan tickets / record guest check-ins"*, and REQUIREMENT.md
+§4.6's "Only scanning" tier), **not** a new `record_scans` code. Minting a new code here would have left it
+ungranted to every role the seed data already gives `check_in` to (Usher, Photobooth Staff, Tenant Staff, Tenant
+Admin, Super Admin) — a functional regression, not a style choice — so this was sent back and confirmed rather
+than guessed through. Same permission gates both endpoints (recording a scan and reading scan history) — no
+acceptance criterion asks for a narrower read-only tier.
+
+**Slice boundary:** new slice `internal/features/scans`, flat layout (one entity, `ScanLog` — the write-heavy
+audit row this slice owns; `Ticket`, `WorkflowStep`, and `TicketType` are read/written through already-exported
+cross-feature repositories, never owned here). Files: `scan_log_model.go`, `scan_log_repository.go`,
+`scan_log_dto.go`, `scan_log_service.go`, `scan_log_handler.go`, `scan_log_routes.go`,
+`scan_log_service__test.go`, `scans_constants.go`. `ScanLogService` exposes only `RecordScan` and `ListScans` —
+no `Update`/`Delete`/`GetByID` service methods, since `scan_logs` is a permanent, append-only audit log with no
+endpoint needing them (the underlying repository still satisfies the full generic `repository.Repository[T,TID]`
+interface only because that's the shared constructor's return type, not because those operations are exposed).
+
+**Data model:** no new tables, no new migration — B9 only reads/writes rows in tables B7/B8/B9's own
+prerequisite migrations already shipped:
+- `scan_logs` (migration `000010`, DATABASE.md §3.15) — no soft delete, so `ScanLogRepository` is a plain
+  `repository.Repository[ScanLog, uuid.UUID]` built via `internal/core/repository.NewRepositoryNoAudit` (the
+  same call `roles` already makes for its own no-`deleted_at` table) — the audit decorator's unconditional
+  `deleted_at IS NULL` filter and soft-delete-on-`Delete` would break against a table lacking that column. The
+  generic `Repository.Count(ctx, filter)` method is reused as-is for the AC2 "already completed" check — no new
+  repository method needed.
+- `tickets` (migration `000009`, owned by `guests`) — resolving `qr_code` → ticket and flipping
+  `status: active → used` both reuse the **same already-exported constructor**, `guests.NewTicketRepository(...)`,
+  that `guests`' own service already uses. `internal/app` wires that one concrete instance into both
+  `guests.Service` and `scans.Service`, this time typed as the full `repository.Repository[guests.Ticket,
+  uuid.UUID]` (not the narrower `ReadRepository` `tickets` uses for `workflowstep.WorkflowStep`, since B9 needs
+  `Update` too) — no new interface, no adapter, just requesting the read-write half of an already-generic
+  interface. `guests_constants.go` gains two constants alongside the existing `TicketStatusActive` (whose doc
+  comment already earmarks this as "a B9 concern"): `TicketStatusUsed = "used"`, `TicketStatusInvalidated =
+  "invalidated"` — a small in-place addition to `guests`, not a new file; `scans` imports them rather than
+  redeclaring the same three strings under a different name.
+- `workflow_steps` (migration `000005`, owned by `events/workflowstep`) — read via
+  `repository.ReadRepository[workflowstep.WorkflowStep, uuid.UUID]`, the exact pattern `tickets` already
+  established for the same table (AGENTS.md#repository-pattern--anti-duplication).
+- `ticket_type_workflow_steps` (migration `000008`, owned by `tickets`) — the entitlement check (AC5) reuses
+  `tickets.TicketTypeWorkflowStepRepository.WorkflowStepIDsByTicketTypeID(ticketTypeID)` as-is (already exported
+  for exactly this membership check); `scans` holds it as a field, no new method added to it.
+
+**API surface** (mirrors `tickets`/`guests`' nested-resource shape; `event_id` always from the URL, both routes
+gated on `check_in` via `authz.RequirePermission`, the same mechanism every other gated feature uses):
+
+Base path `/api/v1/events/{event_id}/scans`:
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `POST` | `/` | Record a scan — body is `qr_code` + `workflow_step_id`; the server resolves the ticket internally, never a client-supplied `ticket_id` | 201 | 400 workflow step not on this event · 400 ticket type not entitled to this step · 404 ticket not found for this event · 409 ticket invalidated · 409 step already completed (`allowsMultiple=false`) · 401 · 403 |
+| `GET` | `/` | Scan history for the event, paginated and filterable by `ticket_id` and/or `workflow_step_id` (reuses `internal/core/query`'s `ListParseConfig`/`ParseListParams`/`ToListOptions`, same as every other list endpoint) | 200 | 400 invalid query · 401 · 403 |
+
+Validation order for `POST /`, all inside `ScanLogService.RecordScan` (transport-agnostic; the handler only
+decodes and validates request shape):
+1. Resolve `qr_code` to a `guests.Ticket` filtered on **both** `qr_code` and the URL `event_id` — a ticket that
+   exists but belongs to another event is indistinguishable from an unknown QR code, same no-cross-event-leak
+   convention as B7 AC4/B8 AC3 → 404 if none found.
+2. `ticket.Status == TicketStatusInvalidated` → 409 (blocked by the ticket's own state — same category as the
+   AC2 conflict in step 5).
+3. Load the `workflow_steps` row by `workflow_step_id` → 404 if it doesn't exist at all; `.EventID != event_id`
+   (URL) → 400 (same status B7 already uses for "a step id not on this event").
+4. Confirm `workflow_step_id` is in
+   `TicketTypeWorkflowStepRepository.WorkflowStepIDsByTicketTypeID(ticket.TicketTypeID)` (AC5) → 400 if absent
+   (ticket type isn't entitled to this step; same 400 category as B8's ticket-type cross-event check).
+5. If `!workflowStep.AllowsMultiple`, `ScanLogRepository.Count` filtered on `ticket_id`+`workflow_step_id` — a
+   non-zero count → 409 "already completed" (AC2). Skipped entirely when `AllowsMultiple == true`, so every call
+   reaches step 6 and inserts its own row with no cap (AC3).
+6. Insert the `scan_logs` row (`operator_user_id` left `NULL` this phase — see non-goals).
+7. If `ticket.Status == TicketStatusActive`, update it to `TicketStatusUsed` — a one-way,
+   first-successful-scan-of-any-step transition that runs at most once per ticket. Once `used`, step 6 keeps
+   inserting new `scan_logs` rows on every later call (including further repeatable-step scans) without ever
+   touching `status` again, satisfying AC3 (repeated scans keep succeeding regardless of `status`) and AC4 (only
+   `invalidated`, checked in step 2, ever blocks a scan). A failure updating `status` is logged but does not
+   fail the scan response — the `scan_logs` row from step 6 is already persisted and is the record the product
+   owner said they're relying on regardless.
+
+List query allow-list (`GET /`): sort `id, scanned_at`; filter `ticket_id`, `workflow_step_id` (both exact-match
+only — no `;like` use case for two UUID equality filters); `event_id` forced from the URL, same convention as
+every other nested-resource feature.
+
+**Non-goals:**
+- **No `operator_user_id` population.** The column (already nullable, migration `000010`) is left `NULL` this
+  pass — no acceptance criterion asks for "who scanned" reporting, and populating it would require a new
+  exported `authz.UserIDFromContext` (mirroring the existing `RoleIDFromContext`/`TenantIDFromContext` pattern)
+  plus wiring the auth middleware to actually set that claim into context — nothing in this codebase does that
+  anywhere yet. Revisit once a story actually needs it.
+- **No event-scoped permission resolution.** `authz.Checker.Require` only ever resolves the caller's
+  **system-level** `role_id` claim (`internal/core/authz/checker.go`) — nothing in this codebase today checks an
+  `event_staff_assignments` row's event-scoped role (Usher/Photobooth Staff) for a permission. A user whose only
+  grant of `check_in` comes from an event-scoped assignment, not their system role, cannot pass this gate today.
+  This is a pre-existing gap from B6's authz design, not introduced or worsened by B9 — B9 reuses the exact same
+  system-role-only `Checker` every other gated feature (`tickets`, `guests`, `staffing`) already uses. Fixing it
+  is an `internal/core/authz` change (a new event-scoped resolver path), not a `scans`-local one — flag as a
+  fast-follow if event-scoped staff need to scan without also holding `check_in` on their system role.
+- **No aggregated/counted scan-history response shape.** `GET /` returns raw, paginated `scan_logs` rows; AC7
+  only requires the completion count be independently verifiable, and a paginated list (the client reads
+  `total`) already satisfies that — a separate aggregation endpoint is unrequested scope.
+- **No transaction around steps 5–7** (count check → insert → ticket status update) — no feature in this
+  codebase uses a DB transaction yet (same accepted gap as B7's workflow-step replace); a narrow race between
+  two concurrent scans of the same non-repeatable step could both pass the count check before either inserts.
+  Acceptable at current scale; revisit if concurrent-scan collisions are ever reported.
+- **No new permission code, no new migration** — reuses the already-seeded `check_in` rather than minting
+  `record_scans` (see the corrected permission-gating decision above).
+- **No new `Ticket`/`WorkflowStep`/`TicketType` HTTP surface** — `scans` only reads/writes them through
+  already-exported cross-feature repositories; their own endpoints are unchanged.
+- **No ticket-status rollback.** Once a ticket flips to `used`, nothing in this pass ever reverts it to `active`
+  (e.g. to "undo" a scan) — no acceptance criterion asks for that, and `scan_logs` remains the permanent,
+  un-editable record of what actually happened regardless of `status`.
 
 ### Cross-references to go-sdk
 

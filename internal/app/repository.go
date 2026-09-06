@@ -12,6 +12,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 	"github.com/biairmal/guest-management-be/internal/features/guests"
 	"github.com/biairmal/guest-management-be/internal/features/roles"
+	"github.com/biairmal/guest-management-be/internal/features/scans"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
@@ -37,6 +38,7 @@ type repositories struct {
 	guestRepository                  sdkrepository.Repository[guests.Guest, uuid.UUID]
 	ticketRepository                 sdkrepository.Repository[guests.Ticket, uuid.UUID]
 	guestPIIEncryptor                guests.PIIEncryptor
+	scanLogRepository                sdkrepository.Repository[scans.ScanLog, uuid.UUID]
 }
 
 func (a *App) initializeRepository(
@@ -121,5 +123,6 @@ func (a *App) initializeRepository(
 		guestRepository:                  guests.NewGuestRepository(log, db, guestCacheOpts, guestPIIEncryptor),
 		ticketRepository:                 guests.NewTicketRepository(log, db, ticketCacheOpts),
 		guestPIIEncryptor:                guestPIIEncryptor,
+		scanLogRepository:                scans.NewScanLogRepository(log, db),
 	}, nil
 }

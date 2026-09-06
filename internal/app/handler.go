@@ -9,6 +9,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 	"github.com/biairmal/guest-management-be/internal/features/guests"
+	"github.com/biairmal/guest-management-be/internal/features/scans"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
@@ -28,6 +29,7 @@ type handler struct {
 	staffAssignmentHandler      *staffing.StaffAssignmentHandler
 	ticketTypeHandler           *tickets.TicketTypeHandler
 	guestHandler                *guests.GuestHandler
+	scanLogHandler              *scans.ScanLogHandler
 }
 
 func (a *App) initializeHandler(_ logger.Logger, validator validation.Validator, service *service) *handler {
@@ -45,5 +47,6 @@ func (a *App) initializeHandler(_ logger.Logger, validator validation.Validator,
 		staffAssignmentHandler: staffing.NewStaffAssignmentHandler(service.staffAssignmentService, validator),
 		ticketTypeHandler:      tickets.NewTicketTypeHandler(service.ticketTypeService, validator),
 		guestHandler:           guests.NewGuestHandler(service.guestService, validator),
+		scanLogHandler:         scans.NewScanLogHandler(service.scanLogService, validator),
 	}
 }

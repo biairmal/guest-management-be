@@ -222,6 +222,7 @@ Represents scanning a QR for workflow processing.
     - ticketId
     - workflowStepId
     - timestamp
+    - operatorUserId (optional — the staff user who performed the scan, if recorded)
 
 ------------------------------------------------------------------------
 

@@ -1350,6 +1350,177 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/events/{event_id}/scans": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a paginated list of scans for an event. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (ticket_id, workflow_step_id). Requires the check_in permission.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "scans"
+                ],
+                "summary": "List scan history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event UUID",
+                        "name": "event_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (1-based)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 20, max 100)",
+                        "name": "size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort: field,dir (e.g. sort=scanned_at,DESC)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by ticket UUID (exact match)",
+                        "name": "ticket_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by workflow step UUID (exact match)",
+                        "name": "workflow_step_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_scans_ScanLog"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid event id or query",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing check_in permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resolves qr_code to a ticket scoped to this event and records a scan against workflow_step_id, enforcing the step's allows_multiple rule, ticket-type entitlement, and ticket status. Requires the check_in permission.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "scans"
+                ],
+                "summary": "Record a scan",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event UUID",
+                        "name": "event_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Scan payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_scans.RecordScanInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_scans.ScanLog"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body, workflow step not on this event, or ticket type not entitled to this step",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing check_in permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Ticket or workflow step not found for this event",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "409": {
+                        "description": "Ticket invalidated, or workflow step already completed",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/events/{event_id}/staff": {
             "get": {
                 "security": [
@@ -3941,6 +4112,35 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.PageResponse-internal_features_scans_ScanLog": {
+            "type": "object",
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "has_prev": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_features_scans.ScanLog"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
         "dto.PageResponse-internal_features_staffing_EventStaffAssignment": {
             "type": "object",
             "properties": {
@@ -4594,6 +4794,44 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "ticket_type_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_scans.RecordScanInput": {
+            "type": "object",
+            "required": [
+                "qr_code",
+                "workflow_step_id"
+            ],
+            "properties": {
+                "qr_code": {
+                    "type": "string"
+                },
+                "workflow_step_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_scans.ScanLog": {
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "operator_user_id": {
+                    "type": "string"
+                },
+                "scanned_at": {
+                    "type": "string"
+                },
+                "ticket_id": {
+                    "type": "string"
+                },
+                "workflow_step_id": {
                     "type": "string"
                 }
             }

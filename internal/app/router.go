@@ -9,6 +9,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 	"github.com/biairmal/guest-management-be/internal/features/guests"
+	"github.com/biairmal/guest-management-be/internal/features/scans"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
@@ -35,4 +36,5 @@ func (a *App) initializeRoutes(_ logger.Logger, mux *chi.Mux, handler *handler, 
 	tickets.InitTicketTypeRoutes(mux, handler.ticketTypeHandler, checker)
 	guests.InitGuestRoutes(mux, handler.guestHandler, checker)
 	guests.InitGuestRSVPRoutes(mux, handler.guestHandler)
+	scans.InitScanLogRoutes(mux, handler.scanLogHandler, checker)
 }

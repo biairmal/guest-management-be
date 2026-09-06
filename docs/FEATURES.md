@@ -597,6 +597,99 @@ Public, unauthenticated (route-policy `public: true`, same mechanism as `auth`'s
 
 ---
 
+## scans
+
+Source: `internal/features/scans`. Table: `scan_logs` (see [DATABASE.md](DATABASE.md)). Flat layout, one entity —
+`ScanLog` is a permanent, append-only audit row; `Ticket`, `WorkflowStep`, and `TicketType` are read/written
+through already-exported cross-feature repositories (`guests.NewTicketRepository`,
+`events/workflowstep.NewWorkflowStepRepository`, `tickets.TicketTypeWorkflowStepRepository`), never owned here.
+
+### Intent
+
+Records a guest's ticket being scanned against a specific workflow step during check-in, enforcing that step's
+one-time-vs-repeatable rule (`WorkflowStep.AllowsMultiple`) so a single-use step (e.g. souvenir pickup) can't be
+claimed twice while a repeatable step (e.g. photo booth) accumulates an accurate, permanent count of every visit
+(REQUIREMENT.md §4.3, §4.5). Always scoped to a parent event via the URL; there is no top-level scan listing.
+
+### Invariants
+
+- `ScanLogService` exposes only `RecordScan` and `ListScans` — no `Update`/`Delete`/`GetByID` endpoint. `scan_logs`
+  has no `deleted_at` column and is never edited once written; `ScanLogRepository` is built via
+  `internal/core/repository.NewRepositoryNoAudit`, the same call [roles](#roles) makes for its own no-`deleted_at`
+  table.
+- **No cache decorator on `ScanLogRepository`** — a deliberate deviation from every other feature repository in
+  this codebase. `RecordScan`'s non-repeatable-step duplicate check calls `Count` on every scan and must see every
+  prior write immediately; go-sdk's cache decorator caches `List`/`Count` results by filter key, which could let a
+  stale count pass a step that was already completed.
+- **The client identifies the ticket by `qr_code`, never a resolved `ticket_id`** — the server resolves `qr_code`
+  to a `Ticket` internally, scoped to the `event_id` in the URL. A ticket that exists but belongs to a different
+  event is indistinguishable from an unknown QR code — both resolve as `errorz.NotFound` (404), the same
+  no-cross-event-leak convention as [ticket-types](#tickets)/[guests](#guests).
+- **`RecordScan` validates in a fixed order** (see States & lifecycle) before writing anything: ticket resolution
+  → ticket not invalidated → workflow step belongs to this event → ticket type entitled to that step →
+  non-repeatable-step duplicate check → insert → one-way ticket status flip. Not wrapped in a database
+  transaction — no feature in this codebase uses one yet (same accepted gap as [tickets](#tickets)' workflow-step
+  replace); a narrow race between two concurrent scans of the same non-repeatable step could both pass the
+  duplicate check before either inserts.
+- **Every route requires the `check_in` permission** (`authz.RequirePermission`), not a new `record_scans` code —
+  reusing the existing seeded permission (migration `000014`) every relevant role (Usher, Photobooth Staff,
+  Tenant Staff, Tenant Admin, Super Admin) already holds. Both recording a scan and reading scan history share the
+  same gate; no acceptance criterion asks for a narrower read-only tier.
+- **`operator_user_id` is always left `NULL`** this phase — no acceptance criterion asks for "who scanned"
+  reporting, and nothing in this codebase yet resolves a caller's `user_id` from context (only `role_id`/
+  `tenant_id`, via `internal/core/authz`).
+- `GET /` returns raw, paginated `scan_logs` rows, not an aggregated/counted history — the completion count of a
+  repeatable step, or the single completion of a single-use step, is independently verifiable by reading `total`
+  on a filtered page.
+
+> Field-presence checks (`required` on `qr_code`/`workflow_step_id`) are enforced at the HTTP boundary via
+> `validate:"..."` tags on `RecordScanInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); every
+> other rule above is a business invariant enforced in the service.
+
+### Endpoints
+
+Base path `/api/v1/events/{event_id}/scans`. Every route requires a valid access token **and** the `check_in`
+permission (`authz.RequirePermission`):
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `POST` | `/` | Record a scan — body is `qr_code` + `workflow_step_id` | 201 | 400 workflow step not on this event · 400 ticket type not entitled to this step · 401 · 403 · 404 ticket or workflow step not found for this event · 409 ticket invalidated · 409 step already completed |
+| `GET` | `/` | Scan history for the event (paginated, filtered, sorted) | 200 | 400 invalid event id/query · 401 · 403 |
+
+**List query:** `?page=1&size=20&sort=scanned_at,DESC&ticket_id=...&workflow_step_id=...`.
+- `page` 1-based; `size` default 20, clamped to 100.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, scanned_at`); unknown field → 400.
+- Filters: `ticket_id`, `workflow_step_id` (both exact match only — no `;like` use case for UUID equality);
+  `event_id` is always forced from the URL and is not a query filter.
+
+### States & lifecycle
+
+`RecordScan`'s validation order, all inside the service (transport-agnostic; the handler only decodes/validates
+request shape):
+
+1. Resolve `qr_code` to a `Ticket` filtered on both `qr_code` and the URL `event_id` → 404 if none found.
+2. `ticket.status == invalidated` → 409.
+3. Load the `workflow_steps` row by `workflow_step_id` → 404 if it doesn't exist at all; a step belonging to a
+   different event → 400.
+4. Confirm `workflow_step_id` is among the ticket's ticket type's entitled steps
+   (`TicketTypeWorkflowStepRepository.WorkflowStepIDsByTicketTypeID`) → 400 if absent.
+5. If the step's `allows_multiple` is `false`, `ScanLogRepository.Count` filtered on `ticket_id` +
+   `workflow_step_id` — a non-zero count → 409 "already completed". Skipped entirely when `allows_multiple` is
+   `true`, so every call reaches step 6 and inserts its own row with no cap.
+6. Insert the `scan_logs` row (`id`, `event_id`, `ticket_id`, `workflow_step_id`, `scanned_at`;
+   `operator_user_id` stays `NULL`).
+7. If `ticket.status == active`, update it to `used` — a one-way, first-successful-scan-of-any-step transition
+   that runs at most once per ticket. Once `used`, step 6 keeps inserting new `scan_logs` rows on every later call
+   (including further repeatable-step scans) without ever touching `status` again. A failure updating `status` is
+   logged but does not fail the scan response — the `scan_logs` row from step 6 is already persisted and is the
+   record of what actually happened regardless.
+- **No ticket-status rollback** — once a ticket flips to `used`, nothing in this pass ever reverts it to `active`.
+- **Errors** — repository sentinels are translated to `errorz` codes; a ticket or workflow step not resolvable for
+  this event is 404/400 (see Invariants); a missing `check_in` permission → 403; unexpected errors become 500 and
+  are logged with context.
+
+---
+
 ## Template for new features
 
 Copy this when adding a slice (and add a [feature-map](../AGENTS.md#feature-map) row):

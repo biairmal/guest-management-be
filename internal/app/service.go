@@ -12,6 +12,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 	"github.com/biairmal/guest-management-be/internal/features/guests"
 	"github.com/biairmal/guest-management-be/internal/features/roles"
+	"github.com/biairmal/guest-management-be/internal/features/scans"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
@@ -31,6 +32,7 @@ type service struct {
 	staffAssignmentService      staffing.StaffAssignmentService
 	ticketTypeService           tickets.TicketTypeService
 	guestService                guests.GuestService
+	scanLogService              scans.ScanLogService
 	authzChecker                *coreauthz.Checker
 }
 
@@ -70,6 +72,10 @@ func (a *App) initializeService(
 			logger, repositories.guestRepository, repositories.ticketRepository,
 			repositories.eventRepository, repositories.ticketTypeRepository,
 			repositories.guestPIIEncryptor, guests.NewLoggingInvitationPublisher(logger),
+		),
+		scanLogService: scans.NewScanLogService(
+			logger, repositories.scanLogRepository, repositories.ticketRepository,
+			repositories.workflowStepRepository, repositories.ticketTypeWorkflowStepRepository,
 		),
 		authzChecker: authzChecker,
 	}
