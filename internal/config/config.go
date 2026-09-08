@@ -4,6 +4,7 @@ import (
 	"github.com/biairmal/go-sdk/lib/crypto"
 	"github.com/biairmal/go-sdk/lib/lifecycle"
 	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/queue"
 	"github.com/biairmal/go-sdk/lib/redis"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
 	"github.com/biairmal/go-sdk/lib/validator"
@@ -26,5 +27,6 @@ type Config struct {
 	Lifecycle lifecycle.Config
 	Auth      AuthConfig
 	Crypto    crypto.Config
+	Queue     queue.Config
 	App       FeatureConfig
 }

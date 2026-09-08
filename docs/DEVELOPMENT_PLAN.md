@@ -607,11 +607,15 @@ type InvitationPublisher interface {
 ```
 `GuestService.SendInvitation` calls it after generating the token — **best-effort**, the same non-blocking
 treatment as `EventService.Create`'s template-copy (FEATURES.md#events): a publish failure is logged but does
-not fail the invitation-send call, since the guest row/token are already correctly persisted. `internal/app`
-wires a `LoggingInvitationPublisher` (logs the message, does nothing else) as the only implementation this
-phase. Swapping in a real Kafka-backed publisher later is a change to `internal/app`'s wiring alone, once
-go-sdk ships one — `guests` code doesn't change. Kept feature-local rather than in `internal/core`, since
-`guests` is the only consumer right now.
+not fail the invitation-send call, since the guest row/token are already correctly persisted. Kept feature-local
+rather than in `internal/core`, since `guests` is the only consumer right now.
+
+**Update:** `go-sdk` shipped `lib/queue` (a `Publisher` interface with `noop`/`logging`/`kafka` backends, the
+`kafka` one backed by `lib/kafka.Client`). `internal/app/invitation_publisher.go`'s `queueInvitationPublisher`
+now adapts it to `guests.InvitationPublisher` — JSON-encodes `InvitationMessage`, publishes to the
+`guests.invitation` topic keyed by `guest_id`. Backend is `Config.Queue` (env `QUEUE_BACKEND`, default `noop`;
+`kafka` needs `QUEUE_KAFKA_*` too — see `.env.example`), exactly the config-only swap this section anticipated —
+`guests` code didn't change.
 
 **API surface** (mirrors `tickets`' nested-resource shape; gated on the already-seeded `manage_guests`
 permission — seeded in B6's catalog but unused by any slice until now):
@@ -643,9 +647,9 @@ encryption above), `rsvp_status` (exact); `event_id` forced from the URL, same c
 nested-resource feature.
 
 **Non-goals:**
-- **No real Kafka producer/consumer, no real email/SMS/WhatsApp delivery.** B8 only produces an
-  `InvitationMessage` through a logging stub; wiring an actual send is a fast-follow once go-sdk ships Kafka
-  support and a provider is chosen.
+- **No consumer, no real email/SMS/WhatsApp delivery.** B8 produces an `InvitationMessage` (now via a real
+  `queue.Publisher`, `noop` by default — see the "Update" note above); a consumer that turns it into an actual
+  send is a fast-follow once a provider is chosen.
 - **No generic `internal/core` field-encryption decorator** — kept local to `guest_repository.go`'s two
   encrypted fields (`email`, `phone`) until a second consumer needs it.
 - **No `ILIKE`/case-insensitive search, no trigram/GIN index for `name`** — plain `LIKE` and a normal B-tree

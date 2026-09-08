@@ -328,6 +328,11 @@ func (s *guestServiceImpl) SendInvitation(ctx context.Context, eventID, id uuid.
 		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to send invitation")
 	}
 
+	// ponytail: best-effort, fire-and-forget publish — a failure here is logged
+	// and the message is gone, no retry. Upgrade path: transactional outbox
+	// (write the message in the same DB transaction as repo.Update above, relay
+	// it asynchronously) plus a DLQ for messages that still fail after retries.
+	// Add when a missed invitation-publish becomes an operational problem.
 	if err := s.publisher.PublishInvitation(ctx, InvitationMessage{
 		GuestID: guest.ID.String(), EventID: eventID.String(), InvitationToken: token,
 	}); err != nil {

@@ -116,6 +116,22 @@ crypto:
   encryption_key: ${GUEST_PII_ENCRYPTION_KEY}
   blind_index_key: ${GUEST_PII_BLIND_INDEX_KEY}
 
+queue:
+  # Async publish backend for guests' InvitationPublisher — see go-sdk/lib/queue.
+  # "noop" (discard, safe default), "logging" (log instead of sending), or
+  # "kafka" (kafka is only validated/connected when selected here).
+  backend: ${QUEUE_BACKEND:noop}
+  kafka:
+    brokers: ${QUEUE_KAFKA_BROKERS:localhost:9092}
+    auth:
+      mechanism: ${QUEUE_KAFKA_AUTH_MECHANISM:none} # none, plain, scram-sha256, scram-sha512, mtls
+      username: ${QUEUE_KAFKA_AUTH_USERNAME}
+      password: ${QUEUE_KAFKA_AUTH_PASSWORD}
+      tls:
+        cert_file: ${QUEUE_KAFKA_TLS_CERT_FILE}
+        key_file: ${QUEUE_KAFKA_TLS_KEY_FILE}
+        ca_file: ${QUEUE_KAFKA_TLS_CA_FILE}
+
 # Per-feature config: app.<feature>.<layer>.*. Each feature's config is one
 # contiguous block (easy to lift out if the feature becomes its own service),
 # separated by layer inside it. Layers with nothing to configure yet (e.g.

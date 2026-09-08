@@ -19,10 +19,20 @@ import (
 	mockguests "github.com/biairmal/guest-management-be/mocks/guests"
 )
 
+// noopInvitationPublisher is a real, assertion-free InvitationPublisher for
+// tests that exercise SendInvitation without caring about the publish call
+// itself — see invitation_publisher.go for why this isn't a generated mock
+// (InvitationMessage is a guests-package type, so a mock would import guests
+// and cycle with this same-package test file).
+type noopInvitationPublisher struct{}
+
+func (noopInvitationPublisher) PublishInvitation(context.Context, InvitationMessage) error {
+	return nil
+}
+
 // newTestService wires a guestServiceImpl for tests. encryptor may be nil for
 // tests that never touch email/phone filters (List's rewriteEncryptedFilters
-// is the only caller). publisher defaults to the real logging implementation
-// (nothing to assert on it — see invitation_publisher.go).
+// is the only caller).
 func newTestService(
 	repo repository.Repository[Guest, uuid.UUID],
 	ticketRepo repository.Repository[Ticket, uuid.UUID],
@@ -31,8 +41,7 @@ func newTestService(
 	encryptor PIIEncryptor,
 ) GuestService {
 	return NewGuestService(
-		logger.NewNoOp(), repo, ticketRepo, eventRepo, ticketTypeRepo, encryptor,
-		NewLoggingInvitationPublisher(logger.NewNoOp()),
+		logger.NewNoOp(), repo, ticketRepo, eventRepo, ticketTypeRepo, encryptor, noopInvitationPublisher{},
 	)
 }
 

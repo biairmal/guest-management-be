@@ -5,6 +5,7 @@
 # Stop: docker compose down
 # Redis: username "default", password from REDIS_PASSWORD (default "redis").
 # Redis Insight: http://localhost:5540 — add Redis (host: redis, port: 6379, username: default, password: value of REDIS_PASSWORD).
+# Kafka UI: http://localhost:8090 — pre-wired to the kafka service, no setup needed.
 # Tracing: point tracer.Config.Endpoint at "localhost:4317" (Insecure: true) to ship spans here.
 # Logs: set logger.Options.Output=file (LOG_OUTPUT=file) so Promtail can tail ./logs/app.log -> Loki.
 # Grafana: http://localhost:3000 (anonymous admin access) — Explore -> Tempo/Loki; log lines
@@ -47,6 +48,44 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: guest-management-kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+      - "8090:8090" # kafka-ui (shares this container's network namespace)
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: guest-management-kafka-ui
+    restart: unless-stopped
+    # Shares kafka's network namespace: KAFKA_ADVERTISED_LISTENERS advertises
+    # "localhost:9092" (for the host-side app/tests), which a sibling container
+    # reached over the bridge network by service name can't dial back to —
+    # sharing the namespace makes "localhost:9092" here the kafka container itself.
+    network_mode: "service:kafka"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: localhost:9092
+      SERVER_PORT: 8090
+    depends_on:
+      - kafka
+    # network_mode: service:kafka means this container has no port mapping of
+    # its own — 8090 is published on the kafka service below instead.
 
   redisinsight:
     image: redis/redisinsight:latest
@@ -126,6 +165,7 @@ services:
 
 volumes:
   postgres_data:
+  kafka_data:
   redis_data:
   redis_insight_data:
   tempo_data:

@@ -551,9 +551,13 @@ immediately at invitation time (REQUIREMENT.md §3.10, §4.1, §4.2). Always sco
   decision to keep this simple rather than voiding it.
 - **Invitation delivery is a publish, not a real send** — `GuestService.SendInvitation` calls an app-local
   `InvitationPublisher` interface (`internal/features/guests/invitation_publisher.go`) best-effort (a failure is
-  logged but doesn't fail the call, same treatment as `EventService.Create`'s template-copy). The only
-  implementation today, `LoggingInvitationPublisher`, just logs the message — go-sdk has no Kafka/queue package
-  yet to wire a real one to.
+  logged but doesn't fail the call, same treatment as `EventService.Create`'s template-copy). The concrete
+  implementation (`internal/app/invitation_publisher.go`'s `queueInvitationPublisher`) is a thin adapter over
+  go-sdk's `queue.Publisher` — JSON-encodes `InvitationMessage` and publishes it to the `guests.invitation` topic,
+  keyed by `guest_id`. Backend (`noop`/`logging`/`kafka`) is selected by `Config.Queue`
+  (`QUEUE_BACKEND`, default `noop` — see `.env.example`); switching to a real Kafka cluster is a config change,
+  not a code change. The consumer that actually sends an email/WhatsApp message from this (using the
+  `message_templates` feature's invitation template) still doesn't exist — out of scope for this phase.
 
 > Field-presence/format checks (`required`, `email`) are enforced at the HTTP boundary via `validate:"..."` tags
 > on `CreateGuestInput`/`UpdateGuestInput`/`RSVPInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary));

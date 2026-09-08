@@ -4,6 +4,7 @@ import (
 	sdkauth "github.com/biairmal/go-sdk/lib/auth"
 	sdkcrypto "github.com/biairmal/go-sdk/lib/crypto"
 	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/queue"
 	"github.com/biairmal/go-sdk/lib/redis"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
 	appconfig "github.com/biairmal/guest-management-be/internal/config"
@@ -13,19 +14,20 @@ import (
 
 // App is the composition root: it wires repositories, services, handlers, and routes.
 type App struct {
-	logger        logger.Logger
-	db            *sqlkit.DB
-	router        *chi.Mux
-	validator     validation.Validator
-	redisClient   redis.Client
-	featureConfig *appconfig.FeatureConfig
-	authIssuer    sdkauth.Issuer
-	authValidator sdkauth.Validator
-	authConfig    *appconfig.AuthConfig
-	cryptoConfig  *sdkcrypto.Config
-	repositories  *repositories
-	service       *service
-	handler       *handler
+	logger         logger.Logger
+	db             *sqlkit.DB
+	router         *chi.Mux
+	validator      validation.Validator
+	redisClient    redis.Client
+	featureConfig  *appconfig.FeatureConfig
+	authIssuer     sdkauth.Issuer
+	authValidator  sdkauth.Validator
+	authConfig     *appconfig.AuthConfig
+	cryptoConfig   *sdkcrypto.Config
+	queuePublisher queue.Publisher
+	repositories   *repositories
+	service        *service
+	handler        *handler
 }
 
 // NewApp returns an App ready to be Initialize()d. featureConfig is the
@@ -37,17 +39,18 @@ type App struct {
 // same authValidator (unwrapped) is used by main.go, wrapped in
 // appauth.AccessOnlyValidator, for the protected-route middleware.
 // cryptoConfig feeds guests' PII field encryption (internal/app/pii_encryptor.go).
+// queuePublisher feeds guests' InvitationPublisher (internal/app/invitation_publisher.go).
 func NewApp(
 	logger logger.Logger, db *sqlkit.DB, router *chi.Mux, validator validation.Validator,
 	redisClient redis.Client, featureConfig *appconfig.FeatureConfig,
 	authIssuer sdkauth.Issuer, authValidator sdkauth.Validator, authConfig *appconfig.AuthConfig,
-	cryptoConfig *sdkcrypto.Config,
+	cryptoConfig *sdkcrypto.Config, queuePublisher queue.Publisher,
 ) *App {
 	return &App{
 		logger: logger, db: db, router: router, validator: validator,
 		redisClient: redisClient, featureConfig: featureConfig,
 		authIssuer: authIssuer, authValidator: authValidator, authConfig: authConfig,
-		cryptoConfig: cryptoConfig,
+		cryptoConfig: cryptoConfig, queuePublisher: queuePublisher,
 	}
 }
 

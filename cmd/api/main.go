@@ -12,9 +12,11 @@ import (
 	"github.com/biairmal/go-sdk/lib/errorz"
 	"github.com/biairmal/go-sdk/lib/httpkit"
 	"github.com/biairmal/go-sdk/lib/httpkit/middleware"
+	"github.com/biairmal/go-sdk/lib/kafka"
 	"github.com/biairmal/go-sdk/lib/lifecycle"
 	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/go-sdk/lib/metrics"
+	"github.com/biairmal/go-sdk/lib/queue"
 	"github.com/biairmal/go-sdk/lib/ratelimit"
 	"github.com/biairmal/go-sdk/lib/redis"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
@@ -72,6 +74,7 @@ func main() {
 	// feature's section itself when it wires that feature's repositories.
 	application := app.NewApp(
 		log, deps.db, r, val, deps.redisClient, &cfg.App, deps.authIssuer, deps.authValidator, &cfg.Auth, &cfg.Crypto,
+		deps.queuePublisher,
 	)
 	if err := application.Initialize(); err != nil {
 		panic("Failed to initialize application: " + err.Error())
@@ -115,6 +118,7 @@ func loadConfig() appconfig.Config {
 		{"lifecycle", cfg.Lifecycle.Validate},
 		{"auth", cfg.Auth.Validate},
 		{"crypto", cfg.Crypto.Validate},
+		{"queue", cfg.Queue.Validate},
 	}
 	for _, v := range validators {
 		if err := v.fn(); err != nil {
@@ -127,13 +131,15 @@ func loadConfig() appconfig.Config {
 // dependencies bundles the infrastructure clients main wires once and
 // threads through router construction and lifecycle shutdown.
 type dependencies struct {
-	tracer        tracer.Tracer
-	db            *sqlkit.DB
-	redisClient   redis.Client
-	recorder      metrics.Recorder
-	limiter       ratelimit.Limiter
-	authValidator auth.Validator
-	authIssuer    auth.Issuer
+	tracer         tracer.Tracer
+	db             *sqlkit.DB
+	redisClient    redis.Client
+	recorder       metrics.Recorder
+	limiter        ratelimit.Limiter
+	authValidator  auth.Validator
+	authIssuer     auth.Issuer
+	kafkaClient    *kafka.Client
+	queuePublisher queue.Publisher
 }
 
 // buildDependencies constructs every infrastructure client the app needs,
@@ -174,10 +180,36 @@ func buildDependencies(ctx context.Context, cfg *appconfig.Config, log logger.Lo
 		log.Panicf("Auth issuer config failed: %v", err)
 	}
 
+	kafkaClient, queuePublisher, err := newQueuePublisher(cfg, log)
+	if err != nil {
+		log.Panicf("Queue config failed: %v", err)
+	}
+
 	return dependencies{
 		tracer: tr, db: db, redisClient: redisClient, recorder: rec, limiter: limiter,
 		authValidator: authValidator, authIssuer: authIssuer,
+		kafkaClient: kafkaClient, queuePublisher: queuePublisher,
 	}
+}
+
+// newQueuePublisher builds the queue.Publisher selected by cfg.Queue.Backend.
+// Only the "kafka" backend needs a live *kafka.Client, which is returned too
+// so runLifecycle can close it on shutdown; "noop"/"logging" return a nil
+// client and queue.FromConfig ignores it.
+func newQueuePublisher(cfg *appconfig.Config, log logger.Logger) (*kafka.Client, queue.Publisher, error) {
+	var kafkaClient *kafka.Client
+	if cfg.Queue.Backend == queue.BackendKafka {
+		var err error
+		kafkaClient, err = kafka.New(&cfg.Queue.Kafka)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	pub, err := queue.FromConfig(&cfg.Queue, log, kafkaClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	return kafkaClient, pub, nil
 }
 
 // buildRouter wires the middleware chain, health/ready/metrics endpoints,
@@ -222,6 +254,12 @@ func runLifecycle(
 		lifecycle.WithCloser("tracer", lifecycle.CloserFromTracer(deps.tracer)),
 		lifecycle.WithCloser("redis", lifecycle.CloserFromRedis(deps.redisClient)),
 		lifecycle.WithCloser("db", lifecycle.CloserFromDB(deps.db)),
+		lifecycle.WithCloser("kafka", lifecycle.CloserFunc(func(context.Context) error {
+			if deps.kafkaClient == nil {
+				return nil
+			}
+			return deps.kafkaClient.Close()
+		})),
 	)
 	if err != nil {
 		log.Errorf("Shutdown completed with errors: %v", err)

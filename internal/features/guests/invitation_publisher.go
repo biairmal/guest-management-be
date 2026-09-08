@@ -1,10 +1,6 @@
 package guests
 
-import (
-	"context"
-
-	"github.com/biairmal/go-sdk/lib/logger"
-)
+import "context"
 
 // InvitationMessage is what GuestService.SendInvitation hands to
 // InvitationPublisher once a guest's invitation_token is generated. The
@@ -18,43 +14,24 @@ type InvitationMessage struct {
 }
 
 // InvitationPublisher abstracts how an invitation "send" is dispatched to a
-// background worker/consumer. go-sdk has no Kafka/queue package yet, so this
-// is an app-local interface for now; internal/app wires LoggingInvitationPublisher
-// this phase and can swap in a real Kafka-backed publisher later (once
-// go-sdk ships one) by changing only that wiring — guests code doesn't
-// change.
+// background worker/consumer. internal/app wires the one concrete
+// implementation — a thin adapter over go-sdk's queue.Publisher, backend
+// (noop/logging/kafka) selected by internal/config.Config.Queue — mirroring
+// how pii_encryptor.go adapts go-sdk's crypto package for PIIEncryptor. This
+// package only ever depends on the interface, so changing the backend later
+// is a config + internal/app change, nothing here.
 //
 // No //go:generate mock is declared: its method signature references
 // InvitationMessage (a guests-package type), so a generated mock would
-// import "guests" and — mirroring PIIEncryptor's own note — cause an import
-// cycle if consumed from this package's own tests. LoggingInvitationPublisher
-// below has nothing meaningful to assert on (it only logs), so tests use it
-// directly rather than a mock, per the "real no-op is fine where there's
-// nothing to stub" carve-out in AGENTS.md.
+// import "guests" — and guest_service__test.go (package guests) importing a
+// mock package that itself imports guests is a real import cycle (unlike
+// PIIEncryptor's mock, whose methods are all plain strings/error, so its
+// mock never needs to import guests). Tests that need to assert on a publish
+// pass a hand-written stub implementing this interface instead.
 type InvitationPublisher interface {
 	// PublishInvitation dispatches msg. Called best-effort by
 	// GuestService.SendInvitation: a failure is logged but does not fail the
 	// invitation-send call, since the guest row/token are already correctly
 	// persisted by that point.
 	PublishInvitation(ctx context.Context, msg InvitationMessage) error
-}
-
-// loggingInvitationPublisher is the only InvitationPublisher implementation
-// this phase: it just logs the message. See InvitationPublisher's doc for
-// the swap-in-a-real-publisher-later plan.
-type loggingInvitationPublisher struct {
-	logger logger.Logger
-}
-
-// NewLoggingInvitationPublisher returns an InvitationPublisher that logs
-// every invitation instead of actually dispatching it anywhere.
-func NewLoggingInvitationPublisher(log logger.Logger) InvitationPublisher {
-	return &loggingInvitationPublisher{logger: log}
-}
-
-// PublishInvitation logs msg and always returns nil.
-func (p *loggingInvitationPublisher) PublishInvitation(ctx context.Context, msg InvitationMessage) error {
-	p.logger.InfoWithContext(ctx, "invitation publish (logging stub, no real delivery)",
-		logger.F("guest_id", msg.GuestID), logger.F("event_id", msg.EventID))
-	return nil
 }

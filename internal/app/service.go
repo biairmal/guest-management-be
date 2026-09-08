@@ -71,7 +71,7 @@ func (a *App) initializeService(
 		guestService: guests.NewGuestService(
 			logger, repositories.guestRepository, repositories.ticketRepository,
 			repositories.eventRepository, repositories.ticketTypeRepository,
-			repositories.guestPIIEncryptor, guests.NewLoggingInvitationPublisher(logger),
+			repositories.guestPIIEncryptor, newQueueInvitationPublisher(a.queuePublisher),
 		),
 		scanLogService: scans.NewScanLogService(
 			logger, repositories.scanLogRepository, repositories.ticketRepository,
