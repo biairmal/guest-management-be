@@ -107,7 +107,9 @@ Two types:
     - role (TenantAdmin, TenantStaff, EventStaff)
     - isTenantMaster (at most one true per tenant)
     - mustChangePassword (true on creation — encourages, but does not enforce, a password
-      change on first login; cleared once the password is changed)
+      change on first login; cleared once the user changes their own password. Set back to true
+      whenever a tenant master resets this user's password on their behalf, since the user did
+      not choose that password themselves)
 ```
 
 ## 3.3 EventStaffAssignment
@@ -349,7 +351,10 @@ the incident is listable/visible to other event staff, not a notification delive
     (`mustChangePassword`, §3.2) — the system surfaces the flag; it does not lock the user out of other
     actions until they comply.
 -   A tenant master can reset another user's password (an authorized update, same as any other user
-    field) and can transfer their `isTenantMaster` status to another active user within the same tenant.
+    field); doing so sets that user's `mustChangePassword` back to true, forcing them to change the
+    admin-assigned password again on next login. A user changing their own password clears
+    `mustChangePassword` to false instead (§3.2).
+-   A tenant master can transfer their `isTenantMaster` status to another active user within the same tenant.
 
 ## 4.9 Event Reporting
 

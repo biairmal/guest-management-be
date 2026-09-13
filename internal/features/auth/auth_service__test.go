@@ -79,8 +79,11 @@ func TestAuthService_Login(t *testing.T) {
 			wantErr:   errorz.CodeInternal,
 		},
 		{
-			name:     "happy path",
-			repoRes:  []*users.User{{ID: uuid.New(), TenantID: uuid.New(), RoleID: uuid.New(), PasswordHash: validHash}},
+			name: "happy path",
+			repoRes: []*users.User{{
+				ID: uuid.New(), TenantID: uuid.New(), RoleID: uuid.New(),
+				PasswordHash: validHash, MustChangePassword: true,
+			}},
 			password: "correct-password",
 		},
 	}
@@ -113,6 +116,9 @@ func TestAuthService_Login(t *testing.T) {
 				}
 				if got.ExpiresIn != int64((15 * time.Minute).Seconds()) {
 					t.Errorf("ExpiresIn = %d, want %d", got.ExpiresIn, int64((15 * time.Minute).Seconds()))
+				}
+				if !got.MustChangePassword {
+					t.Error("MustChangePassword must reflect the loaded user's flag (true in this fixture)")
 				}
 			}
 		})
@@ -153,7 +159,7 @@ func TestAuthService_Refresh(t *testing.T) {
 		},
 		{
 			name: "happy path", claimsType: tokenTypeRefresh, claimsSub: userID.String(),
-			repoRes: &users.User{ID: userID, TenantID: tenantID, RoleID: uuid.New()},
+			repoRes: &users.User{ID: userID, TenantID: tenantID, RoleID: uuid.New(), MustChangePassword: true},
 		},
 	}
 
@@ -185,8 +191,13 @@ func TestAuthService_Refresh(t *testing.T) {
 			svc := NewService(logger.NewNoOp(), repo, issuer, validator, 15*time.Minute, 7*24*time.Hour)
 			got, err := svc.Refresh(context.Background(), RefreshInput{RefreshToken: "some-token"})
 			assertErrorzCode(t, err, tt.wantErr)
-			if tt.wantErr == "" && (got.AccessToken == "" || got.RefreshToken == "") {
-				t.Error("expected non-empty access and refresh tokens")
+			if tt.wantErr == "" {
+				if got.AccessToken == "" || got.RefreshToken == "" {
+					t.Error("expected non-empty access and refresh tokens")
+				}
+				if !got.MustChangePassword {
+					t.Error("MustChangePassword must reflect the freshly-reloaded user's flag (true in this fixture)")
+				}
 			}
 		})
 	}

@@ -127,6 +127,7 @@ Users belonging to a tenant. Each user has one role (`role_id`); at most one use
 | password_hash     | TEXT        | No       | Hashed password. |
 | role_id           | UUID        | No       | Role (FK to roles.id); determines permissions. |
 | is_tenant_master  | BOOLEAN     | No       | True if this user is the default/master for the tenant; at most one per tenant. |
+| must_change_password | BOOLEAN | No       | True on creation (migration 000018, B11); encourages but does not enforce a password change. Cleared by `POST /api/v1/users/{id}/password`. |
 | created_at        | TIMESTAMPTZ | No       | When the row was created. |
 | updated_at        | TIMESTAMPTZ | No       | When the row was last updated. |
 | deleted_at        | TIMESTAMPTZ | Yes      | When the row was soft-deleted; NULL if active. |
@@ -422,7 +423,9 @@ permissions, roles, role_permissions (system/reference data), scan_logs (audit t
 
 ## 6. Migrations
 
-Migrations are applied in order from `./migrations` using golang-migrate. Sequence: 000001 (tenants) → 000002 (permissions, roles, role_permissions) → 000003 (users) → 000004 (event_categories, workflow_step_templates) → 000005 (events, workflow_steps) → 000006 (message_templates) → 000007 (event_staff_assignments) → 000008 (ticket_types, ticket_type_workflow_steps) → 000009 (guests, tickets) → 000010 (scan_logs) → 000011 (indexes) → 000012 (users.email unique across tenants, for B3 `auth` login) → 000013 (`roles.scope`) → 000014 (seed the System tenant + starter roles/permissions/role_permissions + the single-Super-Admin partial unique index, for B6 `staffing`) → 000015 (`event_staff_assignments` active-only unique index).
+Migrations are applied in order from `./migrations` using golang-migrate. Sequence: 000001 (tenants) → 000002 (permissions, roles, role_permissions) → 000003 (users) → 000004 (event_categories, workflow_step_templates) → 000005 (events, workflow_steps) → 000006 (message_templates) → 000007 (event_staff_assignments) → 000008 (ticket_types, ticket_type_workflow_steps) → 000009 (guests, tickets) → 000010 (scan_logs) → 000011 (indexes) → 000012 (users.email unique across tenants, for B3 `auth` login) → 000013 (`roles.scope`) → 000014 (seed the System tenant + starter roles/permissions/role_permissions + the single-Super-Admin partial unique index, for B6 `staffing`) → 000015 (`event_staff_assignments` active-only unique index) → 000016 (`events.rsvp_required`) → 000017
+(`guests.ticket_type_id`/`invitation_token`/`email_hash`/`phone_hash`) → 000018 (`users.must_change_password`,
+for B11 `users` hardening).
 
 **000013–000015 (B6 `staffing`/role scoping):**
 

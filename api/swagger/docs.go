@@ -3654,7 +3654,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns a paginated list of users. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (tenant_id, email, role_id, is_tenant_master).",
+                "description": "Returns a paginated list of users in the caller's own tenant (resolved from the JWT). Query: page, size, sort=field,dir (repeatable), filter by allowed fields (email, role_id, is_tenant_master).",
                 "consumes": [
                     "application/json"
                 ],
@@ -3682,12 +3682,6 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Sort: field,dir (e.g. sort=email,ASC\u0026sort=id,DESC)",
                         "name": "sort",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by tenant ID (exact match)",
-                        "name": "tenant_id",
                         "in": "query"
                     },
                     {
@@ -3722,6 +3716,18 @@ const docTemplate = `{
                             "type": "object"
                         }
                     },
+                    "401": {
+                        "description": "Missing or invalid token",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_users permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
@@ -3736,7 +3742,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a new user scoped to a tenant. The password is hashed before storage and never returned.",
+                "description": "Creates a new user scoped to the caller's own tenant (resolved from the JWT). The password is hashed before storage and never returned; must_change_password always starts true.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3771,6 +3777,18 @@ const docTemplate = `{
                             "type": "object"
                         }
                     },
+                    "401": {
+                        "description": "Missing or invalid token",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_users permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
                     "409": {
                         "description": "Conflict (e.g. already exists)",
                         "schema": {
@@ -3792,6 +3810,63 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/users/me/password": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets a new password for the caller's own account and clears must_change_password. Self-service — the target id is always resolved from the caller's access token, never a path param or request field. Requires only a valid token.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Set my own password",
+                "parameters": [
+                    {
+                        "description": "New password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_users.SetPasswordInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_users.User"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing or invalid token",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/{id}": {
             "get": {
                 "security": [
@@ -3799,7 +3874,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns a single user by UUID.",
+                "description": "Returns a single user by UUID, scoped to the caller's own tenant.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3832,6 +3907,18 @@ const docTemplate = `{
                             "type": "object"
                         }
                     },
+                    "401": {
+                        "description": "Missing or invalid token",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_users permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
                     "404": {
                         "description": "User not found",
                         "schema": {
@@ -3852,7 +3939,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Updates an existing user by ID. Only provided fields are applied (partial update); tenant_id is immutable.",
+                "description": "Updates an existing user by ID, scoped to the caller's own tenant. Only provided fields are applied (partial update); tenant_id is immutable and password changes go through POST /{id}/password.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3894,6 +3981,18 @@ const docTemplate = `{
                             "type": "object"
                         }
                     },
+                    "401": {
+                        "description": "Missing or invalid token",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_users permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
                     "404": {
                         "description": "User not found",
                         "schema": {
@@ -3920,7 +4019,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Soft-deletes a user by ID.",
+                "description": "Soft-deletes a user by ID, scoped to the caller's own tenant.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3950,8 +4049,163 @@ const docTemplate = `{
                             "type": "object"
                         }
                     },
+                    "401": {
+                        "description": "Missing or invalid token",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_users permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
                     "404": {
                         "description": "User not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/{id}/password": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets a new password for {id} and clears must_change_password. Admin-only — requires the manage_users permission. To change your own password, use POST /api/v1/users/me/password instead.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Set another user's password (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_users.SetPasswordInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_users.User"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID or request body",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing or invalid token",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_users permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "User not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/{id}/transfer-master": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Transfers the caller's is_tenant_master flag to {id}, an active user in the same tenant. The caller must currently be the tenant master.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Transfer tenant-master ownership",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target user UUID (new tenant master)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_users.User"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing or invalid token",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_users permission, or caller is not the tenant master",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Target user not found",
                         "schema": {
                             "type": "object"
                         }
@@ -4320,6 +4574,9 @@ const docTemplate = `{
                 },
                 "expires_in": {
                     "type": "integer"
+                },
+                "must_change_password": {
+                    "type": "boolean"
                 },
                 "refresh_token": {
                     "type": "string"
@@ -5187,8 +5444,7 @@ const docTemplate = `{
             "required": [
                 "email",
                 "password",
-                "role_id",
-                "tenant_id"
+                "role_id"
             ],
             "properties": {
                 "email": {
@@ -5203,9 +5459,18 @@ const docTemplate = `{
                 },
                 "role_id": {
                     "type": "string"
-                },
-                "tenant_id": {
-                    "type": "string"
+                }
+            }
+        },
+        "internal_features_users.SetPasswordInput": {
+            "type": "object",
+            "required": [
+                "password"
+            ],
+            "properties": {
+                "password": {
+                    "type": "string",
+                    "minLength": 8
                 }
             }
         },
@@ -5217,10 +5482,6 @@ const docTemplate = `{
                 },
                 "is_tenant_master": {
                     "type": "boolean"
-                },
-                "password": {
-                    "type": "string",
-                    "minLength": 8
                 },
                 "role_id": {
                     "type": "string"
@@ -5243,6 +5504,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "is_tenant_master": {
+                    "type": "boolean"
+                },
+                "must_change_password": {
                     "type": "boolean"
                 },
                 "role_id": {

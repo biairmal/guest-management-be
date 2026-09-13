@@ -54,7 +54,9 @@ func (a *App) initializeService(
 			logger, repositories.workflowStepTemplateRepository,
 		),
 		tenantService: tenants.NewTenantService(logger, repositories.tenantRepository),
-		userService:   users.NewUserService(logger, repositories.userRepository, repositories.roleRepository),
+		userService: users.NewUserService(
+			logger, repositories.userRepository, repositories.roleRepository, a.db,
+		),
 		authService: appauth.NewService(
 			logger, repositories.userRepository, authIssuer, authValidator,
 			authConfig.Token.Issuer.DefaultTTL, authConfig.RefreshTTL,

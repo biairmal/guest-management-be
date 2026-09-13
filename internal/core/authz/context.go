@@ -21,6 +21,21 @@ func TenantIDFromContext(ctx context.Context) (uuid.UUID, bool) {
 	return uuidClaim(ctx, "tenant_id")
 }
 
+// UserIDFromContext returns the caller's own user ID from the JWT subject
+// claim stored in ctx (the JWT "sub" claim — auth's issueTokenPair sets
+// subject := userID.String()), and whether it was present and a valid UUID.
+func UserIDFromContext(ctx context.Context) (uuid.UUID, bool) {
+	claims, ok := sdkauth.ClaimsFromContext(ctx)
+	if !ok {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(claims.Subject())
+	if err != nil {
+		return uuid.Nil, false
+	}
+	return id, true
+}
+
 // uuidClaim reads key from the validated auth.Claims stored in ctx (set by
 // httpkit/middleware.Auth via sdkauth.ContextWithClaims) and parses it as a
 // UUID. Returns (uuid.Nil, false) when Claims are absent, the key is

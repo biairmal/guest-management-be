@@ -74,7 +74,7 @@ func (s *authServiceImpl) Login(ctx context.Context, in LoginInput) (*TokenPair,
 		return nil, errInvalidCredentials
 	}
 
-	return s.issueTokenPair(ctx, user.ID, user.TenantID, user.RoleID)
+	return s.issueTokenPair(ctx, user.ID, user.TenantID, user.RoleID, user.MustChangePassword)
 }
 
 // Refresh validates a refresh token and issues a new token pair for the same
@@ -102,7 +102,9 @@ func (s *authServiceImpl) Refresh(ctx context.Context, in RefreshInput) (*TokenP
 	// from the presented refresh token's claims), so a role change takes
 	// effect on the caller's very next refresh rather than being stuck for
 	// the remainder of the refresh token's TTL (see docs/STAFFING_RBAC.md ss6).
-	return s.issueTokenPair(ctx, user.ID, user.TenantID, user.RoleID)
+	// MustChangePassword is likewise read fresh — this is free reuse of a
+	// value already loaded, not a new business rule attached to refresh.
+	return s.issueTokenPair(ctx, user.ID, user.TenantID, user.RoleID, user.MustChangePassword)
 }
 
 // getByEmail looks up a user by email (unique across all tenants; migration
@@ -132,7 +134,9 @@ func (s *authServiceImpl) getByEmail(ctx context.Context, email string) (*users.
 // roleID (e.g. freshly reloaded from the repository), never one carried
 // over from a previously-issued token, so a role change takes effect
 // promptly rather than persisting for the life of an old token.
-func (s *authServiceImpl) issueTokenPair(ctx context.Context, userID, tenantID, roleID uuid.UUID) (*TokenPair, error) {
+func (s *authServiceImpl) issueTokenPair(
+	ctx context.Context, userID, tenantID, roleID uuid.UUID, mustChangePassword bool,
+) (*TokenPair, error) {
 	subject := userID.String()
 	claims := func(typ string) map[string]any {
 		return map[string]any{"type": typ, "tenant_id": tenantID.String(), "role_id": roleID.String()}
@@ -159,5 +163,6 @@ func (s *authServiceImpl) issueTokenPair(ctx context.Context, userID, tenantID, 
 	return &TokenPair{
 		AccessToken: access, RefreshToken: refresh,
 		TokenType: "Bearer", ExpiresIn: int64(s.accessTTL.Seconds()),
+		MustChangePassword: mustChangePassword,
 	}, nil
 }

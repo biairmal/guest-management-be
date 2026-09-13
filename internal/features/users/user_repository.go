@@ -12,7 +12,8 @@ const usersTable = "users"
 
 // userColumns are the columns selected on reads (GetByID, List).
 var userColumns = []string{
-	"id", "tenant_id", "email", "password_hash", "role_id", "is_tenant_master", "created_at", "updated_at", "deleted_at",
+	"id", "tenant_id", "email", "password_hash", "role_id", "is_tenant_master",
+	"must_change_password", "created_at", "updated_at", "deleted_at",
 }
 
 // NewUserRepository returns a soft-delete-aware repository for users.

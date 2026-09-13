@@ -94,6 +94,39 @@ func TestTenantIDFromContext(t *testing.T) {
 	}
 }
 
+func TestUserIDFromContext(t *testing.T) {
+	userID := uuid.New()
+
+	tests := []struct {
+		name   string
+		ctx    context.Context //nolint:containedctx // table-driven fixture, not a stored context
+		wantID uuid.UUID
+		wantOK bool
+	}{
+		{name: "absent claims", ctx: context.Background(), wantOK: false},
+		{
+			name: "present and valid", wantID: userID, wantOK: true,
+			ctx: sdkauth.ContextWithClaims(context.Background(), sdkauth.NewClaims(map[string]any{"sub": userID.String()})),
+		},
+		{
+			name: "present but malformed", wantOK: false,
+			ctx: sdkauth.ContextWithClaims(context.Background(), sdkauth.NewClaims(map[string]any{"sub": "not-a-uuid"})),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := UserIDFromContext(tt.ctx)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if ok && got != tt.wantID {
+				t.Errorf("id = %v, want %v", got, tt.wantID)
+			}
+		})
+	}
+}
+
 func TestChecker_Require(t *testing.T) {
 	roleID := uuid.New()
 

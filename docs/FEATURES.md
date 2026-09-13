@@ -287,42 +287,54 @@ Source: `internal/features/users`. Table: `users` (see [DATABASE.md](DATABASE.md
 
 ### Intent
 
-Manages **users** — the members of a tenant who log in and act on its behalf (staff, admins). Each user belongs to exactly one tenant and one role; roles determine permissions (see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) B3/B6). At most one user per tenant is the **tenant master** — the default user who can create other users for that tenant.
+Manages **users** — the members of a tenant who log in and act on its behalf (staff, admins). Each user belongs to exactly one tenant and one role; roles determine permissions (see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) B3/B6). At most one user per tenant is the **tenant master** — the default user who can create other users for that tenant, and who can transfer that status to another active user in the same tenant (B11).
 
 ### Invariants
 
-- `tenant_id`, `email`, `password`, and `role_id` are required on create; `email` must be a valid address.
-- `tenant_id` is **immutable** after creation — a user cannot move tenants; it is not part of `UpdateInput`.
+- **Every `/api/v1/users` endpoint requires the `manage_users` permission** (STAFFING_RBAC.md §3), checked by `authz.RequirePermission` middleware — a caller without it gets 403, no/invalid token gets 401. The one exception is `POST /me/password` (see below), a self-service route registered outside that permission group — a valid access token is its only requirement.
+- **Tenant scoping comes from the JWT, not the request body** (B11, mirroring [`staffing`](#staffing)) — every endpoint resolves the caller's tenant via `authz.TenantIDFromContext`; `CreateInput` carries no `tenant_id` field, and `GetByID`/`Update`/`Delete`/`List` treat a target belonging to a different tenant as `errorz.NotFound` (404), never `errorz.Forbidden` — the same not-found-not-forbidden convention as `staffing`/`tickets`, so a caller can't distinguish "doesn't exist" from "belongs to someone else." `tenant_id` is no longer a caller-supplied list filter/sort field.
+- `email`, `password`, and `role_id` are required on create; `email` must be a valid address.
+- `tenant_id` is **immutable** after creation — a user cannot move tenants; it is not part of `UpdateInput` and is not a request field on `CreateInput` either (resolved from the JWT instead).
 - `role_id` must reference a **system-scope** role (`roles.scope = 'system'` — see [roles](#roles) and [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §3): the service loads the role by ID on create and on any update that changes `role_id`, returning `errorz.NotFound` (404) if the role doesn't exist and `errorz.BadRequest` (400) if it exists but is `event`-scoped. An event-scoped role (e.g. Usher) can never become a user's tenant-wide role.
-- `password` is never stored or returned in the clear: the service hashes it with bcrypt before persisting (`password_hash`), and the model tags `PasswordHash` `json:"-"` so it is never serialized in any response.
+- `password` is never stored or returned in the clear: the service hashes it with bcrypt before persisting (`password_hash`), and the model tags `PasswordHash` `json:"-"` so it is never serialized in any response. `UpdateInput` has no `password` field — password changes go only through `POST /{id}/password` (admin) or `POST /me/password` (self-service), never both a `PUT` and a dedicated endpoint for the same field.
 - `email` is unique **across all tenants** (migration 000012 — see [DATABASE.md](DATABASE.md#35-users)), so [B3 `auth`](#auth) can look a user up at login by email alone. At most one user per tenant may have `is_tenant_master = true`, also DB-enforced. Exactly one user in the whole system may hold the Super Admin role — DB-enforced by a partial unique index on `users.role_id` (migration 000014; see [DATABASE.md](DATABASE.md)).
-- On update (partial), only provided fields change; a provided `password` is re-hashed; a provided `role_id` is re-validated as system-scope.
+- **`must_change_password`** (migration 000018, B11) starts `true` on every newly created user — the system surfaces this on login (`auth.TokenPair.must_change_password`, see [auth](#auth)) but never enforces it (no lockout). A successful self-service `POST /me/password` clears it to `false`. A successful admin-only `POST /{id}/password` sets it back to `true` — even if it was already `false` — since the target didn't choose the new password themselves (B11 amendment, REQUIREMENT.md §3.2/§4.8 AC4/AC5).
+- On update (partial), only provided fields change; a provided `role_id` is re-validated as system-scope; `tenant_id`/`password`/`must_change_password` are not settable via `PUT`.
 
-> Field-presence/format checks (`required`, `email`, `min`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateInput`/`UpdateInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)). `tenant_id` scoping stays explicit in the request body — [B3 `auth`](#auth) puts `user_id`/`tenant_id` in the authenticated request context (`auth.ClaimsFromContext`), but users' own endpoints don't yet consume it in place of the body field.
+> Field-presence/format checks (`required`, `email`, `min`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateInput`/`UpdateInput`/`SetPasswordInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)).
 
 ### Endpoints
 
-Base path `/api/v1/users`:
+Base path `/api/v1/users`. Every route requires a valid access token **and** the `manage_users` permission, except `POST /me/password` (self-service — see below):
 
 | Method | Path | Purpose | Success | Notable errors |
 |---|---|---|---|---|
-| `GET` | `/` | List (paginated, filtered, sorted) | 200 | 400 invalid query |
-| `GET` | `/{id}` | Get one by UUID | 200 | 400 bad UUID · 404 not found |
-| `POST` | `/` | Create | 201 | 400 invalid body · 409 conflict · 422 invalid entity |
-| `PUT` | `/{id}` | Partial update | 200 | 400 · 404 not found · 409 conflict |
-| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 404 not found |
+| `GET` | `/` | List (paginated, filtered, sorted), scoped to the caller's tenant | 200 | 400 invalid query · 401 · 403 |
+| `GET` | `/{id}` | Get one by UUID, scoped to the caller's tenant | 200 | 400 bad UUID · 401 · 403 · 404 not found |
+| `POST` | `/` | Create, in the caller's own tenant | 201 | 400 invalid body · 401 · 403 · 409 conflict · 422 invalid entity |
+| `PUT` | `/{id}` | Partial update (no password field), scoped to the caller's tenant | 200 | 400 · 401 · 403 · 404 not found · 409 conflict |
+| `DELETE` | `/{id}` | Soft delete, scoped to the caller's tenant | 204 | 400 · 401 · 403 · 404 not found |
+| `POST` | `/{id}/password` | **Admin-only.** Set a new password for `{id}`, forcing `must_change_password` back to `true` | 200 | 400 · 401 · 403 (missing `manage_users`) · 404 |
+| `POST` | `/me/password` | **Self-service-only.** Set a new password for the caller's own account, clearing `must_change_password` to `false` | 200 | 400 · 401 |
+| `POST` | `/{id}/transfer-master` | Transfer the caller's `is_tenant_master` to `{id}` | 200 | 400 · 401 · 403 (missing permission, or caller isn't the current master) · 404 |
 
-**List query:** `?page=1&size=20&sort=email,ASC&sort=id,DESC&tenant_id=...&email=...`.
+**`POST /{id}/password` vs. `POST /me/password`** (B11 amendment — see [PATTERNS.md's `/me` sub-resource pattern](PATTERNS.md#self-service-vs-admin-routes-the-me-sub-resource-pattern)): these are two separate routes, handlers, and service methods, not one route with a permission branch. `POST /{id}/password` lives inside the same `manage_users` route group as `List`/`GetByID`/`Create`/`Update`/`Delete`/`TransferMaster` — `UserService.SetPassword` has no in-service permission check, since the route middleware is the sole authorization gate. `POST /me/password` is registered outside that group; `UserService.SetOwnPassword` resolves the target id from `authz.UserIDFromContext` (the JWT subject) — never a path param or request field — so the caller can only ever act on themselves and needs only a valid access token. Both methods share the actual hash-and-update logic via an unexported `setPassword` helper, but each passes the `must_change_password` value appropriate to its route: `SetPassword` (admin reset) passes `true`, `SetOwnPassword` (self-service) passes `false` — a further B11 amendment splitting what was originally a single unconditional `false` (REQUIREMENT.md §3.2/§4.8 AC4/AC5). Either way the target id still resolves through the same tenant-scoped lookup, so a cross-tenant target is `errorz.NotFound` (404).
+
+**`POST /{id}/transfer-master`** is gated like the rest of the group (`manage_users`) **plus** a service-level check that the caller is currently `is_tenant_master` for their own tenant (`errorz.Forbidden` otherwise — REQUIREMENT.md §4.8 frames this as self-referential, "transfer *their* status," not delegable to any `manage_users` holder). `{id}` is the target (new master), resolved through the same tenant-scoped lookup (cross-tenant target → 404). Both the caller's and target's row loads/updates run inside a single `(*sqlkit.DB).WithTransaction` — write order is clear-caller-then-set-target, forced by the existing partial unique index on `(tenant_id) WHERE is_tenant_master = true` — so a failure between the two `Update` calls rolls back instead of leaving a tenant with zero masters.
+
+**List query:** `?page=1&size=20&sort=email,ASC&sort=id,DESC&email=...`.
 - `page` 1-based; `size` default 20, clamped to 100.
-- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, tenant_id, email, role_id, is_tenant_master, created_at, updated_at`); unknown field → 400.
-- Filters: `tenant_id`, `email`, `role_id`, `is_tenant_master` (exact match); unknown keys ignored.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, email, role_id, is_tenant_master, created_at, updated_at`); unknown field → 400. `tenant_id` is not sortable/filterable — every list is already scoped to the caller's own tenant.
+- Filters: `email`, `role_id`, `is_tenant_master` (exact match); unknown keys ignored.
 
 ### States & lifecycle
 
-- **Create** — service loads and validates `role_id`'s scope first (404/400 short-circuit before any write), then generates the `id` (UUID) and hashes the plaintext `password` with bcrypt; `created_at`/`updated_at` are stamped by the audit repository decorator.
-- **Update** — partial; a provided `password` is re-hashed, a provided `role_id` is re-validated as system-scope, `tenant_id` cannot change; `updated_at` re-stamped by the decorator.
+- **Create** — service resolves `tenant_id` from the JWT claim, loads and validates `role_id`'s scope (404/400 short-circuit before any write), then generates the `id` (UUID), hashes the plaintext `password` with bcrypt, and always sets `must_change_password = true`; `created_at`/`updated_at` are stamped by the audit repository decorator.
+- **Update** — partial; a provided `role_id` is re-validated as system-scope, `tenant_id` cannot change; `updated_at` re-stamped by the decorator. Password is not settable here.
+- **SetPassword / SetOwnPassword** — both hash the new password and persist via the same `repo.Update` path (shared unexported `setPassword` helper), differing in how the target id is resolved (path param + `manage_users`, vs. JWT subject only) **and** in the resulting `must_change_password`: `SetPassword` (admin reset) forces it `true`, `SetOwnPassword` (self-service) clears it `false`.
+- **TransferMaster** — inside one transaction: loads the caller (403 if not currently master), loads the target (tenant-scoped), clears the caller's `is_tenant_master`, then sets the target's.
 - **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
-- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a missing `role_id`→404, a `role_id` that isn't system-scope→400; unexpected errors (including a bcrypt hashing failure) become 500 and are logged with context.
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a missing `role_id`→404, a `role_id` that isn't system-scope→400; a cross-tenant target→404; a missing/insufficient permission→401/403; unexpected errors (including a bcrypt hashing failure) become 500 and are logged with context.
 
 ---
 
@@ -358,6 +370,10 @@ in the route policy (`configs/config.yaml` `auth.token.rules`).
   endpoint; a compromised token is only invalidated by its `exp`.
 - `email` is unique across all tenants (migration 000012 — see [users](#users) above), so login needs only an
   email, not a tenant identifier.
+- `TokenPair.must_change_password` (B11) mirrors the subject user's `must_change_password` flag at the moment
+  of issuance, populated on both `Login` and `Refresh` from the `*users.User` each already loads — free reuse
+  of data already on hand, not an extra query. It only surfaces the flag; nothing else in `auth` reads or
+  enforces it (see [users](#users) for what clears it).
 
 ### Endpoints
 

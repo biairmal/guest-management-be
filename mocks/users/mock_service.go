@@ -118,6 +118,51 @@ func (mr *MockUserServiceMockRecorder) List(ctx, params any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockUserService)(nil).List), ctx, params)
 }
 
+// SetOwnPassword mocks base method.
+func (m *MockUserService) SetOwnPassword(ctx context.Context, in users.SetPasswordInput) (*users.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetOwnPassword", ctx, in)
+	ret0, _ := ret[0].(*users.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetOwnPassword indicates an expected call of SetOwnPassword.
+func (mr *MockUserServiceMockRecorder) SetOwnPassword(ctx, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOwnPassword", reflect.TypeOf((*MockUserService)(nil).SetOwnPassword), ctx, in)
+}
+
+// SetPassword mocks base method.
+func (m *MockUserService) SetPassword(ctx context.Context, id uuid.UUID, in users.SetPasswordInput) (*users.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPassword", ctx, id, in)
+	ret0, _ := ret[0].(*users.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetPassword indicates an expected call of SetPassword.
+func (mr *MockUserServiceMockRecorder) SetPassword(ctx, id, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPassword", reflect.TypeOf((*MockUserService)(nil).SetPassword), ctx, id, in)
+}
+
+// TransferMaster mocks base method.
+func (m *MockUserService) TransferMaster(ctx context.Context, targetID uuid.UUID) (*users.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TransferMaster", ctx, targetID)
+	ret0, _ := ret[0].(*users.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TransferMaster indicates an expected call of TransferMaster.
+func (mr *MockUserServiceMockRecorder) TransferMaster(ctx, targetID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TransferMaster", reflect.TypeOf((*MockUserService)(nil).TransferMaster), ctx, targetID)
+}
+
 // Update mocks base method.
 func (m *MockUserService) Update(ctx context.Context, id uuid.UUID, in users.UpdateInput) (*users.User, error) {
 	m.ctrl.T.Helper()

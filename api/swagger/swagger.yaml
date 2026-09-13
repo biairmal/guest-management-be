@@ -232,6 +232,8 @@ definitions:
         type: string
       expires_in:
         type: integer
+      must_change_password:
+        type: boolean
       refresh_token:
         type: string
       token_type:
@@ -820,13 +822,18 @@ definitions:
         type: string
       role_id:
         type: string
-      tenant_id:
-        type: string
     required:
     - email
     - password
     - role_id
-    - tenant_id
+    type: object
+  internal_features_users.SetPasswordInput:
+    properties:
+      password:
+        minLength: 8
+        type: string
+    required:
+    - password
     type: object
   internal_features_users.UpdateInput:
     properties:
@@ -834,9 +841,6 @@ definitions:
         type: string
       is_tenant_master:
         type: boolean
-      password:
-        minLength: 8
-        type: string
       role_id:
         type: string
     type: object
@@ -851,6 +855,8 @@ definitions:
       id:
         type: string
       is_tenant_master:
+        type: boolean
+      must_change_password:
         type: boolean
       role_id:
         type: string
@@ -3289,8 +3295,9 @@ paths:
     get:
       consumes:
       - application/json
-      description: 'Returns a paginated list of users. Query: page, size, sort=field,dir
-        (repeatable), filter by allowed fields (tenant_id, email, role_id, is_tenant_master).'
+      description: 'Returns a paginated list of users in the caller''s own tenant
+        (resolved from the JWT). Query: page, size, sort=field,dir (repeatable), filter
+        by allowed fields (email, role_id, is_tenant_master).'
       parameters:
       - description: Page number (1-based)
         in: query
@@ -3303,10 +3310,6 @@ paths:
       - description: 'Sort: field,dir (e.g. sort=email,ASC&sort=id,DESC)'
         in: query
         name: sort
-        type: string
-      - description: Filter by tenant ID (exact match)
-        in: query
-        name: tenant_id
         type: string
       - description: Filter by email (exact match)
         in: query
@@ -3331,6 +3334,14 @@ paths:
           description: Invalid query (e.g. invalid sort field)
           schema:
             type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            type: object
+        "403":
+          description: Missing manage_users permission
+          schema:
+            type: object
         "500":
           description: Internal server error
           schema:
@@ -3343,8 +3354,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates a new user scoped to a tenant. The password is hashed before
-        storage and never returned.
+      description: Creates a new user scoped to the caller's own tenant (resolved
+        from the JWT). The password is hashed before storage and never returned; must_change_password
+        always starts true.
       parameters:
       - description: User payload
         in: body
@@ -3361,6 +3373,14 @@ paths:
             $ref: '#/definitions/internal_features_users.User'
         "400":
           description: Invalid request body or validation error
+          schema:
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            type: object
+        "403":
+          description: Missing manage_users permission
           schema:
             type: object
         "409":
@@ -3384,7 +3404,7 @@ paths:
     delete:
       consumes:
       - application/json
-      description: Soft-deletes a user by ID.
+      description: Soft-deletes a user by ID, scoped to the caller's own tenant.
       parameters:
       - description: User UUID
         in: path
@@ -3398,6 +3418,14 @@ paths:
           description: No content
         "400":
           description: Invalid ID format
+          schema:
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            type: object
+        "403":
+          description: Missing manage_users permission
           schema:
             type: object
         "404":
@@ -3416,7 +3444,7 @@ paths:
     get:
       consumes:
       - application/json
-      description: Returns a single user by UUID.
+      description: Returns a single user by UUID, scoped to the caller's own tenant.
       parameters:
       - description: User UUID
         in: path
@@ -3432,6 +3460,14 @@ paths:
             $ref: '#/definitions/internal_features_users.User'
         "400":
           description: Invalid ID format
+          schema:
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            type: object
+        "403":
+          description: Missing manage_users permission
           schema:
             type: object
         "404":
@@ -3450,8 +3486,9 @@ paths:
     put:
       consumes:
       - application/json
-      description: Updates an existing user by ID. Only provided fields are applied
-        (partial update); tenant_id is immutable.
+      description: Updates an existing user by ID, scoped to the caller's own tenant.
+        Only provided fields are applied (partial update); tenant_id is immutable
+        and password changes go through POST /{id}/password.
       parameters:
       - description: User UUID
         in: path
@@ -3475,6 +3512,14 @@ paths:
           description: Invalid ID or request body
           schema:
             type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            type: object
+        "403":
+          description: Missing manage_users permission
+          schema:
+            type: object
         "404":
           description: User not found
           schema:
@@ -3490,6 +3535,140 @@ paths:
       security:
       - BearerAuth: []
       summary: Update user
+      tags:
+      - users
+  /api/v1/users/{id}/password:
+    post:
+      consumes:
+      - application/json
+      description: Sets a new password for {id} and clears must_change_password. Admin-only
+        — requires the manage_users permission. To change your own password, use POST
+        /api/v1/users/me/password instead.
+      parameters:
+      - description: User UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_users.SetPasswordInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_users.User'
+        "400":
+          description: Invalid ID or request body
+          schema:
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            type: object
+        "403":
+          description: Missing manage_users permission
+          schema:
+            type: object
+        "404":
+          description: User not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Set another user's password (admin)
+      tags:
+      - users
+  /api/v1/users/{id}/transfer-master:
+    post:
+      consumes:
+      - application/json
+      description: Transfers the caller's is_tenant_master flag to {id}, an active
+        user in the same tenant. The caller must currently be the tenant master.
+      parameters:
+      - description: Target user UUID (new tenant master)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_users.User'
+        "400":
+          description: Invalid ID
+          schema:
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            type: object
+        "403":
+          description: Missing manage_users permission, or caller is not the tenant
+            master
+          schema:
+            type: object
+        "404":
+          description: Target user not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Transfer tenant-master ownership
+      tags:
+      - users
+  /api/v1/users/me/password:
+    post:
+      consumes:
+      - application/json
+      description: Sets a new password for the caller's own account and clears must_change_password.
+        Self-service — the target id is always resolved from the caller's access token,
+        never a path param or request field. Requires only a valid token.
+      parameters:
+      - description: New password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_users.SetPasswordInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_users.User'
+        "400":
+          description: Invalid request body
+          schema:
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Set my own password
       tags:
       - users
 securityDefinitions:

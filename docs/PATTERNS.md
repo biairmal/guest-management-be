@@ -229,6 +229,37 @@ func InitCategoryRoutes(r chi.Router, h *Handler) {
 
 > No empty `Options{}` struct threaded through these constructors — add a struct only when it holds a real field.
 
+## Self-service vs. admin routes — the `/me` sub-resource pattern
+
+Two different questions get two different route shapes — never one route with a permission branch inside
+the handler/service:
+
+- **"Act on my own resource"** (self-service — e.g. change my own password) → a `/me/...` sub-resource under
+  the feature's base path (`POST /api/v1/users/me/password`). The service resolves the target identity
+  **server-side** from the authenticated context (`authz.UserIDFromContext(ctx)`) — never from a
+  caller-supplied `{id}` or body field, so the frontend cannot name a different user's id even by accident.
+  Requires only a valid token; no extra permission check, since the caller can only ever act on themselves.
+- **"Act on someone else's resource"** (admin/permissioned — e.g. an admin changing another user's password)
+  → the existing `{id}` pattern (`POST /api/v1/users/{id}/password`), gated by the feature's permission
+  (`RequirePermission(checker, PermissionX)`) at the route-group level, same as every other admin route in
+  that group.
+
+Give each shape its own route, handler entry point, and service method — not one route with an
+`if id == callerID` branch inside it. A shared branch tangles two different authorization stories (resolve
+from context vs. resolve from param; no permission vs. permission-gated) into one code path for no benefit;
+splitting by route makes each one a plain route-level concern, consistent with every other gated route in
+this codebase. Where the two share real logic (e.g. the actual hash-and-update), factor that into a small
+unexported helper both call — don't duplicate it, don't force it through one public method's branch either.
+
+**Chi routing:** a static `/me` segment and a sibling `{id}` param at the same path depth do not collide.
+Chi v5's radix tree (`go-chi/chi/v5`, `tree.go`) tries static (`ntStatic`) children before param (`ntParam`)
+children at the same position, regardless of registration order — `me` is always matched as a literal
+segment first. No explicit route-registration-order workaround is needed.
+
+**Scope discipline:** this pattern applies to *any* self-service action on your own user record (password,
+profile, notification preferences, ...), but don't scaffold a route for one ahead of an actual story. Add
+the specific `/me/...` route, following this shape, when that story lands — not before.
+
 ## Request validation (boundary)
 
 Shape/format validation is driven by the `validate:"..."` tags on the input DTO (see [DTOs](#dtos--inputoutput-shapes)) and runs in the handler via the shared validator, **not** by hand-written `if x == ""` in the service. The service then only enforces **cross-field business invariants** (e.g. "tenant_id required when source is tenant") that a struct tag can't express cleanly.

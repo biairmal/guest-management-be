@@ -33,7 +33,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B8 | Domain | `guests` | B4, B7 | ✅ |
 | B9 | Domain | `scans` (check-in / scan logs) | B8 | ✅ |
 | B10 | Domain | `post-event-comms` (thank-you message + documentation links, sent after event completion) | B8, B9 | ⬜ (not started — Story written, see phase notes) |
-| B11 | Domain | `users` hardening (permission gate, JWT tenant scoping, forced-password-reset flag, tenant-master ownership transfer) | B2, B3, B6 | ⬜ (not started — Story written, see phase notes) |
+| B11 | Domain | `users` hardening (permission gate, JWT tenant scoping, forced-password-reset flag, tenant-master ownership transfer) | B2, B3, B6 | ✅ |
 | B12 | Domain | `ticket-type-templates` (default ticket types per event category) | B4, B5, B7 | ⬜ (not started — Story written, see phase notes) |
 | B13 | Domain | `event-reports` (live guest/workflow-step counts) | B8, B9 | ⬜ (not started — Story written, see phase notes) |
 | B14 | Domain | `incidents` (event incident tickets) | B4, B6 | ⬜ (not started — Story written, see phase notes) |
@@ -887,12 +887,22 @@ user, so that user administration for my tenant is secure and I'm not permanentl
    not-found convention as `staffing`/`tickets`.
 3. A newly created user has `must_change_password` set `true` by default. Logging in as that user still succeeds
    (valid token pair issued), and the login response reports `must_change_password: true`.
-4. Setting a new password for a user (self-service, or a `manage_users`-permitted master updating another user
-   via `PUT /api/v1/users/{id}`) clears `must_change_password` back to `false`.
-5. A tenant master can transfer `is_tenant_master` to another active user in the same tenant; on success exactly
+4. A user changing their own password via the self-service `POST /api/v1/users/me/password` has
+   `must_change_password` cleared to `false`.
+5. A tenant master resetting another user's password via the admin-only `POST /api/v1/users/{id}/password` has
+   the target user's `must_change_password` set (or reset) to `true` — the target is forced to change it again
+   on next login, since they didn't choose the new password themselves. This applies even if the target's
+   `must_change_password` was already `false`.
+6. A tenant master can transfer `is_tenant_master` to another active user in the same tenant; on success exactly
    one user in the tenant holds `is_tenant_master = true` (the new one) and the previous master no longer does.
-6. Transferring tenant-master ownership to a user in a different tenant is rejected (400/404, per the existing
+7. Transferring tenant-master ownership to a user in a different tenant is rejected (400/404, per the existing
    cross-tenant convention).
+
+**Amendment (AC4 split, explicit product direction):** originally one AC ("setting a new password... clears
+`must_change_password` back to `false`") covering both routes uniformly. The product owner refined this: an
+admin-assigned password is not one the target user chose, so an admin reset must re-arm the flag rather than
+clear it. Split into AC4 (self-service, clears to `false`, unchanged behavior) and AC5 (admin reset, sets to
+`true`, new behavior) so each is its own Postman assertion.
 
 **Open questions for solutions-architect:**
 - Endpoint shape for the ownership transfer (e.g. `POST /api/v1/users/{id}/transfer-master` vs. a field on an
@@ -906,6 +916,139 @@ user, so that user administration for my tenant is secure and I'm not permanentl
 New domain field — `mustChangePassword` added to `User` in REQUIREMENT.md §3.2. `isTenantMaster` and its
 single-master-per-tenant invariant already existed (FEATURES.md#users); this story adds the transfer *operation*,
 not a new field.
+
+#### Technical Design (solutions-architect)
+
+**Slice boundary:** extends the existing `users` slice (route/service changes + one new column), with a
+one-field addition to the existing `auth` slice's response DTO — reusing data `auth` already loads on
+`Login`/`Refresh`. Not a new slice: no new entity, no new table, and the story frames itself as *hardening*
+(AGENTS.md's per-entity/per-feature split rule doesn't trigger — `users` stays flat, single-entity).
+
+**Data model:**
+- New column `users.must_change_password BOOLEAN NOT NULL DEFAULT true` — migration `000018` (next in sequence
+  per DATABASE.md §6). Update DATABASE.md §3.5's `users` table and `User`'s `db`/`json` tags
+  (`user_model.go`); no default-`false` backfill concern since existing rows should keep encouraging a change
+  too, per REQUIREMENT.md §3.2's "true on creation" wording — `DEFAULT true` applies uniformly.
+- No new table for the ownership transfer — it's a two-row update against the existing `is_tenant_master`
+  column and its existing partial unique index `(tenant_id) WHERE is_tenant_master = true` (DATABASE.md §3.5).
+  That index is exactly what forces the write order below.
+- `internal/core/authz`: add `UserIDFromContext(ctx) (uuid.UUID, bool)`, reading `claims.Subject()` the same
+  way `TenantIDFromContext`/`RoleIDFromContext` already read a named claim (`context.go`) — the JWT subject
+  *is* the caller's user ID (`auth_service.go`'s `issueTokenPair` sets `subject := userID.String()`). This is
+  cross-feature infra (a third claim reader alongside two that already exist there), not new users-only code.
+
+**API surface:**
+- `GET/POST /api/v1/users`, `GET/PUT/DELETE /api/v1/users/{id}` (existing) — add `authz.RequirePermission(checker,
+  PermissionManageUsers)` at the route group, same mechanism/placement as `staffing.InitStaffAssignmentRoutes`.
+  `PermissionManageUsers = "manage_users"` (already seeded, STAFFING_RBAC.md §3) declared in a new
+  `users_constants.go`, mirroring `staffing_constants.go`.
+- Same five endpoints — tenant scoping moves from the request body to the JWT `tenant_id` claim, mirroring
+  `staffing`'s precedent (FEATURES.md#staffing): `CreateInput` drops `TenantID`; the service sets it from
+  `authz.TenantIDFromContext`. `GetByID`/`Update`/`Delete` gain a `loadTenantScopedUser` check (same shape as
+  `staffingServiceImpl.loadTenantScopedEvent`) — a user that exists but belongs to a different tenant resolves
+  `errorz.NotFound` (404), never `errorz.Forbidden`. `List` server-injects a `tenant_id` filter from the JWT
+  claim (like `staffing.List` injects `event_id`); `tenant_id` is removed from `UserListConfig`'s
+  `AllowedSortFields`/`AllowedFilterFields` since it's no longer a caller-supplied dimension.
+- `POST /api/v1/users` — `must_change_password` is not a request field; the service always sets it `true` on
+  create.
+- `PUT /api/v1/users/{id}` — `Password` is **removed** from `UpdateInput`. Password changes get their own
+  endpoint below; keeping it in both places would be two ways to set the same field for no reason. Otherwise
+  unchanged: `Email`/`RoleID`/`IsTenantMaster`, tenant-scoped, `manage_users`-gated like the rest of this group.
+
+**Amendment (route split, explicit product direction):** shipped as one route,
+`POST /api/v1/users/{id}/password`, with a per-call branch (`id == callerID` → self-service, no permission;
+else → `manage_users` required via `Checker.Has`). The product owner rejected that shape — an admin changing
+someone else's password is a materially different action from a user changing their own and must never
+share one route/authorization check, and the frontend must never be trusted to supply "my own" user id. This
+is now the standing convention for self-service-on-your-own-resource vs. admin-on-someone-else's-resource
+across every future user-related endpoint (profile, etc.), not just password — see [PATTERNS.md's `/me`
+sub-resource pattern](PATTERNS.md#self-service-vs-admin-routes-the-me-sub-resource-pattern) for the general
+rule this story establishes; only the password endpoint is actually built now (YAGNI — no profile or other
+`/me` route is scaffolded ahead of a story that needs it). Replaced by the two routes below:
+
+- `POST /api/v1/users/{id}/password` — **admin-only**. Moves inside the same `RequirePermission(checker,
+  PermissionManageUsers)` route group as `List`/`GetByID`/`Create`/`Update`/`Delete`/`TransferMaster` — no
+  more per-call branch. `{id}` still resolves through the existing tenant-scoped `loadTenantScopedUser`
+  (cross-tenant target → 404, unchanged). `UserService.SetPassword(ctx, id, in)` drops the
+  `id == callerID` / `Checker.Has` branch entirely; the route middleware is now the sole authorization check,
+  same shape as `Update`/`Delete`/`TransferMaster`. Consequently `checker` is no longer needed by this method —
+  if nothing else in `userServiceImpl` uses it, drop the `*authz.Checker` field from `NewUserService` too
+  (dead constructor parameter is not "keep it, might reuse it later").
+- `POST /api/v1/users/me/password` (new) — **self-service-only**. A new `UserService.SetOwnPassword(ctx,
+  in SetPasswordInput) (*User, error)` resolves the target id from `authz.UserIDFromContext(ctx)` — never
+  from a URL param or request field, so the frontend cannot name a different user's id even by accident.
+  Registered **outside** the `RequirePermission` group (the placement `POST /{id}/password` used to occupy) —
+  a valid access token, already enforced by the mux-level `middleware.Auth` wrapping every `/api/v1/users`
+  route, is the only requirement; no `manage_users` check applies, since the caller can only ever act on
+  themselves. `SetPassword` and `SetOwnPassword` share the existing hash-and-update logic via an unexported
+  `setPassword(ctx, id, in)` helper both call — no duplicated bcrypt/`repo.Update` code between the two.
+  **Chi routing check:** `/api/v1/users/me/password` (static `me` segment) and `/api/v1/users/{id}/password`
+  (param segment) sit at the same tree depth. Confirmed against `go-chi/chi/v5@v5.1.0`'s `tree.go`:
+  `node.findRoute` iterates `n.children` indexed by `nodeTyp` in the fixed order `ntStatic, ntRegexp, ntParam,
+  ntCatchAll` (`tree.go:79-84,403-421`), so a static edge is always tried before a param edge at the same
+  position, **regardless of registration order**. `me` is matched as a literal segment and is never captured
+  by `{id}`; no explicit route-registration-order workaround is needed in `InitUserRoutes`.
+- `POST /api/v1/users/{id}/transfer-master` (new) — `{id}` is the *target* (new master) user's UUID; empty
+  body. Gated the same as every other `/api/v1/users` route (`manage_users`, per AC1, since this lives under
+  the same base path) **plus** a service-level check that the caller (`authz.UserIDFromContext`) is currently
+  `IsTenantMaster` for their own tenant — `errorz.Forbidden` (403) otherwise. This resolves open question 2:
+  REQUIREMENT.md §4.8 says a tenant master "can transfer *their* `isTenantMaster` status" — self-referential,
+  so holding `manage_users` alone is not sufficient. Target resolution reuses `loadTenantScopedUser`, so a
+  target in another tenant is `errorz.NotFound` (404) — resolves AC6 and open question 3's boundary is
+  untouched (this endpoint uses the same JWT-tenant-scoping already being added to the rest of `users` in this
+  same story, not a new mechanism). Write order — clear caller's flag, *then* set target's — is forced by the
+  existing partial unique index (`(tenant_id) WHERE is_tenant_master = true`): setting the target before
+  clearing the caller would violate it. Both loads and both `Update` calls run inside a single
+  `db.WithTransaction(ctx, func(txCtx context.Context) error {...})` (`go-sdk/lib/sqlkit/transaction.go`), so a
+  failure between the two `Update`s rolls back instead of leaving a momentary zero-master state — go-sdk-first
+  per AGENTS.md, no bespoke rollback/compensation logic needed. `NewUserService` gains a `*sqlkit.DB` field for
+  this one call site (same shape as go-sdk's own documented `UserService.CreateUserWithWallet` example,
+  `sqlkit/README.md`). Plumbing check: `BaseRepository.GetConnection`/`GetReadConnection`
+  (`go-sdk/lib/repository/sql/base.go`) already call `sqlkit.ExtractTx(ctx)` and use the transaction when
+  present, and both the audit decorator (`internal/core/audit`) and the optional cache decorator pass `ctx`
+  straight through to their inner repository unchanged — so `userRepo.GetByID`/`Update` called with `txCtx`
+  already participate in the transaction with **no repository-level changes needed**; this is the first caller
+  of `WithTransaction` anywhere in `guest-management-be`, but the plumbing it depends on already exists and
+  works for any repository built via `internal/core/repository.NewRepository`. Response: `200` with the
+  updated target `User`.
+- `POST /api/v1/auth/login` (existing) — `TokenPair` gains `must_change_password bool` (`auth_dto.go`),
+  populated in `Login` from the `*users.User` it already loaded to check the password — no extra query.
+- `POST /api/v1/auth/login` / `POST /api/v1/auth/refresh` (existing) — `TokenPair` gains `user_id uuid.UUID`
+  (`auth_dto.go`), populated in both `Login` and `Refresh` from the same `*users.User` each already has in hand
+  (`user.ID`) — same zero-extra-query pattern as `must_change_password` above, same call sites. **Amendment
+  (post-implementation):** added to close a gap surfaced after B11 shipped — a non-`manage_users` caller has no
+  endpoint to look up their own user ID (`/api/v1/users` is `manage_users`-gated) to name as `{id}` on the
+  self-service `POST /api/v1/users/{id}/password`. The JWT `sub` claim already *is* this ID
+  (`issueTokenPair`'s `subject := userID.String()`) and is trivially client-decodable from a token the caller
+  already holds (JWTs are signed, not encrypted) — this leaks nothing new, it just saves the client a manual
+  JWT-payload decode. See the amended Non-goals bullet below for why this was preferred over a dedicated
+  lookup endpoint.
+
+**Non-goals:**
+- No new transaction abstraction/helper — `go-sdk`'s existing `(*sqlkit.DB).WithTransaction` covers the
+  tenant-master swap outright (see API surface above); being the first caller of it in this codebase doesn't
+  change that, since the need is this story's own AC5 correctness requirement, not a speculative "for later."
+  Every *other* multi-step write in this codebase (`events`' Workflow Sync, `tickets`' workflow-step replace)
+  stays un-transactional as-is — this story doesn't retrofit them.
+- ~~No `/me` alias route~~ — **reversed by explicit product direction (route-split amendment above).** The
+  original reasoning ("a second path to the same resource buys nothing a URL param doesn't already give") is
+  overturned: the product owner wants the target id resolved server-side from the JWT, not client-supplied at
+  all, for any self-service action on one's own user record — a stronger requirement than the URL-param
+  version could ever satisfy, since a URL param is still a value the frontend chooses to send. This is now the
+  standing convention (see PATTERNS.md's `/me` sub-resource pattern) for self-service-on-your-own-resource
+  everywhere in this codebase, not a one-off for password. What's still **not** done: no profile endpoint, no
+  generic `/me` sub-router, and no other `/me` route beyond password — those get designed when a story
+  actually needs them, per YAGNI. The `user_id`-on-`TokenPair` addition from the prior amendment is unaffected
+  and stays (still useful for admin-route audit logging and any client that wants its own id for other
+  reasons); it just isn't why self-service password works anymore.
+- No enforcement/lockout tied to `must_change_password` — it's surfaced on login and cleared on password
+  change, nothing more; REQUIREMENT.md §3.2/§4.8 are explicit that it "encourages, but does not enforce."
+- Does **not** extend JWT-tenant-scoping to `events`' still-explicit-`tenant_id`-in-body gap — that is a
+  separate, pre-existing, separately tracked item (open question 3, confirmed out of scope here). This story's
+  `authz.TenantIDFromContext` usage in `users` doesn't touch `events`.
+- No new permission code — reuses the already-seeded `manage_users`.
+- `must_change_password` is not added as a new field on `Refresh`'s response population beyond the free reuse
+  described above; no additional business rule (e.g. forcing re-login, invalidating tokens) is attached to it.
 
 ### B12. `ticket-type-templates`
 

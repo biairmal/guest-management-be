@@ -29,7 +29,7 @@ func (a *App) initializeRoutes(_ logger.Logger, mux *chi.Mux, handler *handler, 
 	workflowstep.InitWorkflowStepRoutes(mux, handler.workflowStepHandler)
 	workflowsteptemplate.InitWorkflowStepTemplateRoutes(mux, handler.workflowStepTemplateHandler)
 	tenants.InitTenantRoutes(mux, handler.tenantHandler)
-	users.InitUserRoutes(mux, handler.userHandler)
+	users.InitUserRoutes(mux, handler.userHandler, checker)
 	appauth.InitAuthRoutes(mux, handler.authHandler)
 	templates.InitMessageTemplateRoutes(mux, handler.messageTemplateHandler)
 	staffing.InitStaffAssignmentRoutes(mux, handler.staffAssignmentHandler, checker)

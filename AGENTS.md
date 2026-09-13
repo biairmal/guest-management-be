@@ -35,7 +35,7 @@ One row per feature slice. **When you add a feature, add a row here** (see [Auth
 |---|---|---|---|
 | `events` | `internal/features/events` | `/api/v1/event-categories`, `/api/v1/events`, `/api/v1/events/{event_id}/workflow-steps`, `/api/v1/event-categories/{category_id}/workflow-step-templates` (CRUD + list) | [docs/FEATURES.md#events](docs/FEATURES.md#events) |
 | `tenants` | `internal/features/tenants` | `/api/v1/tenants` (CRUD + list) | [docs/FEATURES.md#tenants](docs/FEATURES.md#tenants) |
-| `users` | `internal/features/users` | `/api/v1/users` (CRUD + list) | [docs/FEATURES.md#users](docs/FEATURES.md#users) |
+| `users` | `internal/features/users` | `/api/v1/users` (CRUD + list, `POST /{id}/password`, `POST /{id}/transfer-master`, all gated on `manage_users`); `POST /api/v1/users/me/password` (self-service, outside the `manage_users` group — target id from the JWT, valid token only) | [docs/FEATURES.md#users](docs/FEATURES.md#users) |
 | `auth` | `internal/features/auth` | `/api/v1/auth/login`, `/api/v1/auth/refresh` | [docs/FEATURES.md#auth](docs/FEATURES.md#auth) |
 | `templates` | `internal/features/templates` | `/api/v1/message-templates` (CRUD + list) | [docs/FEATURES.md#templates](docs/FEATURES.md#templates) |
 | `roles` | `internal/features/roles` | *internal-only, no HTTP endpoints this phase* — model + repository consumed by `users`/`staffing`/`internal/core/authz` | [docs/FEATURES.md#roles](docs/FEATURES.md#roles) |
@@ -44,7 +44,7 @@ One row per feature slice. **When you add a feature, add a row here** (see [Auth
 | `guests` | `internal/features/guests` | `/api/v1/events/{event_id}/guests` (CRUD + list + `POST /{id}/invitation`, gated on `manage_guests`); public `POST /api/v1/guests/rsvp/{token}` | [docs/FEATURES.md#guests](docs/FEATURES.md#guests) |
 | `scans` | `internal/features/scans` | `/api/v1/events/{event_id}/scans` (record a scan + list scan history, both gated on the `check_in` permission) | [docs/FEATURES.md#scans](docs/FEATURES.md#scans) |
 
-> 17 migrations define ~16 tables (tenants, users, roles/permissions, events, guests, tickets, scans, templates) plus role scope/seed data and follow-up columns (`events.rsvp_required`; `guests.ticket_type_id`/`invitation_token`/`email_hash`/`phone_hash`); `event_categories`/`events`/`workflow_steps`/`workflow_step_templates`, `tenants`, `users`, `auth`, `message_templates`, `roles` (model+repo only), `staffing`, `tickets` (ticket types only), `guests` (guests + the `Ticket` QR artifact, model+repo only), and `scans` (`ScanLog`) have code. The build order is specified in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
+> 18 migrations define ~16 tables (tenants, users, roles/permissions, events, guests, tickets, scans, templates) plus role scope/seed data and follow-up columns (`events.rsvp_required`; `guests.ticket_type_id`/`invitation_token`/`email_hash`/`phone_hash`; `users.must_change_password`); `event_categories`/`events`/`workflow_steps`/`workflow_step_templates`, `tenants`, `users`, `auth`, `message_templates`, `roles` (model+repo only), `staffing`, `tickets` (ticket types only), `guests` (guests + the `Ticket` QR artifact, model+repo only), and `scans` (`ScanLog`) have code. The build order is specified in [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
 
 ---
 
