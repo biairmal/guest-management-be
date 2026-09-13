@@ -41,7 +41,8 @@ func (a *App) initializeService(
 	authIssuer sdkauth.Issuer, authValidator sdkauth.Validator, authConfig *appconfig.AuthConfig,
 ) *service {
 	permissionResolver := roles.NewPermissionResolver(repositories.rolePermissionRepository)
-	authzChecker := coreauthz.NewChecker(logger, permissionResolver)
+	eventRoleResolver := staffing.NewEventRoleResolver(repositories.staffAssignmentRepository)
+	authzChecker := coreauthz.NewChecker(logger, permissionResolver, eventRoleResolver)
 
 	return &service{
 		categoryService: category.NewService(logger, repositories.categoryRepository),

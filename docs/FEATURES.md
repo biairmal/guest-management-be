@@ -407,6 +407,8 @@ Source: `internal/features/roles`. Tables: `roles`, `permissions`, `role_permiss
 
 The shared roles/permissions engine every other feature's authorization checks build on: a **role** (`roles`) has a name, description, and a **scope** (`system` or `event`) and is granted a set of **permissions** (`permissions`) via `role_permissions`. [`users`](#users) validates that a user's `role_id` is `system`-scope; [`staffing`](#staffing) validates that an assignment's `role_id` is `event`-scope; [`internal/core/authz`](STAFFING_RBAC.md) resolves a role's permission codes to authorize a request. This phase ships **model + repository only** — no HTTP surface (mirrors `workflow_step_templates` shipping model+repository-only in B4 before handler/routes landed in B5). The starter role/permission catalog (Super Admin, Tenant Admin, Tenant Staff, Usher, Photobooth Staff; `manage_tenants`/`manage_users`/`manage_events`/`manage_staff`/`manage_guests`/`manage_workflows`/`check_in`) is seeded by migration `000014` — see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §3 for the full grant table and §7 for what's explicitly out of scope this phase (no admin CRUD endpoints for roles/permissions, no per-tenant custom roles).
 
+**Event-scoped permission fallback (`authz.Checker.RequireForEvent`):** on any route whose path carries `{event_id}`, `authz.RequirePermission` middleware runs `Checker.RequireForEvent` instead of the plain system-role `Require`. It tries the caller's system-level role first (unchanged, and returned immediately on success or on an internal resolver error); only when that fails with a 401/403 does it fall back to looking up the caller's active `event_staff_assignments` row on that `event_id` (via `staffing.NewEventRoleResolver`, the same `event_id`+`user_id`, `Limit:1` lookup `staffing`'s own duplicate-assignment check uses) and re-checks *that* row's `role_id` against the same permission code. No assignment found, or one found whose role also lacks the code, falls through to the original system-check error unchanged. This is how an event-scoped role (e.g. Usher) can satisfy a permission-gated endpoint (e.g. `scans`' `check_in`) without the user holding an elevated system-wide role — see [docs/DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) item A9. `Checker.Has` and every non-`{event_id}` route (e.g. `users`' `manage_users` group) are unaffected — they keep using the plain system-role-only `Require`.
+
 ### Invariants
 
 - `roles.scope` is `system` or `event` (DB `CHECK`, migration 000013) — a role is one or the other, never both.
@@ -431,12 +433,12 @@ Source: `internal/features/staffing`. Table: `event_staff_assignments` (see [DAT
 
 ### Intent
 
-Assigns tenant users to events with an **event-scoped role** (e.g. Usher, Photobooth Staff) that governs what they can do at that one event, independent of their tenant-wide role (see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §1–§2, §5). Every endpoint requires the caller's **system-level role** to hold the `manage_staff` permission (Tenant Admin/Super Admin by the seeded catalog — see [roles](#roles)); an event-level role never grants staff-management rights on its own.
+Assigns tenant users to events with an **event-scoped role** (e.g. Usher, Photobooth Staff) that governs what they can do at that one event, independent of their tenant-wide role (see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §1–§2, §5). Every endpoint requires the `manage_staff` permission, normally held by the caller's **system-level role** (Tenant Admin/Super Admin by the seeded catalog — see [roles](#roles)); since this route also carries `{event_id}`, an event-scoped role that happens to grant `manage_staff` would satisfy it too via the same fallback every `{event_id}` route gets (see [roles' event-scoped permission fallback](#roles)) — the seeded catalog just doesn't grant `manage_staff` to any event-scope role today.
 
 ### Invariants
 
 - **Tenant scoping comes from the JWT, not the request body** — every endpoint resolves the caller's tenant via `authz.TenantIDFromContext` (the `tenant_id` claim), and `CreateAssignmentInput`/`UpdateAssignmentInput` carry **no `tenant_id` field**. This is a deliberate, narrow divergence from the [`users`](#users)/[`events`](#events) precedent (which still take `tenant_id` explicitly in the body — a known, separately-tracked gap): permission enforcement is meaningless if a caller can simply name a different tenant's `event_id`/`user_id` in the body while the permission check passes on their own role.
-- Every request is authorized against the caller's **system-level role's** permissions (the `manage_staff` permission), checked by `authz.RequirePermission` middleware before the handler runs — see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §6.
+- Every request is authorized against the `manage_staff` permission, checked by `authz.RequirePermission` middleware before the handler runs — the caller's **system-level role** first, falling back to an event-scoped assignment on this route's `{event_id}` (see [roles' event-scoped permission fallback](#roles)) — see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §6.
 - `event_id` is always taken from the URL, and every operation first loads the event and verifies `event.tenant_id` matches the caller's tenant claim. A mismatch (or a nonexistent event) resolves as `errorz.NotFound` (404), **never** `errorz.Forbidden` — the same not-found-not-forbidden convention as `WorkflowStepService`, so a caller can't distinguish "doesn't exist" from "belongs to someone else."
 - **Create** validates, in order: the event belongs to the caller's tenant (404 otherwise); the target user exists and belongs to the *same* tenant as the event (404 otherwise — same not-found convention); the role exists (404) and is **event-scope** (`errorz.BadRequest`/400 if it's `system`-scope instead); and no other **active** assignment already exists for this `(event_id, user_id)` pair (`errorz.Conflict`/409).
 - A user can hold **at most one active assignment per event** at a time — enforced by a partial unique index `(event_id, user_id) WHERE deleted_at IS NULL` (migration 000015, replacing the original plain `UNIQUE (event_id, user_id)` from migration 000007, which would have permanently blocked re-assignment after a removal). **Removing and later re-assigning the same user to the same event is allowed** and creates a brand-new row — never a reactivation of the deleted one — so an event's staffing history stays an accurate log of who was ever staffed (see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §5).
@@ -483,7 +485,7 @@ Manages an event's **ticket types** (e.g. Regular, VIP) and which of that event'
 - `event_id` is **immutable** and always taken from the URL, never the body — it is not part of `CreateTicketTypeInput`/`UpdateTicketTypeInput`.
 - Every read/update/delete/workflow-step-replace is scoped to the `{event_id}` in the URL: a ticket type that exists but belongs to a different event resolves as `errorz.NotFound` (404), not a cross-event leak — the same convention as [workflow steps](#workflow-steps).
 - `rules` is an opaque, optional JSON document (default `{}`), passed through unvalidated — same treatment as `workflow_step_templates.ticket_type_applicability`.
-- **Every route requires the `manage_events` permission** (`authz.RequirePermission`, same mechanism [staffing](#staffing) uses for `manage_staff`) — a deliberate divergence from `events`/`workflow-steps`, which stay auth-only/ungated in this phase.
+- **Every route requires the `manage_events` permission** (`authz.RequirePermission`, same mechanism [staffing](#staffing) uses for `manage_staff`) — a deliberate divergence from `events`/`workflow-steps`, which stay auth-only/ungated in this phase. Since every route carries `{event_id}`, the check falls back to an event-scoped assignment on this event when the caller's system role doesn't grant it (see [roles' event-scoped permission fallback](#roles)).
 - `workflow_step_ids` (the set of the event's workflow steps this ticket type currently applies to) is populated only on `GetByID` (one extra lookup) and on the workflow-step-replace response; it is left empty on `List`/`Update` to avoid an N+1 join across every row of a list.
 - **`PUT .../workflow-steps`** replaces the *entire* set of workflow steps a ticket type applies to (full-replace, no incremental add/remove — mirroring [workflow steps](#workflow-steps)' Sync design). Every submitted ID is validated to belong to the ticket type's own event; an ID that doesn't exist or belongs to a different event is rejected as `errorz.BadRequest` (400) before anything is written.
 
@@ -583,7 +585,9 @@ immediately at invitation time (REQUIREMENT.md §3.10, §4.1, §4.2). Always sco
 ### Endpoints
 
 Base path `/api/v1/events/{event_id}/guests`. Every route requires a valid access token **and** the
-`manage_guests` permission (`authz.RequirePermission`, seeded in B6's catalog, previously unused by any slice):
+`manage_guests` permission (`authz.RequirePermission`, seeded in B6's catalog, previously unused by any slice) —
+since every route carries `{event_id}`, this falls back to an event-scoped assignment on this event when the
+caller's system role doesn't grant it (see [roles' event-scoped permission fallback](#roles)):
 
 | Method | Path | Purpose | Success | Notable errors |
 |---|---|---|---|---|
@@ -655,6 +659,10 @@ claimed twice while a repeatable step (e.g. photo booth) accumulates an accurate
   reusing the existing seeded permission (migration `000014`) every relevant role (Usher, Photobooth Staff,
   Tenant Staff, Tenant Admin, Super Admin) already holds. Both recording a scan and reading scan history share the
   same gate; no acceptance criterion asks for a narrower read-only tier.
+- **A caller with only an event-scoped assignment on this event (e.g. Usher, no elevated system-level role) can
+  still pass this gate** — `authz.RequirePermission` falls back from the system-role check to that assignment's
+  `role_id` on this `{event_id}` (see [roles' event-scoped permission fallback](#roles), [docs/DEVELOPMENT_PLAN.md
+  item A9](DEVELOPMENT_PLAN.md)).
 - **`operator_user_id` is always left `NULL`** this phase — no acceptance criterion asks for "who scanned"
   reporting, and nothing in this codebase yet resolves a caller's `user_id` from context (only `role_id`/
   `tenant_id`, via `internal/core/authz`).

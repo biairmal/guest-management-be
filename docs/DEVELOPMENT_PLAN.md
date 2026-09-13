@@ -22,7 +22,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | A6 | Foundations | Shared building blocks in `internal/core` (base repo, list-query parser, validator) | A5, go-sdk `validator` | ✅ |
 | A7 | Foundations | Cross-cutting middleware/observability + go-sdk `lifecycle` shutdown | go-sdk phases | ✅ |
 | A8 | Foundations | Post-B6 cleanup: shared list helpers, decode/DTO/constants hygiene, `events` entity split | A6 | ✅ |
-| A9 | Foundations | Event-scoped permission resolution in `authz.Checker` (gap found during B9 design) | B6 | ⬜ (not started — future work, see phase notes) |
+| A9 | Foundations | Event-scoped permission resolution in `authz.Checker` (gap found during B9 design) | B6 | ✅ |
 | B1 | Domain | `tenants` | A6 | ✅ |
 | B2 | Domain | `users` | B1 | ✅ |
 | B3 | Domain | `auth` (login + route protection) | B2, go-sdk `auth` | ✅ |
@@ -249,6 +249,58 @@ This is a fix to a shared, already-designed component (`internal/core/authz`), n
 phase notes above already carry solutions-architect-level implementation detail (where the fix belongs, what
 scope it needs). Can likely go straight to `backend-developer`; re-run `solutions-architect` only if the existing
 notes turn out to be insufficient once implementation starts.
+
+#### Technical Design (solutions-architect)
+
+**Slice boundary:** extends the existing shared component `internal/core/authz` (`Checker`), per the Story's own
+note — no new feature slice. The new lookup is implemented in `internal/features/staffing`, the slice that
+already owns `EventStaffAssignment`, following the exact pattern `roles.PermissionResolverAdapter` already
+uses to hand `authz` a resolver without `authz` importing a feature package.
+
+**Data model:** none new. Reuses `event_staff_assignments.role_id` (DATABASE.md §3.10, shipped in B6) and the
+existing `roles`/`role_permissions` tables (§3.3–3.4) already consulted for system-level role checks. No new
+column, table, or migration.
+
+**API surface:** no new HTTP endpoints — this changes the internal authorization mechanism every already-gated
+route (`staffing`, `tickets`, `guests`, `scans`) calls through, not the routes themselves:
+
+- `internal/core/authz`: add `EventRoleResolver` interface (mirrors the existing `PermissionResolver` shape) —
+  `ResolveEventRoleID(ctx, eventID, userID uuid.UUID) (roleID uuid.UUID, found bool, err error)`. `Checker` takes
+  one as a second constructor dependency (`NewChecker(logger, resolver, eventRoleResolver)`); wired in
+  `internal/app/service.go` alongside the existing `permissionResolver` line, backed by a new
+  `staffing.NewEventRoleResolver(repositories.staffAssignmentRepository)` adapter that looks up the active
+  assignment for `(event_id, user_id)` the same way `staffAssignmentServiceImpl.hasActiveAssignment` already
+  does (`repo.List` filtered on `event_id`+`user_id`, `Limit: 1` — the audit decorator already excludes
+  soft-deleted rows). No new SQL query shape, no new repository.
+- `internal/core/authz.Checker`: add `RequireForEvent(ctx, eventID uuid.UUID, code string) error`, leaving the
+  existing `Require(ctx, code)` untouched (so its current unit tests and every non-event-scoped call site —
+  `users`'s `manage_users` group — keep working unchanged, satisfying AC4 for free). `RequireForEvent` runs
+  `Require` first (the system-role check) and returns immediately on success or on an internal/resolver error
+  (never mask a 500 as a 403); only on a 401/403 from the system check does it call `EventRoleResolver` for
+  `(eventID, callerID)` — `callerID` from the already-existing `UserIDFromContext` — and, if an assignment is
+  found, resolve *its* `role_id` through the same `PermissionResolver.ResolvePermissions` used for system roles
+  (permission-codes-by-role-id logic doesn't care which context the role came from). No assignment found, or
+  found but its role lacks `code`: return the original system-check error. This is the OR-fallback AC1–AC4 ask
+  for, and AC2 falls out of it automatically — resolving strictly by the caller's `event_id` for *this* route
+  means a grant on event E is never looked up when the path's `{event_id}` is F.
+- `internal/core/authz.RequirePermission` (middleware): reads `chi.URLParam(r, "event_id")`; when present and a
+  valid UUID, calls `checker.RequireForEvent`, otherwise falls back to today's `checker.Require` — so every
+  existing `RequirePermission(checker, code)` call site (`staffing`, `tickets`, `guests`, `scans`, `users`)
+  needs **zero changes**; the route's own path shape (`{event_id}` present or not) decides which check runs.
+
+**Non-goals:**
+- No change to `Checker.Has` — it has no production caller today (grep confirms only its own table test and a
+  rejected design note reference it); adding event-scope awareness to a method nothing calls is speculative.
+- No new caching layer for the event-role lookup. `staffAssignmentRepository` already goes through
+  `corerepository.NewRepository`, which applies the feature's existing cache config when enabled — piggybacking
+  on that is enough; a bespoke cache (like `roles`' read-through `RolePermissionRepository` decorator) isn't
+  justified until this lookup is shown to be a hot path.
+- No support for a user holding assignments on multiple events being checked "any event" in one call —
+  `RequireForEvent` takes exactly one `event_id`, matching every gated route's URL shape (`{event_id}` singular
+  in the path); there's no caller today with a multi-event permission question.
+- No generalization of the route-to-scope inference (e.g. a config-driven list of "scoped" params) — `event_id`
+  is the only scoped resource in this codebase; add that only if a second scope kind (e.g. tenant-scoped
+  event-independent roles) actually shows up.
 
 ---
 
