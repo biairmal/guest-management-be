@@ -14,7 +14,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/core/query"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
 	"github.com/biairmal/guest-management-be/internal/features/guests"
-	"github.com/biairmal/guest-management-be/internal/features/tickets"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettype"
 )
 
 // ScanLogListConfig declares the allow-listed sort/filter fields for scan
@@ -46,7 +46,7 @@ type scanLogServiceImpl struct {
 	repo                       repository.Repository[ScanLog, uuid.UUID]
 	ticketRepo                 repository.Repository[guests.Ticket, uuid.UUID]
 	workflowStepRepo           repository.ReadRepository[workflowstep.WorkflowStep, uuid.UUID]
-	ticketTypeWorkflowStepRepo tickets.TicketTypeWorkflowStepRepository
+	ticketTypeWorkflowStepRepo tickettype.TicketTypeWorkflowStepRepository
 	logger                     logger.Logger
 }
 
@@ -62,7 +62,7 @@ func NewScanLogService(
 	repo repository.Repository[ScanLog, uuid.UUID],
 	ticketRepo repository.Repository[guests.Ticket, uuid.UUID],
 	workflowStepRepo repository.ReadRepository[workflowstep.WorkflowStep, uuid.UUID],
-	ticketTypeWorkflowStepRepo tickets.TicketTypeWorkflowStepRepository,
+	ticketTypeWorkflowStepRepo tickettype.TicketTypeWorkflowStepRepository,
 ) ScanLogService {
 	return &scanLogServiceImpl{
 		repo: repo, ticketRepo: ticketRepo, workflowStepRepo: workflowStepRepo,

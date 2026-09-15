@@ -68,7 +68,9 @@ Manages **events** — a tenant's scheduled occasion, classified under an event 
 - `end_date` must not be before `start_date`, both on create and on the resulting record after a partial update.
 - `is_multi_day` is **derived**, not caller-supplied: `true` when `start_date` and `end_date` fall on different calendar days (each evaluated in its own timestamp's location), recomputed whenever either date changes.
 - `rsvp_required` defaults to `true` when omitted on create and can be toggled via a partial update; it decides whether [guests](#guests) issue a ticket only on RSVP confirm (`true`, the default) or immediately at invitation time (`false`) — see [guests](#guests) for the consuming behavior.
-- **Create seeds default workflow steps from the category's templates**: right after the event row is inserted, `EventService` looks up `workflow_step_templates` for `category_id` (ordered by `order_index`) and copies each one into a `workflow_steps` row for the new event — the customizable starting point a UI shows immediately after event creation. A category with no templates copies nothing. This is **best-effort**: a template lookup or copy failure is logged but does not fail event creation. Templates themselves are managed via [Workflow step templates](#workflow-step-templates). The caller can always add/edit/remove the resulting steps via [Workflow steps → Sync](#workflow-steps).
+- **Create runs inside one transaction** (`(*sqlkit.DB).WithTransaction`, the same mechanism [users](#users)' `TransferMaster` uses): the event insert, the workflow-step-template copy, and the ticket-type-template copy (below) all run against the same transaction-carrying context, so a failure in any of the three rolls back the whole event creation instead of committing a partially-seeded event.
+- **Create seeds default workflow steps from the category's templates**: right after the event row is inserted, `EventService` looks up `workflow_step_templates` for `category_id` (ordered by `order_index`) and copies each one into a `workflow_steps` row for the new event — the customizable starting point a UI shows immediately after event creation. A category with no templates copies nothing. A template lookup or per-template copy failure **aborts event creation** (rolled back by the enclosing transaction) rather than being logged and skipped. Templates themselves are managed via [Workflow step templates](#workflow-step-templates). The caller can always add/edit/remove the resulting steps via [Workflow steps → Sync](#workflow-steps).
+- **Create seeds default ticket types from the category's ticket-type templates**: right after the workflow-step-template copy, `EventService` calls `tickettype.Service.SeedFromCategoryTemplates(event_id, category_id)` (the `TicketTypeSeeder` interface `event.Service` declares and `internal/app` wires to `tickets/tickettype`, since `events` never imports `tickets`), which copies every `ticket_type_templates` row for the category onto the new event as a matching `TicketType` (same name/rules), via the same creation path a manual `POST .../ticket-types` uses — so each seeded type also gets the default full-workflow-step applicability ([tickets](#tickets)'s `Create`). A category with no ticket-type templates leaves the event with zero ticket types (unchanged, organizer creates them manually). A seed failure aborts event creation (rolled back). Ticket-type templates themselves are managed via [Ticket type templates](#ticket-type-templates). Deleting/updating a template afterward never retroactively changes an already-created event's ticket types (seeded at creation time only, same as workflow-step templates).
 
 > Field-presence/format checks (`required`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateEventInput`/`UpdateEventInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the date-ordering rule and `is_multi_day` derivation stay in the service as business invariants.
 
@@ -473,13 +475,15 @@ Base path `/api/v1/events/{event_id}/staff`. Every route requires a valid access
 
 ## tickets
 
-Source: `internal/features/tickets`. Tables: `ticket_types`, `ticket_type_workflow_steps` (see [DATABASE.md](DATABASE.md)). This phase ships **`TicketType` only** — the `Ticket` QR artifact issued to a guest is B8, which depends on `guests` existing first.
+Source: `internal/features/tickets`. Tables: `ticket_types`, `ticket_type_workflow_steps`, `ticket_type_templates` (see [DATABASE.md](DATABASE.md)). `config.go`/`tickets_constants.go` (holding `PermissionManageEvents`) stay at the feature root; the feature splits into two per-entity subpackages — `tickettype` (ticket types + the workflow-step junction) and `tickettypetemplate` (B12) — per AGENTS.md's multi-entity rule, mirroring `events/category` + `events/workflowsteptemplate`. The `Ticket` QR artifact issued to a guest is a separate feature ([guests](#guests)).
 
-### Intent
+### Ticket types
+
+#### Intent
 
 Manages an event's **ticket types** (e.g. Regular, VIP) and which of that event's workflow steps each type applies to, so guests receive the right ticket and check-in later enforces only the steps that type is entitled to (REQUIREMENT.md §3.8, §4.4). Always scoped to a parent event via the URL; there is no top-level ticket-type listing.
 
-### Invariants
+#### Invariants
 
 - `name` is required on create; `(event_id, name)` is unique — DB-enforced; a conflicting name on create or update surfaces as `errorz.Conflict` (409).
 - `event_id` is **immutable** and always taken from the URL, never the body — it is not part of `CreateTicketTypeInput`/`UpdateTicketTypeInput`.
@@ -491,7 +495,7 @@ Manages an event's **ticket types** (e.g. Regular, VIP) and which of that event'
 
 > Field-presence/format checks (`required`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateTicketTypeInput`/`UpdateTicketTypeInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the event-scope check and workflow-step cross-event validation are business invariants enforced in the service since no struct tag or DB constraint can express them.
 
-### Endpoints
+#### Endpoints
 
 Base path `/api/v1/events/{event_id}/ticket-types`. Every route requires a valid access token **and** the `manage_events` permission (`authz.RequirePermission`):
 
@@ -511,13 +515,54 @@ Base path `/api/v1/events/{event_id}/ticket-types`. Every route requires a valid
 
 **Workflow-step replace body:** `{ "workflow_step_ids": ["11111111-...", "22222222-..."] }` — an empty array clears applicability entirely.
 
-### States & lifecycle
+#### States & lifecycle
 
-- **Create** — service generates the `id` (UUID) and sets `event_id` from the URL; `rules` defaults to `{}` when omitted; `created_at`/`updated_at` are stamped by the audit repository decorator. Right after the row insert, the new ticket type's workflow-step applicability is seeded to **ALL** of the event's current workflow steps (fail open — an organizer forgetting to configure a new type should default to full admission, not silently block guests at every check-in step) via `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs`. This is **best-effort**, the same non-blocking treatment as `EventService.Create`'s template-copy (see [Events](#events)): a workflow-step lookup or assign failure is logged but does not fail ticket type creation.
+- **Create** — service generates the `id` (UUID) and sets `event_id` from the URL; `rules` defaults to `{}` when omitted; `created_at`/`updated_at` are stamped by the audit repository decorator. Right after the row insert, the new ticket type's workflow-step applicability is seeded to **ALL** of the event's current workflow steps (fail open — an organizer forgetting to configure a new type should default to full admission, not silently block guests at every check-in step) via `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs`. This step is **best-effort**: a workflow-step lookup or assign failure is logged but does not fail ticket type creation (unlike the ticket-type-template copy below, this isn't inside a transaction — see [Non-goals](DEVELOPMENT_PLAN.md) B12).
+- **SeedFromCategoryTemplates** — implements `events/event`'s `TicketTypeSeeder` interface (wired in `internal/app`, the only layer that knows both `events` and `tickets`); called by `EventService.Create` right after the workflow-step-template copy, inside the same transaction. Lists `ticket_type_templates` for the new event's `category_id` and creates a matching `TicketType` for each via the exact same internal creation path `Create` uses (so the full-workflow-step-applicability default above applies identically — no special-casing). A category with no templates seeds nothing (unchanged event-creation behavior). A failure — either the template lookup or any per-template create — returns immediately and aborts the whole transaction (`EventService.Create` rolls back), rather than leaving the event with a partial set of default ticket types. Deleting or updating a `TicketTypeTemplate` afterward never retroactively changes ticket types already seeded from it — there is no FK from `ticket_types` back to `ticket_type_templates`, only a one-time copy at creation.
 - **Update** — partial (`name`/`rules` only); `event_id` cannot change; `workflow_step_ids` is left unpopulated on the response; `updated_at` re-stamped by the decorator.
 - **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
-- **Replace workflow steps** — full-replace via `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs` (delete-then-reinsert every association for the ticket type); **not wrapped in a database transaction** (no feature in this codebase uses one yet, same as [workflow steps](#workflow-steps)' Sync) — a failure partway through is recovered by resubmitting the same call.
+- **Replace workflow steps** — full-replace via `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs` (delete-then-reinsert every association for the ticket type); **not wrapped in a database transaction** (no feature in this codebase uses one yet for this specific junction path, same as [workflow steps](#workflow-steps)' Sync) — a failure partway through is recovered by resubmitting the same call.
 - **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a ticket type or workflow step belonging to a different event is also reported as 404/400 respectively (see Invariants); a missing `manage_events` permission →403; unexpected errors become 500 and are logged with context.
+
+### Ticket type templates
+
+#### Intent
+
+Manages the **per-category default ticket types** (e.g. every "Concert" category gets a Regular + VIP template) that [Events](#events)' `Create` copies onto a newly created event, so an organizer doesn't have to manually define the same ticket types every time (REQUIREMENT.md §3.6, §3.12, §4.2). Templates themselves never affect an already-created event — see [Ticket types → SeedFromCategoryTemplates](#ticket-types) for the copy-on-create mechanism. Always scoped to a parent event category via the URL; there is no top-level listing.
+
+#### Invariants
+
+- `name` is required on create; `(category_id, name)` is unique — DB-enforced; a conflicting name on create or update surfaces as `errorz.Conflict` (409).
+- `category_id` is **immutable** and always taken from the URL, never the body.
+- Every read/update/delete is scoped to the `{category_id}` in the URL: a template that exists but belongs to a different category resolves as `errorz.NotFound` (404) — same convention as [Workflow step templates](#workflow-step-templates).
+- `rules` is an opaque, optional JSON document (default `{}`), passed through unvalidated — same treatment as `ticket_types.rules`.
+- No `order_index` and no applicability-metadata column: `ticket_types` itself has neither, so the template doesn't invent fields its target entity doesn't have.
+- **Every route requires the `manage_events` permission** — matched to the gate on the `ticket_types` this template seeds ([Ticket types](#ticket-types), B7), not the ungated `workflow-step-templates` sibling: `workflow_step_templates` seeds the *ungated* `workflow_steps`, while `ticket_type_templates` seeds the *gated* `ticket_types`, so shaping an event's future ticket types indirectly (via a template) requires the same permission as shaping them directly.
+- No category-existence pre-check on create: an invalid `category_id` surfaces via the FK constraint as `errorz.UnprocessableEntity` (422) — same as `workflow_step_templates`.
+
+#### Endpoints
+
+Base path `/api/v1/event-categories/{category_id}/ticket-type-templates`. Every route requires a valid access token **and** the `manage_events` permission:
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | List for the category (paginated, filtered, sorted) | 200 | 400 invalid category id/query · 401 · 403 |
+| `POST` | `/` | Create a template under the category | 201 | 400 invalid body · 401 · 403 · 409 name conflict · 422 invalid entity |
+| `GET` | `/{id}` | Get one, scoped to the category | 200 | 400 bad UUID · 401 · 403 · 404 not found |
+| `PUT` | `/{id}` | Partial update (`name`, `rules`) | 200 | 400 · 401 · 403 · 404 not found · 409 name conflict |
+| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 401 · 403 · 404 not found |
+
+**List query:** `?page=1&size=20&sort=name,ASC&name=VIP`.
+- `page` 1-based; `size` default 20, clamped to 100.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, name, created_at, updated_at`); unknown field → 400.
+- Filters: `name` (exact match); `category_id` is always forced from the URL and is not a query filter.
+
+#### States & lifecycle
+
+- **Create** — service generates the `id` (UUID) and sets `category_id` from the URL; `rules` defaults to `{}` when omitted; `created_at`/`updated_at` are stamped by the audit repository decorator.
+- **Update** — partial (`name`/`rules` only); `category_id` cannot change; `updated_at` re-stamped by the decorator. Does **not** retroactively change ticket types already seeded from this template on existing events (seed-at-creation-time-only, see [Ticket types](#ticket-types)).
+- **Delete** — **soft**: `deleted_at` is set; the row remains. Existing events' already-seeded ticket types are unaffected (no FK back to this table).
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a template belonging to a different category is also reported as 404 (see Invariants); a missing `manage_events` permission →403; unexpected errors become 500 and are logged with context.
 
 ---
 
@@ -626,7 +671,7 @@ Public, unauthenticated (route-policy `public: true`, same mechanism as `auth`'s
 Source: `internal/features/scans`. Table: `scan_logs` (see [DATABASE.md](DATABASE.md)). Flat layout, one entity —
 `ScanLog` is a permanent, append-only audit row; `Ticket`, `WorkflowStep`, and `TicketType` are read/written
 through already-exported cross-feature repositories (`guests.NewTicketRepository`,
-`events/workflowstep.NewWorkflowStepRepository`, `tickets.TicketTypeWorkflowStepRepository`), never owned here.
+`events/workflowstep.NewWorkflowStepRepository`, `tickets/tickettype.TicketTypeWorkflowStepRepository`), never owned here.
 
 ### Intent
 

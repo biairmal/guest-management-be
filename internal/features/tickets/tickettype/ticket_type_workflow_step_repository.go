@@ -1,4 +1,4 @@
-package tickets
+package tickettype
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-//go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=../../../mocks/tickets/mock_ticket_type_workflow_step_repository.go -package=mocktickets github.com/biairmal/guest-management-be/internal/features/tickets TicketTypeWorkflowStepRepository
+//go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=../../../../mocks/tickets/tickettype/mock_ticket_type_workflow_step_repository.go -package=mocktickettype github.com/biairmal/guest-management-be/internal/features/tickets/tickettype TicketTypeWorkflowStepRepository
 
 // TicketTypeWorkflowStepRepository resolves and replaces which workflow
 // steps a ticket type applies to via ticket_type_workflow_steps.
@@ -18,7 +18,11 @@ import (
 // roles' role_permissions join (see roles.RolePermissionRepository) — so
 // this is a small, purpose-built interface rather than the generic
 // repository.Repository[T, TID] pattern (a junction row has no ID of its own
-// to key a generic CRUD interface on).
+// to key a generic CRUD interface on). Moved as-is from the tickets package
+// root (docs/DEVELOPMENT_PLAN.md B12); see ticket_type_service.go's
+// TicketTypeService for why the stutter is left alone.
+//
+//nolint:revive // stutter is a side effect of the multi-entity split, not a fresh naming choice
 type TicketTypeWorkflowStepRepository interface {
 	// SetWorkflowStepIDs replaces the full set of workflow steps
 	// ticketTypeID applies to with workflowStepIDs (full-replace semantics,

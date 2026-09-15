@@ -14,7 +14,7 @@ import (
 
 	"github.com/biairmal/guest-management-be/internal/core/query"
 	"github.com/biairmal/guest-management-be/internal/features/events/event"
-	"github.com/biairmal/guest-management-be/internal/features/tickets"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettype"
 )
 
 // No //go:generate mock is declared for this interface: nothing in this
@@ -22,7 +22,7 @@ import (
 // see docs/TESTING.md), and generating one into the same mocks/guests
 // package as PIIEncryptor's mock would create an import cycle back into this
 // package from this package's own tests (same reasoning as
-// tickets.TicketTypeService). Add one if a future consumer (e.g. a handler
+// tickettype.TicketTypeService). Add one if a future consumer (e.g. a handler
 // test) actually needs it.
 
 // GuestListConfig declares the allow-listed sort/filter fields for guest list
@@ -63,7 +63,7 @@ type guestServiceImpl struct {
 	repo           repository.Repository[Guest, uuid.UUID]
 	ticketRepo     repository.Repository[Ticket, uuid.UUID]
 	eventRepo      repository.ReadRepository[event.Event, uuid.UUID]
-	ticketTypeRepo repository.ReadRepository[tickets.TicketType, uuid.UUID]
+	ticketTypeRepo repository.ReadRepository[tickettype.TicketType, uuid.UUID]
 	encryptor      PIIEncryptor
 	publisher      InvitationPublisher
 	logger         logger.Logger
@@ -81,7 +81,7 @@ func NewGuestService(
 	repo repository.Repository[Guest, uuid.UUID],
 	ticketRepo repository.Repository[Ticket, uuid.UUID],
 	eventRepo repository.ReadRepository[event.Event, uuid.UUID],
-	ticketTypeRepo repository.ReadRepository[tickets.TicketType, uuid.UUID],
+	ticketTypeRepo repository.ReadRepository[tickettype.TicketType, uuid.UUID],
 	encryptor PIIEncryptor,
 	publisher InvitationPublisher,
 ) GuestService {

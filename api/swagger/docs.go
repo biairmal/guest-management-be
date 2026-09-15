@@ -252,6 +252,401 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/event-categories/{category_id}/ticket-type-templates": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a paginated list of ticket type templates for an event category. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (name). Requires the manage_events permission.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ticket-type-templates"
+                ],
+                "summary": "List ticket type templates",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event category UUID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (1-based)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 20, max 100)",
+                        "name": "size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort: field,dir (e.g. sort=name,ASC)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by name (exact match)",
+                        "name": "name",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_tickets_tickettypetemplate_TicketTypeTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid category id or query",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_events permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new ticket type template under an event category; name is unique per category. Copied onto every event created under this category thereafter (see events' POST /api/v1/events). Requires the manage_events permission.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ticket-type-templates"
+                ],
+                "summary": "Create ticket type template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event category UUID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Ticket type template payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.CreateTicketTypeTemplateInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body or validation error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_events permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "409": {
+                        "description": "Ticket type template name already exists for this category",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable entity",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/event-categories/{category_id}/ticket-type-templates/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single ticket type template by UUID, scoped to its event category. Requires the manage_events permission.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ticket-type-templates"
+                ],
+                "summary": "Get ticket type template by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event category UUID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Ticket type template UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID format",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_events permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Ticket type template not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Partially updates a ticket type template's name/rules. Only provided fields are applied; category_id is immutable. Does not retroactively change ticket types already seeded from this template on existing events. Requires the manage_events permission.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ticket-type-templates"
+                ],
+                "summary": "Update ticket type template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event category UUID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Ticket type template UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.UpdateTicketTypeTemplateInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID or request body",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_events permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Ticket type template not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "409": {
+                        "description": "Ticket type template name already exists for this category",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft-deletes a ticket type template by ID, scoped to its event category. Does not retroactively change ticket types already seeded from this template on existing events. Requires the manage_events permission.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ticket-type-templates"
+                ],
+                "summary": "Delete ticket type template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event category UUID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Ticket type template UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No content"
+                    },
+                    "400": {
+                        "description": "Invalid ID format",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_events permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Ticket type template not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/event-categories/{category_id}/workflow-step-templates": {
             "get": {
                 "security": [
@@ -1983,7 +2378,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dto.PageResponse-internal_features_tickets_TicketType"
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_tickets_tickettype_TicketType"
                         }
                     },
                     "400": {
@@ -2043,7 +2438,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_tickets.CreateTicketTypeInput"
+                            "$ref": "#/definitions/internal_features_tickets_tickettype.CreateTicketTypeInput"
                         }
                     }
                 ],
@@ -2051,7 +2446,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_tickets.TicketType"
+                            "$ref": "#/definitions/internal_features_tickets_tickettype.TicketType"
                         }
                     },
                     "400": {
@@ -2131,7 +2526,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_tickets.TicketType"
+                            "$ref": "#/definitions/internal_features_tickets_tickettype.TicketType"
                         }
                     },
                     "400": {
@@ -2204,7 +2599,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_tickets.UpdateTicketTypeInput"
+                            "$ref": "#/definitions/internal_features_tickets_tickettype.UpdateTicketTypeInput"
                         }
                     }
                 ],
@@ -2212,7 +2607,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_tickets.TicketType"
+                            "$ref": "#/definitions/internal_features_tickets_tickettype.TicketType"
                         }
                     },
                     "400": {
@@ -2362,7 +2757,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_tickets.ReplaceWorkflowStepsInput"
+                            "$ref": "#/definitions/internal_features_tickets_tickettype.ReplaceWorkflowStepsInput"
                         }
                     }
                 ],
@@ -2370,7 +2765,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_tickets.TicketType"
+                            "$ref": "#/definitions/internal_features_tickets_tickettype.TicketType"
                         }
                     },
                     "400": {
@@ -4482,7 +4877,7 @@ const docTemplate = `{
                 }
             }
         },
-        "dto.PageResponse-internal_features_tickets_TicketType": {
+        "dto.PageResponse-internal_features_tickets_tickettype_TicketType": {
             "type": "object",
             "properties": {
                 "has_next": {
@@ -4494,7 +4889,36 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/internal_features_tickets.TicketType"
+                        "$ref": "#/definitions/internal_features_tickets_tickettype.TicketType"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dto.PageResponse-internal_features_tickets_tickettypetemplate_TicketTypeTemplate": {
+            "type": "object",
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "has_prev": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate"
                     }
                 },
                 "page": {
@@ -5361,7 +5785,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_tickets.CreateTicketTypeInput": {
+        "internal_features_tickets_tickettype.CreateTicketTypeInput": {
             "type": "object",
             "required": [
                 "name"
@@ -5378,7 +5802,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_tickets.ReplaceWorkflowStepsInput": {
+        "internal_features_tickets_tickettype.ReplaceWorkflowStepsInput": {
             "type": "object",
             "properties": {
                 "workflow_step_ids": {
@@ -5389,7 +5813,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_tickets.TicketType": {
+        "internal_features_tickets_tickettype.TicketType": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -5424,7 +5848,68 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_features_tickets.UpdateTicketTypeInput": {
+        "internal_features_tickets_tickettype.UpdateTicketTypeInput": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_features_tickets_tickettypetemplate.CreateTicketTypeTemplateInput": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_features_tickets_tickettypetemplate.TicketTypeTemplate": {
+            "type": "object",
+            "properties": {
+                "category_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_tickets_tickettypetemplate.UpdateTicketTypeTemplateInput": {
             "type": "object",
             "properties": {
                 "name": {

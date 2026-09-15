@@ -35,6 +35,7 @@ This document describes the PostgreSQL schema for the Guest Management System: t
 | WorkflowStepTemplate    | `workflow_step_templates`     | Template steps per category. |
 | WorkflowStep            | `workflow_steps`              | Event-level workflow steps (from templates + custom). |
 | TicketType              | `ticket_types`                | Ticket type per event (e.g. Regular, VIP); rules in JSONB. |
+| TicketTypeTemplate      | `ticket_type_templates`       | Template ticket types per category; copied onto an event's ticket types at creation. |
 | TicketType ↔ WorkflowStep | `ticket_type_workflow_steps` | Many-to-many: ticket type ↔ workflow step. |
 | Ticket                  | `tickets`                     | QR ticket; `guest_id`, `event_id`, `ticket_type_id`, `status`. |
 | Guest                   | `guests`                      | Guest per event; `rsvp_status`, optional `ticket_id`. |
@@ -256,6 +257,24 @@ Ticket types per event (e.g. Regular, VIP). Rules (e.g. single_entry, multi_entr
 
 ---
 
+### 3.11a ticket_type_templates
+
+Per-category default ticket types, copied onto a newly created event's `ticket_types` (same name/rules) when the event's category has any. No FK back from `ticket_types` — a one-time copy at event-creation time, not a live link (editing/deleting a template never retroactively changes an already-created event's ticket types).
+
+| Column      | Type        | Nullable | Description |
+| ----------- | ----------- | -------- | ----------- |
+| id          | UUID        | No       | Primary key. |
+| category_id | UUID        | No       | Event category this template belongs to (FK to event_categories.id). |
+| name        | TEXT        | No       | Ticket type name (e.g. Regular, VIP); unique per category. |
+| rules       | JSONB       | No       | Entry rules and other config (default `{}`); copied verbatim onto the seeded ticket type. |
+| created_at  | TIMESTAMPTZ | No       | When the row was created. |
+| updated_at  | TIMESTAMPTZ | No       | When the row was last updated. |
+| deleted_at  | TIMESTAMPTZ | Yes      | When the row was soft-deleted; NULL if active. |
+
+**Constraint:** `UNIQUE (category_id, name)`.
+
+---
+
 ### 3.12 ticket_type_workflow_steps
 
 Junction table: many-to-many between ticket types and workflow steps. Determines which workflow steps apply to which ticket type. No soft delete.
@@ -364,6 +383,7 @@ erDiagram
     roles ||--o{ event_staff_assignments : "role"
 
     event_categories ||--o{ workflow_step_templates : "has"
+    event_categories ||--o{ ticket_type_templates : "has"
     events }o--|| event_categories : "category"
     events ||--o{ workflow_steps : "has"
     events ||--o{ ticket_types : "has"
@@ -389,6 +409,7 @@ erDiagram
     events { uuid id uuid tenant_id uuid category_id timestamptz start_date timestamptz end_date timestamptz deleted_at }
     workflow_steps { uuid id uuid event_id int order_index bool allows_multiple timestamptz deleted_at }
     ticket_types { uuid id uuid event_id string name jsonb rules timestamptz deleted_at }
+    ticket_type_templates { uuid id uuid category_id string name jsonb rules timestamptz deleted_at }
     ticket_type_workflow_steps { uuid ticket_type_id uuid workflow_step_id }
     guests { uuid id uuid event_id varchar32 rsvp_status uuid ticket_id_nullable timestamptz deleted_at }
     tickets { uuid id uuid guest_id uuid event_id uuid ticket_type_id string qr_code varchar32 status timestamptz deleted_at }
@@ -402,7 +423,7 @@ erDiagram
 - **Tenants** have many users, event_categories (tenant scope), events, and message_templates (tenant/event scope).
 - **Roles** are assigned to users (tenant-level) and to event_staff_assignments (event-level); roles have many permissions via role_permissions.
 - **Events** belong to one tenant and one event_category; they have workflow_steps, ticket_types, guests, event_staff_assignments, scan_logs, and optionally message_templates.
-- **Event categories** have many workflow_step_templates.
+- **Event categories** have many workflow_step_templates and ticket_type_templates — both copied onto a newly created event (its workflow_steps and ticket_types respectively) at creation time only, with no live link afterward.
 - **Ticket types** and **workflow_steps** are linked by ticket_type_workflow_steps (many-to-many).
 - **Guests** have zero or one ticket; **tickets** reference guest, event, and ticket_type.
 - **Scan_logs** record a scan of a ticket at a workflow step (and optionally the operator user).
@@ -412,7 +433,7 @@ erDiagram
 ## 5. Soft Delete and System Tables
 
 **Tables with soft delete:**  
-tenants, users, event_categories, workflow_step_templates, events, workflow_steps, event_staff_assignments, ticket_types, guests, tickets, message_templates.
+tenants, users, event_categories, workflow_step_templates, events, workflow_steps, event_staff_assignments, ticket_types, ticket_type_templates, guests, tickets, message_templates.
 
 For these tables, `deleted_at IS NULL` means the row is active. List queries should use `WHERE deleted_at IS NULL` unless deleted rows are explicitly needed. Partial indexes `(deleted_at) WHERE deleted_at IS NULL` support these queries.
 
@@ -425,7 +446,7 @@ permissions, roles, role_permissions (system/reference data), scan_logs (audit t
 
 Migrations are applied in order from `./migrations` using golang-migrate. Sequence: 000001 (tenants) → 000002 (permissions, roles, role_permissions) → 000003 (users) → 000004 (event_categories, workflow_step_templates) → 000005 (events, workflow_steps) → 000006 (message_templates) → 000007 (event_staff_assignments) → 000008 (ticket_types, ticket_type_workflow_steps) → 000009 (guests, tickets) → 000010 (scan_logs) → 000011 (indexes) → 000012 (users.email unique across tenants, for B3 `auth` login) → 000013 (`roles.scope`) → 000014 (seed the System tenant + starter roles/permissions/role_permissions + the single-Super-Admin partial unique index, for B6 `staffing`) → 000015 (`event_staff_assignments` active-only unique index) → 000016 (`events.rsvp_required`) → 000017
 (`guests.ticket_type_id`/`invitation_token`/`email_hash`/`phone_hash`) → 000018 (`users.must_change_password`,
-for B11 `users` hardening).
+for B11 `users` hardening) → 000019 (`ticket_type_templates`, for B12 `ticket-type-templates`).
 
 **000013–000015 (B6 `staffing`/role scoping):**
 

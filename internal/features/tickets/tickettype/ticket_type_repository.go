@@ -1,4 +1,4 @@
-package tickets
+package tickettype
 
 import (
 	"github.com/biairmal/go-sdk/lib/logger"

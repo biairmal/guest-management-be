@@ -15,15 +15,15 @@ import (
 	"github.com/biairmal/guest-management-be/internal/core/query"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
 	"github.com/biairmal/guest-management-be/internal/features/guests"
-	"github.com/biairmal/guest-management-be/internal/features/tickets"
-	mocktickets "github.com/biairmal/guest-management-be/mocks/tickets"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettype"
+	mocktickettype "github.com/biairmal/guest-management-be/mocks/tickets/tickettype"
 )
 
 func newTestService(
 	repo repository.Repository[ScanLog, uuid.UUID],
 	ticketRepo repository.Repository[guests.Ticket, uuid.UUID],
 	workflowStepRepo repository.Repository[workflowstep.WorkflowStep, uuid.UUID],
-	ticketTypeWorkflowStepRepo tickets.TicketTypeWorkflowStepRepository,
+	ticketTypeWorkflowStepRepo tickettype.TicketTypeWorkflowStepRepository,
 ) ScanLogService {
 	return NewScanLogService(logger.NewNoOp(), repo, ticketRepo, workflowStepRepo, ticketTypeWorkflowStepRepo)
 }
@@ -107,7 +107,7 @@ func TestScanLogService_RecordScan(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ticketRepo := mockrepository.NewMockRepository[guests.Ticket, uuid.UUID](ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		ticket := &guests.Ticket{
 			ID: ticketID, EventID: eventID, TicketTypeID: ticketTypeID, Status: guests.TicketStatusActive,
 		}
@@ -126,7 +126,7 @@ func TestScanLogService_RecordScan(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ticketRepo := mockrepository.NewMockRepository[guests.Ticket, uuid.UUID](ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		ticket := &guests.Ticket{
 			ID: ticketID, EventID: eventID, TicketTypeID: ticketTypeID, Status: guests.TicketStatusActive,
 		}
@@ -146,7 +146,7 @@ func TestScanLogService_RecordScan(t *testing.T) {
 		repo := mockrepository.NewMockRepository[ScanLog, uuid.UUID](ctrl)
 		ticketRepo := mockrepository.NewMockRepository[guests.Ticket, uuid.UUID](ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		ticket := &guests.Ticket{
 			ID: ticketID, EventID: eventID, TicketTypeID: ticketTypeID, Status: guests.TicketStatusActive,
 		}
@@ -167,7 +167,7 @@ func TestScanLogService_RecordScan(t *testing.T) {
 		repo := mockrepository.NewMockRepository[ScanLog, uuid.UUID](ctrl)
 		ticketRepo := mockrepository.NewMockRepository[guests.Ticket, uuid.UUID](ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		ticket := &guests.Ticket{
 			ID: ticketID, EventID: eventID, TicketTypeID: ticketTypeID, Status: guests.TicketStatusActive,
 		}
@@ -188,7 +188,7 @@ func TestScanLogService_RecordScan(t *testing.T) {
 		repo := mockrepository.NewMockRepository[ScanLog, uuid.UUID](ctrl)
 		ticketRepo := mockrepository.NewMockRepository[guests.Ticket, uuid.UUID](ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		ticket := &guests.Ticket{
 			ID: ticketID, EventID: eventID, TicketTypeID: ticketTypeID, Status: guests.TicketStatusActive,
 		}
@@ -209,7 +209,7 @@ func TestScanLogService_RecordScan(t *testing.T) {
 		repo := mockrepository.NewMockRepository[ScanLog, uuid.UUID](ctrl)
 		ticketRepo := mockrepository.NewMockRepository[guests.Ticket, uuid.UUID](ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		ticket := &guests.Ticket{
 			ID: ticketID, EventID: eventID, TicketTypeID: ticketTypeID, Status: guests.TicketStatusActive,
 		}
@@ -248,7 +248,7 @@ func TestScanLogService_RecordScan(t *testing.T) {
 		repo := mockrepository.NewMockRepository[ScanLog, uuid.UUID](ctrl)
 		ticketRepo := mockrepository.NewMockRepository[guests.Ticket, uuid.UUID](ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		ticket := &guests.Ticket{ID: ticketID, EventID: eventID, TicketTypeID: ticketTypeID, Status: guests.TicketStatusUsed}
 		ticketRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return([]*guests.Ticket{ticket}, int64(1), nil)
 		workflowStepRepo.EXPECT().GetByID(gomock.Any(), stepID).
@@ -273,7 +273,7 @@ func TestScanLogService_RecordScan(t *testing.T) {
 		repo := mockrepository.NewMockRepository[ScanLog, uuid.UUID](ctrl)
 		ticketRepo := mockrepository.NewMockRepository[guests.Ticket, uuid.UUID](ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		ticket := &guests.Ticket{
 			ID: ticketID, EventID: eventID, TicketTypeID: ticketTypeID, Status: guests.TicketStatusActive,
 		}

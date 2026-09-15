@@ -1,4 +1,4 @@
-package tickets
+package tickettype
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/biairmal/guest-management-be/internal/core/query"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettypetemplate"
 )
 
 // emptyJSONObject is the default value stored for rules when the caller
@@ -36,10 +37,20 @@ var TicketTypeListConfig = query.ListParseConfig{
 //
 // No //go:generate mock is declared for this interface: nothing in this
 // codebase mocks a feature's own service (no handler-level tests exist yet —
-// see docs/TESTING.md), and generating one into the same mocks/tickets
+// see docs/TESTING.md), and generating one into the same mocks/tickets/tickettype
 // package as TicketTypeWorkflowStepRepository's mock would create an import
 // cycle back into this package from this package's own tests. Add one if a
-// future consumer (e.g. a handler test) actually needs it.
+// future consumer (e.g. a handler test) actually needs it. (events/event's
+// TicketTypeSeeder, the interface this Service satisfies for the
+// copy-on-create seeding, is a separate small interface owned by that
+// package and mocked there instead — see event/ticket_type_seeder.go.)
+//
+// Moved as-is from the tickets package root (docs/DEVELOPMENT_PLAN.md B12);
+// the tickettype.TicketTypeService stutter is a side effect of the split
+// itself (package tickets never stuttered), not a fresh naming choice —
+// internal/app and docs already reference it this way.
+//
+//nolint:revive // stutter is a side effect of the multi-entity split, not a fresh naming choice
 type TicketTypeService interface {
 	Create(ctx context.Context, eventID uuid.UUID, in CreateTicketTypeInput) (*TicketType, error)
 	// GetByID returns a ticket type scoped to eventID with WorkflowStepIDs
@@ -55,6 +66,13 @@ type TicketTypeService interface {
 	ReplaceWorkflowSteps(
 		ctx context.Context, eventID, id uuid.UUID, workflowStepIDs []uuid.UUID,
 	) (*TicketType, error)
+	// SeedFromCategoryTemplates implements events/event's TicketTypeSeeder:
+	// it copies categoryID's ticket_type_templates onto eventID as new
+	// TicketTypes, via the same internal creation path as Create (so
+	// seedDefaultWorkflowSteps' full-applicability default applies
+	// identically, B7 AC7/B12 AC5). Wired as the TicketTypeSeeder
+	// implementation in internal/app — this package never imports events.
+	SeedFromCategoryTemplates(ctx context.Context, eventID, categoryID uuid.UUID) error
 }
 
 // ticketTypeServiceImpl is the concrete implementation of TicketTypeService.
@@ -62,6 +80,7 @@ type ticketTypeServiceImpl struct {
 	repo             repository.Repository[TicketType, uuid.UUID]
 	junctionRepo     TicketTypeWorkflowStepRepository
 	workflowStepRepo repository.ReadRepository[workflowstep.WorkflowStep, uuid.UUID]
+	templateRepo     repository.ReadRepository[tickettypetemplate.TicketTypeTemplate, uuid.UUID]
 	logger           logger.Logger
 }
 
@@ -71,14 +90,19 @@ type ticketTypeServiceImpl struct {
 // staffing's eventRepo/userRepo/roleRepo dependencies. It is a
 // ReadRepository, not the full Repository: this service only ever reads
 // workflow steps owned by events/workflowstep, never writes to them.
+// templateRepo is a same-feature, sibling-entity dependency on
+// tickettypetemplate's repository — backs SeedFromCategoryTemplates — mirroring
+// events/event's existing direct dependency on workflowsteptemplate's repo.
 func NewTicketTypeService(
 	logger logger.Logger,
 	repo repository.Repository[TicketType, uuid.UUID],
 	junctionRepo TicketTypeWorkflowStepRepository,
 	workflowStepRepo repository.ReadRepository[workflowstep.WorkflowStep, uuid.UUID],
+	templateRepo repository.ReadRepository[tickettypetemplate.TicketTypeTemplate, uuid.UUID],
 ) TicketTypeService {
 	return &ticketTypeServiceImpl{
-		repo: repo, junctionRepo: junctionRepo, workflowStepRepo: workflowStepRepo, logger: logger,
+		repo: repo, junctionRepo: junctionRepo, workflowStepRepo: workflowStepRepo,
+		templateRepo: templateRepo, logger: logger,
 	}
 }
 
@@ -100,8 +124,19 @@ func (s *ticketTypeServiceImpl) Create(
 	if len(rules) == 0 {
 		rules = emptyJSONObject
 	}
+	return s.createTicketType(ctx, eventID, in.Name, rules)
+}
 
-	entity := &TicketType{ID: uuid.New(), EventID: eventID, Name: in.Name, Rules: rules}
+// createTicketType inserts a new ticket type under eventID with the given
+// name/rules and seeds its default workflow-step applicability — the shared
+// path behind both Create (a caller-supplied name/rules) and
+// SeedFromCategoryTemplates (a template's name/rules), so a
+// template-seeded ticket type gets identical default behavior to a manually
+// created one (B12 AC5).
+func (s *ticketTypeServiceImpl) createTicketType(
+	ctx context.Context, eventID uuid.UUID, name string, rules json.RawMessage,
+) (*TicketType, error) {
+	entity := &TicketType{ID: uuid.New(), EventID: eventID, Name: name, Rules: rules}
 	if err := s.repo.Create(ctx, entity); err != nil {
 		if errors.Is(err, repository.ErrAlreadyExists) {
 			return nil, errorz.Conflict().WithMessage("ticket type already exists for this event")
@@ -117,6 +152,35 @@ func (s *ticketTypeServiceImpl) Create(
 
 	s.logger.InfoWithContext(ctx, "ticket type created", logger.F("id", entity.ID), logger.F("event_id", eventID))
 	return entity, nil
+}
+
+// SeedFromCategoryTemplates lists categoryID's ticket_type_templates and
+// creates a matching TicketType under eventID for each one, via
+// createTicketType. Unlike Create's own best-effort workflow-step seed, a
+// failure here returns immediately instead of logging and continuing: this
+// runs inside EventService.Create's transaction (ctx carries the
+// transaction from (*sqlkit.DB).WithTransaction), so a partial copy must
+// abort and roll back the whole event creation rather than leave the event
+// with some but not all of its category's default ticket types (B12 AC2).
+func (s *ticketTypeServiceImpl) SeedFromCategoryTemplates(ctx context.Context, eventID, categoryID uuid.UUID) error {
+	templates, _, err := s.templateRepo.List(ctx, &repository.ListOptions{
+		Filter: repository.Filter{Conditions: []repository.FilterCondition{
+			{Field: "category_id", Operator: repository.FilterOperatorEq, Value: categoryID},
+		}},
+		Pagination: repository.Pagination{Limit: query.DefaultMaxSize},
+	})
+	if err != nil {
+		s.logger.ErrorWithContext(ctx, "ticket type template lookup failed",
+			logger.F("event_id", eventID), logger.F("category_id", categoryID), logger.F("error", err))
+		return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to look up ticket type templates")
+	}
+
+	for _, tmpl := range templates {
+		if _, err := s.createTicketType(ctx, eventID, tmpl.Name, tmpl.Rules); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // seedDefaultWorkflowSteps looks up eventID's current workflow steps and

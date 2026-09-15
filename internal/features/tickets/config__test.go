@@ -22,6 +22,15 @@ func TestConfigValidate(t *testing.T) {
 			}(),
 			wantErr: true,
 		},
+		{
+			name: "invalid repository ticket type template cache strategy is rejected",
+			cfg: func() Config {
+				c := DefaultConfig()
+				c.Repository.TicketTypeTemplateCache.Strategy = "bogus"
+				return c
+			}(),
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

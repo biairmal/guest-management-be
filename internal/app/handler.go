@@ -13,7 +13,8 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
-	"github.com/biairmal/guest-management-be/internal/features/tickets"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettype"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettypetemplate"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 )
 
@@ -27,7 +28,8 @@ type handler struct {
 	authHandler                 *appauth.Handler
 	messageTemplateHandler      *templates.MessageTemplateHandler
 	staffAssignmentHandler      *staffing.StaffAssignmentHandler
-	ticketTypeHandler           *tickets.TicketTypeHandler
+	ticketTypeHandler           *tickettype.TicketTypeHandler
+	ticketTypeTemplateHandler   *tickettypetemplate.Handler
 	guestHandler                *guests.GuestHandler
 	scanLogHandler              *scans.ScanLogHandler
 }
@@ -45,8 +47,11 @@ func (a *App) initializeHandler(_ logger.Logger, validator validation.Validator,
 		authHandler:            appauth.NewHandler(service.authService, validator),
 		messageTemplateHandler: templates.NewMessageTemplateHandler(service.messageTemplateService, validator),
 		staffAssignmentHandler: staffing.NewStaffAssignmentHandler(service.staffAssignmentService, validator),
-		ticketTypeHandler:      tickets.NewTicketTypeHandler(service.ticketTypeService, validator),
-		guestHandler:           guests.NewGuestHandler(service.guestService, validator),
-		scanLogHandler:         scans.NewScanLogHandler(service.scanLogService, validator),
+		ticketTypeHandler:      tickettype.NewTicketTypeHandler(service.ticketTypeService, validator),
+		ticketTypeTemplateHandler: tickettypetemplate.NewHandler(
+			service.ticketTypeTemplateService, validator,
+		),
+		guestHandler:   guests.NewGuestHandler(service.guestService, validator),
+		scanLogHandler: scans.NewScanLogHandler(service.scanLogService, validator),
 	}
 }

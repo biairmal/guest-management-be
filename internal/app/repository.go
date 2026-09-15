@@ -16,7 +16,8 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
-	"github.com/biairmal/guest-management-be/internal/features/tickets"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettype"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettypetemplate"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 	"github.com/google/uuid"
 )
@@ -33,8 +34,9 @@ type repositories struct {
 	roleRepository                   sdkrepository.Repository[roles.Role, uuid.UUID]
 	rolePermissionRepository         roles.RolePermissionRepository
 	staffAssignmentRepository        sdkrepository.Repository[staffing.EventStaffAssignment, uuid.UUID]
-	ticketTypeRepository             sdkrepository.Repository[tickets.TicketType, uuid.UUID]
-	ticketTypeWorkflowStepRepository tickets.TicketTypeWorkflowStepRepository
+	ticketTypeRepository             sdkrepository.Repository[tickettype.TicketType, uuid.UUID]
+	ticketTypeWorkflowStepRepository tickettype.TicketTypeWorkflowStepRepository
+	ticketTypeTemplateRepository     sdkrepository.Repository[tickettypetemplate.TicketTypeTemplate, uuid.UUID]
 	guestRepository                  sdkrepository.Repository[guests.Guest, uuid.UUID]
 	ticketRepository                 sdkrepository.Repository[guests.Ticket, uuid.UUID]
 	guestPIIEncryptor                guests.PIIEncryptor
@@ -84,6 +86,10 @@ func (a *App) initializeRepository(
 	if err != nil {
 		return nil, err
 	}
+	ticketTypeTemplateCacheOpts, err := featureConfig.Tickets.Repository.TicketTypeTemplateCache.ToOptions(redisClient)
+	if err != nil {
+		return nil, err
+	}
 	guestCacheOpts, err := featureConfig.Guests.Repository.GuestCache.ToOptions(redisClient)
 	if err != nil {
 		return nil, err
@@ -118,11 +124,14 @@ func (a *App) initializeRepository(
 		roleRepository:                   roles.NewRoleRepository(log, db, roleCacheOpts),
 		rolePermissionRepository:         rolePermissionRepository,
 		staffAssignmentRepository:        staffing.NewStaffAssignmentRepository(log, db, staffAssignmentCacheOpts),
-		ticketTypeRepository:             tickets.NewTicketTypeRepository(log, db, ticketTypeCacheOpts),
-		ticketTypeWorkflowStepRepository: tickets.NewTicketTypeWorkflowStepRepository(log, db),
-		guestRepository:                  guests.NewGuestRepository(log, db, guestCacheOpts, guestPIIEncryptor),
-		ticketRepository:                 guests.NewTicketRepository(log, db, ticketCacheOpts),
-		guestPIIEncryptor:                guestPIIEncryptor,
-		scanLogRepository:                scans.NewScanLogRepository(log, db),
+		ticketTypeRepository:             tickettype.NewTicketTypeRepository(log, db, ticketTypeCacheOpts),
+		ticketTypeWorkflowStepRepository: tickettype.NewTicketTypeWorkflowStepRepository(log, db),
+		ticketTypeTemplateRepository: tickettypetemplate.NewTicketTypeTemplateRepository(
+			log, db, ticketTypeTemplateCacheOpts,
+		),
+		guestRepository:   guests.NewGuestRepository(log, db, guestCacheOpts, guestPIIEncryptor),
+		ticketRepository:  guests.NewTicketRepository(log, db, ticketCacheOpts),
+		guestPIIEncryptor: guestPIIEncryptor,
+		scanLogRepository: scans.NewScanLogRepository(log, db),
 	}, nil
 }

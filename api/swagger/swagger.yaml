@@ -171,7 +171,7 @@ definitions:
       total_pages:
         type: integer
     type: object
-  dto.PageResponse-internal_features_tickets_TicketType:
+  dto.PageResponse-internal_features_tickets_tickettype_TicketType:
     properties:
       has_next:
         type: boolean
@@ -179,7 +179,26 @@ definitions:
         type: boolean
       items:
         items:
-          $ref: '#/definitions/internal_features_tickets.TicketType'
+          $ref: '#/definitions/internal_features_tickets_tickettype.TicketType'
+        type: array
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  dto.PageResponse-internal_features_tickets_tickettypetemplate_TicketTypeTemplate:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate'
         type: array
       page:
         type: integer
@@ -760,7 +779,7 @@ definitions:
       type:
         type: string
     type: object
-  internal_features_tickets.CreateTicketTypeInput:
+  internal_features_tickets_tickettype.CreateTicketTypeInput:
     properties:
       name:
         type: string
@@ -771,14 +790,14 @@ definitions:
     required:
     - name
     type: object
-  internal_features_tickets.ReplaceWorkflowStepsInput:
+  internal_features_tickets_tickettype.ReplaceWorkflowStepsInput:
     properties:
       workflow_step_ids:
         items:
           type: string
         type: array
     type: object
-  internal_features_tickets.TicketType:
+  internal_features_tickets_tickettype.TicketType:
     properties:
       created_at:
         type: string
@@ -801,7 +820,47 @@ definitions:
           type: string
         type: array
     type: object
-  internal_features_tickets.UpdateTicketTypeInput:
+  internal_features_tickets_tickettype.UpdateTicketTypeInput:
+    properties:
+      name:
+        minLength: 1
+        type: string
+      rules:
+        items:
+          type: integer
+        type: array
+    type: object
+  internal_features_tickets_tickettypetemplate.CreateTicketTypeTemplateInput:
+    properties:
+      name:
+        type: string
+      rules:
+        items:
+          type: integer
+        type: array
+    required:
+    - name
+    type: object
+  internal_features_tickets_tickettypetemplate.TicketTypeTemplate:
+    properties:
+      category_id:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      rules:
+        items:
+          type: integer
+        type: array
+      updated_at:
+        type: string
+    type: object
+  internal_features_tickets_tickettypetemplate.UpdateTicketTypeTemplateInput:
     properties:
       name:
         minLength: 1
@@ -1032,6 +1091,273 @@ paths:
       summary: Create event category
       tags:
       - event-categories
+  /api/v1/event-categories/{category_id}/ticket-type-templates:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns a paginated list of ticket type templates for an event
+        category. Query: page, size, sort=field,dir (repeatable), filter by allowed
+        fields (name). Requires the manage_events permission.'
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Page number (1-based)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: size
+        type: integer
+      - description: 'Sort: field,dir (e.g. sort=name,ASC)'
+        in: query
+        name: sort
+        type: string
+      - description: Filter by name (exact match)
+        in: query
+        name: name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PageResponse-internal_features_tickets_tickettypetemplate_TicketTypeTemplate'
+        "400":
+          description: Invalid category id or query
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List ticket type templates
+      tags:
+      - ticket-type-templates
+    post:
+      consumes:
+      - application/json
+      description: Creates a new ticket type template under an event category; name
+        is unique per category. Copied onto every event created under this category
+        thereafter (see events' POST /api/v1/events). Requires the manage_events permission.
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Ticket type template payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_tickets_tickettypetemplate.CreateTicketTypeTemplateInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate'
+        "400":
+          description: Invalid request body or validation error
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "409":
+          description: Ticket type template name already exists for this category
+          schema:
+            type: object
+        "422":
+          description: Unprocessable entity
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create ticket type template
+      tags:
+      - ticket-type-templates
+  /api/v1/event-categories/{category_id}/ticket-type-templates/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Soft-deletes a ticket type template by ID, scoped to its event
+        category. Does not retroactively change ticket types already seeded from this
+        template on existing events. Requires the manage_events permission.
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Ticket type template UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "404":
+          description: Ticket type template not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete ticket type template
+      tags:
+      - ticket-type-templates
+    get:
+      consumes:
+      - application/json
+      description: Returns a single ticket type template by UUID, scoped to its event
+        category. Requires the manage_events permission.
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Ticket type template UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate'
+        "400":
+          description: Invalid ID format
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "404":
+          description: Ticket type template not found
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get ticket type template by ID
+      tags:
+      - ticket-type-templates
+    put:
+      consumes:
+      - application/json
+      description: Partially updates a ticket type template's name/rules. Only provided
+        fields are applied; category_id is immutable. Does not retroactively change
+        ticket types already seeded from this template on existing events. Requires
+        the manage_events permission.
+      parameters:
+      - description: Event category UUID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Ticket type template UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_tickets_tickettypetemplate.UpdateTicketTypeTemplateInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate'
+        "400":
+          description: Invalid ID or request body
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "404":
+          description: Ticket type template not found
+          schema:
+            type: object
+        "409":
+          description: Ticket type template name already exists for this category
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update ticket type template
+      tags:
+      - ticket-type-templates
   /api/v1/event-categories/{category_id}/workflow-step-templates:
     get:
       consumes:
@@ -2187,7 +2513,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dto.PageResponse-internal_features_tickets_TicketType'
+            $ref: '#/definitions/dto.PageResponse-internal_features_tickets_tickettype_TicketType'
         "400":
           description: Invalid event id or query
           schema:
@@ -2226,14 +2552,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_tickets.CreateTicketTypeInput'
+          $ref: '#/definitions/internal_features_tickets_tickettype.CreateTicketTypeInput'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/internal_features_tickets.TicketType'
+            $ref: '#/definitions/internal_features_tickets_tickettype.TicketType'
         "400":
           description: Invalid request body or validation error
           schema:
@@ -2333,7 +2659,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_tickets.TicketType'
+            $ref: '#/definitions/internal_features_tickets_tickettype.TicketType'
         "400":
           description: Invalid ID format
           schema:
@@ -2380,14 +2706,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_tickets.UpdateTicketTypeInput'
+          $ref: '#/definitions/internal_features_tickets_tickettype.UpdateTicketTypeInput'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_tickets.TicketType'
+            $ref: '#/definitions/internal_features_tickets_tickettype.TicketType'
         "400":
           description: Invalid ID or request body
           schema:
@@ -2440,14 +2766,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_features_tickets.ReplaceWorkflowStepsInput'
+          $ref: '#/definitions/internal_features_tickets_tickettype.ReplaceWorkflowStepsInput'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_features_tickets.TicketType'
+            $ref: '#/definitions/internal_features_tickets_tickettype.TicketType'
         "400":
           description: Invalid request body, ID, or a workflow_step_id not belonging
             to this event

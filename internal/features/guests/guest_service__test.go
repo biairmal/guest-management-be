@@ -15,7 +15,7 @@ import (
 
 	"github.com/biairmal/guest-management-be/internal/core/query"
 	"github.com/biairmal/guest-management-be/internal/features/events/event"
-	"github.com/biairmal/guest-management-be/internal/features/tickets"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettype"
 	mockguests "github.com/biairmal/guest-management-be/mocks/guests"
 )
 
@@ -37,7 +37,7 @@ func newTestService(
 	repo repository.Repository[Guest, uuid.UUID],
 	ticketRepo repository.Repository[Ticket, uuid.UUID],
 	eventRepo repository.ReadRepository[event.Event, uuid.UUID],
-	ticketTypeRepo repository.ReadRepository[tickets.TicketType, uuid.UUID],
+	ticketTypeRepo repository.ReadRepository[tickettype.TicketType, uuid.UUID],
 	encryptor PIIEncryptor,
 ) GuestService {
 	return NewGuestService(
@@ -51,7 +51,7 @@ func TestGuestService_Create(t *testing.T) {
 	t.Run("ticket type not found maps to 400", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[Guest, uuid.UUID](ctrl)
-		ticketTypeRepo := mockrepository.NewMockRepository[tickets.TicketType, uuid.UUID](ctrl)
+		ticketTypeRepo := mockrepository.NewMockRepository[tickettype.TicketType, uuid.UUID](ctrl)
 		ticketTypeID := uuid.New()
 		ticketTypeRepo.EXPECT().GetByID(gomock.Any(), ticketTypeID).Return(nil, repository.ErrNotFound)
 		svc := newTestService(repo, nil, nil, ticketTypeRepo, nil)
@@ -65,10 +65,10 @@ func TestGuestService_Create(t *testing.T) {
 	t.Run("ticket type from a different event maps to 400", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[Guest, uuid.UUID](ctrl)
-		ticketTypeRepo := mockrepository.NewMockRepository[tickets.TicketType, uuid.UUID](ctrl)
+		ticketTypeRepo := mockrepository.NewMockRepository[tickettype.TicketType, uuid.UUID](ctrl)
 		ticketTypeID := uuid.New()
 		ticketTypeRepo.EXPECT().GetByID(gomock.Any(), ticketTypeID).
-			Return(&tickets.TicketType{ID: ticketTypeID, EventID: uuid.New()}, nil)
+			Return(&tickettype.TicketType{ID: ticketTypeID, EventID: uuid.New()}, nil)
 		svc := newTestService(repo, nil, nil, ticketTypeRepo, nil)
 
 		_, err := svc.Create(context.Background(), eventID, CreateGuestInput{
@@ -204,11 +204,11 @@ func TestGuestService_Update(t *testing.T) {
 	t.Run("ticket type cross-event maps to 400", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[Guest, uuid.UUID](ctrl)
-		ticketTypeRepo := mockrepository.NewMockRepository[tickets.TicketType, uuid.UUID](ctrl)
+		ticketTypeRepo := mockrepository.NewMockRepository[tickettype.TicketType, uuid.UUID](ctrl)
 		ticketTypeID := uuid.New()
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&Guest{ID: id, EventID: eventID}, nil)
 		ticketTypeRepo.EXPECT().GetByID(gomock.Any(), ticketTypeID).
-			Return(&tickets.TicketType{ID: ticketTypeID, EventID: uuid.New()}, nil)
+			Return(&tickettype.TicketType{ID: ticketTypeID, EventID: uuid.New()}, nil)
 		svc := newTestService(repo, nil, nil, ticketTypeRepo, nil)
 
 		_, err := svc.Update(context.Background(), eventID, id, UpdateGuestInput{TicketTypeID: &ticketTypeID})

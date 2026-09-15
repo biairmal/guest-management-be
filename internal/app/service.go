@@ -16,7 +16,8 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
-	"github.com/biairmal/guest-management-be/internal/features/tickets"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettype"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettypetemplate"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 )
 
@@ -30,7 +31,8 @@ type service struct {
 	authService                 appauth.Service
 	messageTemplateService      templates.MessageTemplateService
 	staffAssignmentService      staffing.StaffAssignmentService
-	ticketTypeService           tickets.TicketTypeService
+	ticketTypeService           tickettype.TicketTypeService
+	ticketTypeTemplateService   tickettypetemplate.Service
 	guestService                guests.GuestService
 	scanLogService              scans.ScanLogService
 	authzChecker                *coreauthz.Checker
@@ -44,11 +46,20 @@ func (a *App) initializeService(
 	eventRoleResolver := staffing.NewEventRoleResolver(repositories.staffAssignmentRepository)
 	authzChecker := coreauthz.NewChecker(logger, permissionResolver, eventRoleResolver)
 
+	// ticketTypeService is constructed before eventService: eventService.Create
+	// needs it as its TicketTypeSeeder (B12) — see event.NewService below.
+	ticketTypeService := tickettype.NewTicketTypeService(
+		logger, repositories.ticketTypeRepository,
+		repositories.ticketTypeWorkflowStepRepository, repositories.workflowStepRepository,
+		repositories.ticketTypeTemplateRepository,
+	)
+
 	return &service{
 		categoryService: category.NewService(logger, repositories.categoryRepository),
 		eventService: event.NewService(
 			logger, repositories.eventRepository,
 			repositories.workflowStepTemplateRepository, repositories.workflowStepRepository,
+			ticketTypeService, a.db,
 		),
 		workflowStepService: workflowstep.NewService(logger, repositories.workflowStepRepository),
 		workflowStepTemplateService: workflowsteptemplate.NewService(
@@ -67,9 +78,9 @@ func (a *App) initializeService(
 			logger, repositories.staffAssignmentRepository, repositories.eventRepository,
 			repositories.userRepository, repositories.roleRepository,
 		),
-		ticketTypeService: tickets.NewTicketTypeService(
-			logger, repositories.ticketTypeRepository,
-			repositories.ticketTypeWorkflowStepRepository, repositories.workflowStepRepository,
+		ticketTypeService: ticketTypeService,
+		ticketTypeTemplateService: tickettypetemplate.NewService(
+			logger, repositories.ticketTypeTemplateRepository,
 		),
 		guestService: guests.NewGuestService(
 			logger, repositories.guestRepository, repositories.ticketRepository,

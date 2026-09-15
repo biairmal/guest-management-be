@@ -34,7 +34,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B9 | Domain | `scans` (check-in / scan logs) | B8 | ✅ |
 | B10 | Domain | `post-event-comms` (thank-you message + documentation links, sent after event completion) | B8, B9 | ⬜ (not started — Story written, see phase notes) |
 | B11 | Domain | `users` hardening (permission gate, JWT tenant scoping, forced-password-reset flag, tenant-master ownership transfer) | B2, B3, B6 | ✅ |
-| B12 | Domain | `ticket-type-templates` (default ticket types per event category) | B4, B5, B7 | ⬜ (not started — Story written, see phase notes) |
+| B12 | Domain | `ticket-type-templates` (default ticket types per event category) | B4, B5, B7 | ✅ **Done** |
 | B13 | Domain | `event-reports` (live guest/workflow-step counts) | B8, B9 | ⬜ (not started — Story written, see phase notes) |
 | B14 | Domain | `incidents` (event incident tickets) | B4, B6 | ⬜ (not started — Story written, see phase notes) |
 
@@ -324,7 +324,7 @@ each phase names its migration and tables. Ordered by data dependency.
 | **B9** | `scans` | `000010` — `scan_logs` | `POST/GET /api/v1/events/{event_id}/scans` check-in; scan history |
 | **B10** | `post-event-comms` | not yet designed | Thank-you message + documentation links sent after event completion (REQUIREMENT.md §4.7) |
 | **B11** | `users` hardening | none — columns added to existing `users` table + one new endpoint | Permission gate on existing `/api/v1/users`; `POST /api/v1/users/{id}/transfer-master` (shape TBD) |
-| **B12** | `ticket-type-templates` | not yet designed | CRUD `/api/v1/event-categories/{category_id}/ticket-type-templates`; copied into `ticket_types` on event create |
+| **B12** | `ticket-type-templates` | `000019` — `ticket_type_templates` | CRUD `/api/v1/event-categories/{category_id}/ticket-type-templates`; copied into `ticket_types` on event create (transactional) |
 | **B13** | `event-reports` | not yet designed, read-only over existing tables | `GET /api/v1/events/{event_id}/report` (shape TBD) |
 | **B14** | `incidents` | not yet designed | CRUD-ish `/api/v1/events/{event_id}/incidents` |
 
@@ -1134,6 +1134,164 @@ recommend yes, for consistency, but confirm during design.
 
 This is a new domain entity — `TicketTypeTemplate` — already added to REQUIREMENT.md §3.12, with
 `EventCategoryBase.ticketTypeTemplates[]` (§3.5) and the event-creation copy behavior (§4.2, §7) updated to match.
+
+#### Technical Design (solutions-architect)
+
+**Slice boundary:** extends the existing `tickets` slice (`internal/features/tickets`) — `TicketTypeTemplate`
+templates `TicketType`, exactly as `workflow_step_templates` templates `WorkflowStep` inside `events`; a
+template is not an independent domain concept, it's the entity it seeds one level up, so it stays in the
+feature that owns that entity. This is `tickets`' second distinct entity (today only `TicketType`), which
+**triggers** the per-entity split required by AGENTS.md's multi-entity rule: `tickets` splits into
+`internal/features/tickets/tickettype/` (existing `ticket_type_*.go` files + the
+`ticket_type_workflow_step_repository.go` junction, moved as-is) and
+`internal/features/tickets/tickettypetemplate/` (new), mirroring `events/category` +
+`events/workflowsteptemplate`. `tickets/config.go` and `tickets_constants.go` (holding
+`PermissionManageEvents`) stay at the feature root and are imported by both subpackages — same as
+`events/config.go` today.
+
+**Data model:** new table, no reuse candidate exists in DATABASE.md. Migration `000019`:
+
+- `ticket_type_templates`: `id UUID PK`, `category_id UUID NOT NULL FK→event_categories.id`,
+  `name TEXT NOT NULL`, `rules JSONB NOT NULL DEFAULT '{}'`, `created_at`/`updated_at`/`deleted_at`
+  (soft delete, same convention as every other templated/scoped table). `UNIQUE (category_id, name)` —
+  mirrors `ticket_types`' own `UNIQUE (event_id, name)` one level up.
+- No `order_index` and no `ticket_type_applicability`-style column: `ticket_types` itself has neither an
+  ordering concept nor an applicability-metadata column (DATABASE.md §3.11), so the template shouldn't invent
+  fields its target entity doesn't have.
+
+**API surface:**
+
+- `POST /api/v1/event-categories/{category_id}/ticket-type-templates` — create a template (`name`, `rules`).
+- `GET /api/v1/event-categories/{category_id}/ticket-type-templates` — list, paginated, category-scoped.
+- `GET /api/v1/event-categories/{category_id}/ticket-type-templates/{id}` — fetch, 404 if wrong category.
+- `PUT /api/v1/event-categories/{category_id}/ticket-type-templates/{id}` — partial update.
+- `DELETE /api/v1/event-categories/{category_id}/ticket-type-templates/{id}` — soft delete.
+
+All five gated on `manage_events` (`tickets.PermissionManageEvents`, unchanged value, imported by the new
+`tickettypetemplate` subpackage from the `tickets` feature root) — **not** left ungated. Deciding this the
+opposite way from `workflow-step-templates`: `workflow-step-templates` is ungated because the entity it
+seeds (`workflow_steps`, via `events`' own endpoints) is *itself* ungated (B4 phase notes: auth only, no
+permission code). `ticket_type_templates` seeds `ticket_types`, which *is* gated on `manage_events` (B7).
+Matching the gate to the entity a template produces — not copying the sibling template feature's gate
+verbatim — keeps "who can shape an event's ticket types" one consistent answer whether they do it directly
+(`POST .../ticket-types`) or indirectly (editing the category's templates before the event is created).
+Leaving templates ungated would let anyone with a valid token reshape every future event's default ticket
+types under a category without `manage_events` — a bigger blast radius than the single-event endpoint it
+would bypass.
+
+No new endpoint on `events`: the copy step is a side effect of the existing `POST /api/v1/events`, verified
+per AC2 via the existing `GET /api/v1/events/{event_id}/ticket-types`.
+
+**Copy-on-create mechanism:** `EventService.Create` (in `events/event`) cannot import `tickets` — the
+codebase's cross-feature dependencies run one direction only, by build order (`events` ← `tickets` ← `guests`
+← `scans`; `tickets` already imports `events/workflowstep`). Reversing that for this one call would make
+`events` and `tickets` mutually dependent, breaking "each slice is an independently extractable service"
+for both. Instead, `events/event` declares a small consumer-side interface it owns:
+
+```go
+// TicketTypeSeeder seeds new ticket types for a newly created event from its
+// category's ticket-type templates. Implemented by tickets' ticket type
+// service; wired in internal/app so this package never imports tickets.
+// Returns error, not best-effort: Create runs this inside a transaction (see
+// "Create runs inside one transaction" below), so a seeding failure must
+// propagate to roll back the whole event creation rather than being
+// swallowed.
+type TicketTypeSeeder interface {
+    SeedFromCategoryTemplates(ctx context.Context, eventID, categoryID uuid.UUID) error
+}
+```
+
+`eventServiceImpl` gains two new `NewService` parameters, following `NewUserService`'s precedent (db last):
+`ticketTypeSeeder TicketTypeSeeder` and `db *sqlkit.DB`. `tickets/tickettype`'s `Service` gains the matching
+`SeedFromCategoryTemplates` method (now returning `error`) and is passed in as the `TicketTypeSeeder` at the
+`internal/app` composition root — the one layer allowed to know both features. (The existing
+`event.NewService(...)` call site in `internal/app/service.go` needs `ticketTypeService` available first —
+hoist its construction above `eventService`'s, or into a local variable — since `Create`'s previous ordering
+built `eventService` before `ticketTypeService`.) This is the same interface-at-the-consumer idiom already
+used for `guests`' `PIIEncryptor`/`InvitationPublisher` — not a new pattern.
+
+`SeedFromCategoryTemplates` lists `tickettypetemplate` rows for `categoryID` (a same-feature,
+sibling-entity repository dependency on `tickettype.Service` — precedented by `event.Service`'s existing
+direct dependency on `workflowsteptemplate`'s repo inside the same `events` slice) and, for each template,
+reuses the same internal creation path `Create` already uses (insert the `TicketType` row, then seed its
+workflow-step applicability from the event's current steps).
+
+**Create runs inside one transaction:** the event insert, the workflow-step-template copy, and the
+ticket-type-template seed are wrapped in a single `s.db.WithTransaction(ctx, func(txCtx context.Context)
+error {...})` — go-sdk's `(*sqlkit.DB).WithTransaction`, the exact mechanism `users`' `TransferMaster` already
+uses (`user_service.go`). All three steps run against `txCtx`, not `ctx`: the go-sdk generic SQL repository
+detects an active transaction via `sqlkit.ExtractTx(ctx)`, so no repository-layer change is needed — passing
+`txCtx` into the existing `s.repo.Create`, `s.workflowStepRepo.Create`, and (inside the seeder)
+`tickettype`'s own repo calls is sufficient for them to all commit or roll back together.
+
+```go
+func (s *eventServiceImpl) Create(ctx context.Context, in CreateEventInput) (*Event, error) {
+    // ...validation and entity construction unchanged...
+
+    err := s.db.WithTransaction(ctx, func(txCtx context.Context) error {
+        if err := s.repo.Create(txCtx, entity); err != nil {
+            // ...same errorz translation as today...
+        }
+        if err := s.copyWorkflowStepTemplates(txCtx, entity); err != nil {
+            return err
+        }
+        return s.ticketTypeSeeder.SeedFromCategoryTemplates(txCtx, entity.ID, entity.CategoryID)
+    })
+    if err != nil {
+        return nil, err
+    }
+
+    s.logger.InfoWithContext(ctx, "event created", logger.F("id", entity.ID))
+    return entity, nil
+}
+```
+
+**Error propagation, revised — no longer best-effort:** this replaces the "Best-effort, confirmed: yes" call
+in the prior version of this design. A transaction only does something if a failure inside it actually rolls
+back; log-and-continue while wrapped in `WithTransaction` would always commit regardless of error, making the
+wrapping pointless. So both loops change from "log and continue past a per-item failure" to "return
+`errorz`-wrapped error on the first failure, aborting the whole transaction":
+
+- `copyWorkflowStepTemplates(ctx context.Context, event *Event) error` — the template-list lookup and each
+  per-template `workflowStepRepo.Create` now return immediately on error instead of logging and continuing;
+  its doc comment's "best-effort" framing is removed and replaced with a note that a failure here now aborts
+  event creation.
+- `TicketTypeSeeder.SeedFromCategoryTemplates(ctx, eventID, categoryID uuid.UUID) error` — same treatment.
+
+This is justified purely by what was asked for (atomic event creation), not a new correctness argument found
+independently: AC2 only requires that when templates exist, the event ends up with matching ticket types — a
+mid-seed failure that still commits the event with partial ticket types (the old best-effort behavior) is a
+worse, silently-inconsistent outcome than the request failing outright so the caller can retry. AC3 (no
+templates → zero ticket types) and AC6 (template edits don't retroactively change past events) are unaffected
+by this change — neither exercises the failure path. AC4 (never copy a different category's template) is a
+correctness property of the query itself, orthogonal to error handling.
+
+**Touches already-shipped B4/B5 code — not scoped to new files only:** implementing this also means editing
+`event_service.go`'s `Create`, `copyWorkflowStepTemplates` (signature + doc comment), and `NewService` (two
+new parameters: `ticketTypeSeeder`, `db`), plus the single call site at `internal/app/service.go`'s
+`event.NewService(...)` (add `ticketTypeSeeder` and `a.db`, mirroring `userService`'s existing `a.db`
+wiring — there is exactly one call site, confirmed by a repo-wide search). `backend-developer`: this diff is
+not additive-only — call that out in the PR description so it doesn't read as an unrelated change to shipped
+code.
+
+**AC5, no special-casing:** because `SeedFromCategoryTemplates` calls the exact same creation path as a
+manual `POST .../ticket-types`, the "defaults to all of the event's current workflow steps" behavior
+(B7 AC7, `seedDefaultWorkflowSteps`) applies automatically — no separate code path to keep in sync.
+
+**Non-goals:**
+
+- No `order_index`/applicability metadata on the template — `ticket_types` has neither; don't give the
+  template fields its target entity doesn't have.
+- No FK from `ticket_types` back to `ticket_type_templates` — matches `workflow_steps` having no FK back to
+  `workflow_step_templates` (AC6's "seed at creation time only" is satisfied by there being no live link to
+  retroactively follow, not by an FK that then has to be ignored).
+- No transactional atomicity across the per-template ticket-type insert + workflow-step-junction writes —
+  matches the existing non-transactional precedent in `TicketTypeWorkflowStepRepository` and
+  `copyWorkflowStepTemplates`; no feature in this codebase uses transactions yet.
+- No category-existence pre-check in `Create` — same as `workflow_step_templates`, an invalid `category_id`
+  surfaces via the FK constraint as `repository.ErrInvalidEntity` → `errorz.UnprocessableEntity`.
+- No new permission code — reuses `manage_events`.
+- No bulk/batch template endpoints — single-item CRUD only, same shape as `workflow-step-templates`.
 
 ### B13. `event-reports`
 

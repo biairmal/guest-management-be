@@ -1,4 +1,4 @@
-package tickets
+package tickettype
 
 import (
 	"context"
@@ -16,15 +16,17 @@ import (
 
 	"github.com/biairmal/guest-management-be/internal/core/query"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
-	mocktickets "github.com/biairmal/guest-management-be/mocks/tickets"
+	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettypetemplate"
+	mocktickettype "github.com/biairmal/guest-management-be/mocks/tickets/tickettype"
 )
 
 func newTestService(
 	repo repository.Repository[TicketType, uuid.UUID],
 	junctionRepo TicketTypeWorkflowStepRepository,
 	workflowStepRepo repository.Repository[workflowstep.WorkflowStep, uuid.UUID],
+	templateRepo repository.Repository[tickettypetemplate.TicketTypeTemplate, uuid.UUID],
 ) TicketTypeService {
-	return NewTicketTypeService(logger.NewNoOp(), repo, junctionRepo, workflowStepRepo)
+	return NewTicketTypeService(logger.NewNoOp(), repo, junctionRepo, workflowStepRepo, templateRepo)
 }
 
 func TestTicketTypeService_Create(t *testing.T) {
@@ -33,10 +35,10 @@ func TestTicketTypeService_Create(t *testing.T) {
 	t.Run("name conflict maps to 409", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(repository.ErrAlreadyExists)
-		svc := newTestService(repo, junctionRepo, workflowStepRepo)
+		svc := newTestService(repo, junctionRepo, workflowStepRepo, nil)
 
 		_, err := svc.Create(context.Background(), eventID, CreateTicketTypeInput{Name: "VIP"})
 		assertErrorzCode(t, err, errorz.CodeConflict)
@@ -45,10 +47,10 @@ func TestTicketTypeService_Create(t *testing.T) {
 	t.Run("invalid entity maps to 422", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(repository.ErrInvalidEntity)
-		svc := newTestService(repo, junctionRepo, workflowStepRepo)
+		svc := newTestService(repo, junctionRepo, workflowStepRepo, nil)
 
 		_, err := svc.Create(context.Background(), eventID, CreateTicketTypeInput{Name: "VIP"})
 		assertErrorzCode(t, err, errorz.CodeUnprocessableEntity)
@@ -57,10 +59,10 @@ func TestTicketTypeService_Create(t *testing.T) {
 	t.Run("unexpected create error maps to 500", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("boom"))
-		svc := newTestService(repo, junctionRepo, workflowStepRepo)
+		svc := newTestService(repo, junctionRepo, workflowStepRepo, nil)
 
 		_, err := svc.Create(context.Background(), eventID, CreateTicketTypeInput{Name: "VIP"})
 		assertErrorzCode(t, err, errorz.CodeInternal)
@@ -69,7 +71,7 @@ func TestTicketTypeService_Create(t *testing.T) {
 	t.Run("happy path defaults rules to empty object and seeds all event workflow steps", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
 
 		stepA, stepB := uuid.New(), uuid.New()
@@ -92,7 +94,7 @@ func TestTicketTypeService_Create(t *testing.T) {
 				return []*workflowstep.WorkflowStep{{ID: stepA}, {ID: stepB}}, int64(2), nil
 			})
 		junctionRepo.EXPECT().SetWorkflowStepIDs(gomock.Any(), gomock.Any(), []uuid.UUID{stepA, stepB}).Return(nil)
-		svc := newTestService(repo, junctionRepo, workflowStepRepo)
+		svc := newTestService(repo, junctionRepo, workflowStepRepo, nil)
 
 		got, err := svc.Create(context.Background(), eventID, CreateTicketTypeInput{Name: "VIP"})
 		if err != nil {
@@ -109,11 +111,11 @@ func TestTicketTypeService_Create(t *testing.T) {
 	t.Run("default workflow step lookup failure is best-effort and does not fail create", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 		workflowStepRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), errors.New("boom"))
-		svc := newTestService(repo, junctionRepo, workflowStepRepo)
+		svc := newTestService(repo, junctionRepo, workflowStepRepo, nil)
 
 		got, err := svc.Create(context.Background(), eventID, CreateTicketTypeInput{Name: "VIP"})
 		if err != nil {
@@ -127,13 +129,13 @@ func TestTicketTypeService_Create(t *testing.T) {
 	t.Run("default workflow step assign failure is best-effort and does not fail create", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 		workflowStepRepo.EXPECT().List(gomock.Any(), gomock.Any()).
 			Return([]*workflowstep.WorkflowStep{{ID: uuid.New()}}, int64(1), nil)
 		junctionRepo.EXPECT().SetWorkflowStepIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("boom"))
-		svc := newTestService(repo, junctionRepo, workflowStepRepo)
+		svc := newTestService(repo, junctionRepo, workflowStepRepo, nil)
 
 		got, err := svc.Create(context.Background(), eventID, CreateTicketTypeInput{Name: "VIP"})
 		if err != nil {
@@ -153,7 +155,7 @@ func TestTicketTypeService_GetByID(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(nil, repository.ErrNotFound)
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		_, err := svc.GetByID(context.Background(), eventID, id)
 		assertErrorzCode(t, err, errorz.CodeNotFound)
@@ -163,7 +165,7 @@ func TestTicketTypeService_GetByID(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: uuid.New()}, nil)
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		_, err := svc.GetByID(context.Background(), eventID, id)
 		assertErrorzCode(t, err, errorz.CodeNotFound)
@@ -173,7 +175,7 @@ func TestTicketTypeService_GetByID(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(nil, errors.New("boom"))
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		_, err := svc.GetByID(context.Background(), eventID, id)
 		assertErrorzCode(t, err, errorz.CodeInternal)
@@ -182,10 +184,10 @@ func TestTicketTypeService_GetByID(t *testing.T) {
 	t.Run("junction lookup failure maps to 500", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID}, nil)
 		junctionRepo.EXPECT().WorkflowStepIDsByTicketTypeID(gomock.Any(), id).Return(nil, errors.New("boom"))
-		svc := newTestService(repo, junctionRepo, nil)
+		svc := newTestService(repo, junctionRepo, nil, nil)
 
 		_, err := svc.GetByID(context.Background(), eventID, id)
 		assertErrorzCode(t, err, errorz.CodeInternal)
@@ -194,11 +196,11 @@ func TestTicketTypeService_GetByID(t *testing.T) {
 	t.Run("happy path populates workflow_step_ids", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		stepID := uuid.New()
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID}, nil)
 		junctionRepo.EXPECT().WorkflowStepIDsByTicketTypeID(gomock.Any(), id).Return([]uuid.UUID{stepID}, nil)
-		svc := newTestService(repo, junctionRepo, nil)
+		svc := newTestService(repo, junctionRepo, nil, nil)
 
 		got, err := svc.GetByID(context.Background(), eventID, id)
 		if err != nil {
@@ -218,7 +220,7 @@ func TestTicketTypeService_Update(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(nil, repository.ErrNotFound)
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		_, err := svc.Update(context.Background(), eventID, id, UpdateTicketTypeInput{})
 		assertErrorzCode(t, err, errorz.CodeNotFound)
@@ -228,7 +230,7 @@ func TestTicketTypeService_Update(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: uuid.New()}, nil)
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		_, err := svc.Update(context.Background(), eventID, id, UpdateTicketTypeInput{})
 		assertErrorzCode(t, err, errorz.CodeNotFound)
@@ -248,7 +250,7 @@ func TestTicketTypeService_Update(t *testing.T) {
 			repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 			repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID, Name: "Regular"}, nil)
 			repo.EXPECT().Update(gomock.Any(), id, gomock.Any()).Return(tt.updateErr)
-			svc := newTestService(repo, nil, nil)
+			svc := newTestService(repo, nil, nil, nil)
 
 			_, err := svc.Update(context.Background(), eventID, id, UpdateTicketTypeInput{Name: ptrString("VIP")})
 			assertErrorzCode(t, err, tt.wantErr)
@@ -260,7 +262,7 @@ func TestTicketTypeService_Update(t *testing.T) {
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID, Name: "Regular"}, nil)
 		repo.EXPECT().Update(gomock.Any(), id, gomock.Any()).Return(nil)
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		got, err := svc.Update(context.Background(), eventID, id, UpdateTicketTypeInput{Name: ptrString("VIP")})
 		if err != nil {
@@ -283,7 +285,7 @@ func TestTicketTypeService_Delete(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(nil, repository.ErrNotFound)
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		err := svc.Delete(context.Background(), eventID, id)
 		assertErrorzCode(t, err, errorz.CodeNotFound)
@@ -293,7 +295,7 @@ func TestTicketTypeService_Delete(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: uuid.New()}, nil)
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		err := svc.Delete(context.Background(), eventID, id)
 		assertErrorzCode(t, err, errorz.CodeNotFound)
@@ -304,7 +306,7 @@ func TestTicketTypeService_Delete(t *testing.T) {
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID}, nil)
 		repo.EXPECT().Delete(gomock.Any(), id).Return(nil)
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		if err := svc.Delete(context.Background(), eventID, id); err != nil {
 			t.Fatalf("Delete() error = %v", err)
@@ -319,7 +321,7 @@ func TestTicketTypeService_List(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), errors.New("boom"))
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		params, err := query.ParseListParams(url.Values{}, query.ListParseConfig{})
 		if err != nil {
@@ -345,7 +347,7 @@ func TestTicketTypeService_List(t *testing.T) {
 				}
 				return []*TicketType{{ID: uuid.New(), EventID: eventID}}, int64(1), nil
 			})
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		params, err := query.ParseListParams(url.Values{}, query.ListParseConfig{})
 		if err != nil {
@@ -369,7 +371,7 @@ func TestTicketTypeService_ReplaceWorkflowSteps(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(nil, repository.ErrNotFound)
-		svc := newTestService(repo, nil, nil)
+		svc := newTestService(repo, nil, nil, nil)
 
 		_, err := svc.ReplaceWorkflowSteps(context.Background(), eventID, id, []uuid.UUID{uuid.New()})
 		assertErrorzCode(t, err, errorz.CodeNotFound)
@@ -382,7 +384,7 @@ func TestTicketTypeService_ReplaceWorkflowSteps(t *testing.T) {
 		stepID := uuid.New()
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID}, nil)
 		workflowStepRepo.EXPECT().GetByID(gomock.Any(), stepID).Return(nil, repository.ErrNotFound)
-		svc := newTestService(repo, nil, workflowStepRepo)
+		svc := newTestService(repo, nil, workflowStepRepo, nil)
 
 		_, err := svc.ReplaceWorkflowSteps(context.Background(), eventID, id, []uuid.UUID{stepID})
 		assertErrorzCode(t, err, errorz.CodeBadRequest)
@@ -396,7 +398,7 @@ func TestTicketTypeService_ReplaceWorkflowSteps(t *testing.T) {
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID}, nil)
 		workflowStepRepo.EXPECT().GetByID(gomock.Any(), stepID).
 			Return(&workflowstep.WorkflowStep{ID: stepID, EventID: uuid.New()}, nil)
-		svc := newTestService(repo, nil, workflowStepRepo)
+		svc := newTestService(repo, nil, workflowStepRepo, nil)
 
 		_, err := svc.ReplaceWorkflowSteps(context.Background(), eventID, id, []uuid.UUID{stepID})
 		assertErrorzCode(t, err, errorz.CodeBadRequest)
@@ -409,7 +411,7 @@ func TestTicketTypeService_ReplaceWorkflowSteps(t *testing.T) {
 		stepID := uuid.New()
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID}, nil)
 		workflowStepRepo.EXPECT().GetByID(gomock.Any(), stepID).Return(nil, errors.New("boom"))
-		svc := newTestService(repo, nil, workflowStepRepo)
+		svc := newTestService(repo, nil, workflowStepRepo, nil)
 
 		_, err := svc.ReplaceWorkflowSteps(context.Background(), eventID, id, []uuid.UUID{stepID})
 		assertErrorzCode(t, err, errorz.CodeInternal)
@@ -418,14 +420,14 @@ func TestTicketTypeService_ReplaceWorkflowSteps(t *testing.T) {
 	t.Run("set failure maps to 500", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
 		stepID := uuid.New()
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID}, nil)
 		workflowStepRepo.EXPECT().GetByID(gomock.Any(), stepID).
 			Return(&workflowstep.WorkflowStep{ID: stepID, EventID: eventID}, nil)
 		junctionRepo.EXPECT().SetWorkflowStepIDs(gomock.Any(), id, []uuid.UUID{stepID}).Return(errors.New("boom"))
-		svc := newTestService(repo, junctionRepo, workflowStepRepo)
+		svc := newTestService(repo, junctionRepo, workflowStepRepo, nil)
 
 		_, err := svc.ReplaceWorkflowSteps(context.Background(), eventID, id, []uuid.UUID{stepID})
 		assertErrorzCode(t, err, errorz.CodeInternal)
@@ -434,14 +436,14 @@ func TestTicketTypeService_ReplaceWorkflowSteps(t *testing.T) {
 	t.Run("happy path replaces and returns updated workflow_step_ids", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
 		stepID := uuid.New()
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID}, nil)
 		workflowStepRepo.EXPECT().GetByID(gomock.Any(), stepID).
 			Return(&workflowstep.WorkflowStep{ID: stepID, EventID: eventID}, nil)
 		junctionRepo.EXPECT().SetWorkflowStepIDs(gomock.Any(), id, []uuid.UUID{stepID}).Return(nil)
-		svc := newTestService(repo, junctionRepo, workflowStepRepo)
+		svc := newTestService(repo, junctionRepo, workflowStepRepo, nil)
 
 		got, err := svc.ReplaceWorkflowSteps(context.Background(), eventID, id, []uuid.UUID{stepID})
 		if err != nil {
@@ -455,10 +457,10 @@ func TestTicketTypeService_ReplaceWorkflowSteps(t *testing.T) {
 	t.Run("empty set clears applicability", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
-		junctionRepo := mocktickets.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
 		repo.EXPECT().GetByID(gomock.Any(), id).Return(&TicketType{ID: id, EventID: eventID}, nil)
 		junctionRepo.EXPECT().SetWorkflowStepIDs(gomock.Any(), id, []uuid.UUID{}).Return(nil)
-		svc := newTestService(repo, junctionRepo, nil)
+		svc := newTestService(repo, junctionRepo, nil, nil)
 
 		got, err := svc.ReplaceWorkflowSteps(context.Background(), eventID, id, []uuid.UUID{})
 		if err != nil {
@@ -466,6 +468,102 @@ func TestTicketTypeService_ReplaceWorkflowSteps(t *testing.T) {
 		}
 		if len(got.WorkflowStepIDs) != 0 {
 			t.Errorf("WorkflowStepIDs = %v, want empty", got.WorkflowStepIDs)
+		}
+	})
+}
+
+func TestTicketTypeService_SeedFromCategoryTemplates(t *testing.T) {
+	eventID := uuid.New()
+	categoryID := uuid.New()
+
+	t.Run("template lookup failure maps to 500", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		templateRepo := mockrepository.NewMockRepository[tickettypetemplate.TicketTypeTemplate, uuid.UUID](ctrl)
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), errors.New("boom"))
+		svc := newTestService(nil, nil, nil, templateRepo)
+
+		err := svc.SeedFromCategoryTemplates(context.Background(), eventID, categoryID)
+		assertErrorzCode(t, err, errorz.CodeInternal)
+	})
+
+	t.Run("no templates for category seeds nothing", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		templateRepo := mockrepository.NewMockRepository[tickettypetemplate.TicketTypeTemplate, uuid.UUID](ctrl)
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(
+				_ context.Context, opts *repository.ListOptions,
+			) ([]*tickettypetemplate.TicketTypeTemplate, int64, error) {
+				found := false
+				for _, c := range opts.Filter.Conditions {
+					if c.Field == "category_id" && c.Value == categoryID {
+						found = true
+					}
+				}
+				if !found {
+					t.Error("expected category_id filter condition to be present and match categoryID")
+				}
+				return nil, 0, nil
+			})
+		svc := newTestService(nil, nil, nil, templateRepo)
+
+		if err := svc.SeedFromCategoryTemplates(context.Background(), eventID, categoryID); err != nil {
+			t.Fatalf("SeedFromCategoryTemplates() error = %v", err)
+		}
+	})
+
+	t.Run("a create failure aborts on first failure, no more templates are attempted", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
+		templateRepo := mockrepository.NewMockRepository[tickettypetemplate.TicketTypeTemplate, uuid.UUID](ctrl)
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(
+			[]*tickettypetemplate.TicketTypeTemplate{
+				{ID: uuid.New(), CategoryID: categoryID, Name: "Regular", Rules: emptyJSONObject},
+				{ID: uuid.New(), CategoryID: categoryID, Name: "VIP", Rules: emptyJSONObject},
+			}, int64(2), nil,
+		)
+		// Only the first template's Create call is expected: a failure aborts
+		// the loop instead of continuing to the second template.
+		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(repository.ErrAlreadyExists)
+		svc := newTestService(repo, nil, nil, templateRepo)
+
+		err := svc.SeedFromCategoryTemplates(context.Background(), eventID, categoryID)
+		assertErrorzCode(t, err, errorz.CodeConflict)
+	})
+
+	t.Run("copies every template as a ticket type with the seeder's default workflow steps", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[TicketType, uuid.UUID](ctrl)
+		junctionRepo := mocktickettype.NewMockTicketTypeWorkflowStepRepository(ctrl)
+		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
+		templateRepo := mockrepository.NewMockRepository[tickettypetemplate.TicketTypeTemplate, uuid.UUID](ctrl)
+
+		templates := []*tickettypetemplate.TicketTypeTemplate{
+			{ID: uuid.New(), CategoryID: categoryID, Name: "Regular", Rules: emptyJSONObject},
+			{ID: uuid.New(), CategoryID: categoryID, Name: "VIP", Rules: json.RawMessage(`{"max":10}`)},
+		}
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(templates, int64(len(templates)), nil)
+
+		var createdNames []string
+		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Times(2).
+			DoAndReturn(func(_ context.Context, e *TicketType) error {
+				if e.EventID != eventID {
+					t.Errorf("EventID = %v, want %v", e.EventID, eventID)
+				}
+				createdNames = append(createdNames, e.Name)
+				return nil
+			})
+		stepID := uuid.New()
+		workflowStepRepo.EXPECT().List(gomock.Any(), gomock.Any()).Times(2).
+			Return([]*workflowstep.WorkflowStep{{ID: stepID}}, int64(1), nil)
+		junctionRepo.EXPECT().SetWorkflowStepIDs(gomock.Any(), gomock.Any(), []uuid.UUID{stepID}).Times(2).Return(nil)
+
+		svc := newTestService(repo, junctionRepo, workflowStepRepo, templateRepo)
+
+		if err := svc.SeedFromCategoryTemplates(context.Background(), eventID, categoryID); err != nil {
+			t.Fatalf("SeedFromCategoryTemplates() error = %v", err)
+		}
+		if len(createdNames) != 2 || createdNames[0] != "Regular" || createdNames[1] != "VIP" {
+			t.Errorf("createdNames = %v, want [Regular VIP]", createdNames)
 		}
 	})
 }

@@ -1,4 +1,4 @@
-package tickets
+package tickettype
 
 import (
 	"encoding/json"
@@ -15,7 +15,11 @@ import (
 )
 
 // TicketTypeHandler exposes HTTP handlers for event-scoped ticket type CRUD
-// and workflow-step applicability.
+// and workflow-step applicability. Moved as-is from the tickets package root
+// (docs/DEVELOPMENT_PLAN.md B12); see ticket_type_service.go's
+// TicketTypeService for why the stutter is left alone.
+//
+//nolint:revive // stutter is a side effect of the multi-entity split, not a fresh naming choice
 type TicketTypeHandler struct {
 	service   TicketTypeService
 	validator validation.Validator
@@ -51,7 +55,7 @@ func eventIDFromPath(r *http.Request) (uuid.UUID, error) {
 //	@Param			size		query		int		false	"Page size (default 20, max 100)"
 //	@Param			sort		query		string	false	"Sort: field,dir (e.g. sort=name,ASC)"
 //	@Param			name		query		string	false	"Filter by name (exact match)"
-//	@Success		200			{object}	common.PageResponse[tickets.TicketType]
+//	@Success		200			{object}	common.PageResponse[tickettype.TicketType]
 //	@Failure		400			{object}	object	"Invalid event id or query"
 //	@Failure		401			{object}	object	"Unauthenticated"
 //	@Failure		403			{object}	object	"Missing manage_events permission"
@@ -88,7 +92,7 @@ func (h *TicketTypeHandler) List(r *http.Request) (any, error) {
 //	@Produce		json
 //	@Param			event_id	path		string	true	"Event UUID"
 //	@Param			id			path		string	true	"Ticket type UUID"
-//	@Success		200			{object}	tickets.TicketType
+//	@Success		200			{object}	tickettype.TicketType
 //	@Failure		400			{object}	object	"Invalid ID format"
 //	@Failure		401			{object}	object	"Unauthenticated"
 //	@Failure		403			{object}	object	"Missing manage_events permission"
@@ -122,8 +126,8 @@ func (h *TicketTypeHandler) GetByID(r *http.Request) (any, error) {
 //	@Accept			json
 //	@Produce		json
 //	@Param			event_id	path		string							true	"Event UUID"
-//	@Param			body		body		tickets.CreateTicketTypeInput	true	"Ticket type payload"
-//	@Success		201			{object}	tickets.TicketType
+//	@Param			body		body		tickettype.CreateTicketTypeInput	true	"Ticket type payload"
+//	@Success		201			{object}	tickettype.TicketType
 //	@Failure		400			{object}	object	"Invalid request body or validation error"
 //	@Failure		401			{object}	object	"Unauthenticated"
 //	@Failure		403			{object}	object	"Missing manage_events permission"
@@ -162,8 +166,8 @@ func (h *TicketTypeHandler) Create(r *http.Request) (any, error) {
 //	@Produce		json
 //	@Param			event_id	path		string							true	"Event UUID"
 //	@Param			id			path		string							true	"Ticket type UUID"
-//	@Param			body		body		tickets.UpdateTicketTypeInput	true	"Fields to update"
-//	@Success		200			{object}	tickets.TicketType
+//	@Param			body		body		tickettype.UpdateTicketTypeInput	true	"Fields to update"
+//	@Success		200			{object}	tickettype.TicketType
 //	@Failure		400			{object}	object	"Invalid ID or request body"
 //	@Failure		401			{object}	object	"Unauthenticated"
 //	@Failure		403			{object}	object	"Missing manage_events permission"
@@ -240,8 +244,8 @@ func (h *TicketTypeHandler) Delete(r *http.Request) (any, error) {
 //	@Produce		json
 //	@Param			event_id	path		string								true	"Event UUID"
 //	@Param			id			path		string								true	"Ticket type UUID"
-//	@Param			body		body		tickets.ReplaceWorkflowStepsInput	true	"Full desired set of workflow step IDs"
-//	@Success		200			{object}	tickets.TicketType
+//	@Param			body		body		tickettype.ReplaceWorkflowStepsInput	true	"Full desired set of workflow step IDs"
+//	@Success		200			{object}	tickettype.TicketType
 //	@Failure		400			{object}	object	"Invalid request body, ID, or a workflow_step_id not belonging to this event"
 //	@Failure		401			{object}	object	"Unauthenticated"
 //	@Failure		403			{object}	object	"Missing manage_events permission"

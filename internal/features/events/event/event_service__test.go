@@ -19,6 +19,25 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 )
 
+// stubTicketTypeSeeder is a real, minimal TicketTypeSeeder for tests that
+// exercise createEvent's transaction body without a live database — see
+// ticket_type_seeder.go for why this isn't a generated mock (it would import
+// package event's own types and cycle with this same-package test file, the
+// same reasoning as guests' noopInvitationPublisher).
+type stubTicketTypeSeeder struct {
+	err              error
+	called           bool
+	calledEventID    uuid.UUID
+	calledCategoryID uuid.UUID
+}
+
+func (s *stubTicketTypeSeeder) SeedFromCategoryTemplates(_ context.Context, eventID, categoryID uuid.UUID) error {
+	s.called = true
+	s.calledEventID = eventID
+	s.calledCategoryID = categoryID
+	return s.err
+}
+
 func TestIsMultiDay(t *testing.T) {
 	day1 := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -40,169 +59,200 @@ func TestIsMultiDay(t *testing.T) {
 	}
 }
 
-func TestEventService_Create(t *testing.T) {
+func TestBuildEvent(t *testing.T) {
 	start := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
-	tests := []struct {
-		name    string
-		in      CreateEventInput
-		expects bool
-		repoErr error
-		wantErr string
-	}{
-		{
-			name: "end_date before start_date rejected",
-			in: CreateEventInput{
-				TenantID: uuid.New(), CategoryID: uuid.New(), Name: "x", StartDate: start, EndDate: start.Add(-time.Hour),
-			},
-			wantErr: errorz.CodeBadRequest,
-		},
-		{
-			name: "already exists maps to 409",
-			in: CreateEventInput{
-				TenantID: uuid.New(), CategoryID: uuid.New(), Name: "x", StartDate: start, EndDate: start.Add(time.Hour),
-			},
-			expects: true,
-			repoErr: repository.ErrAlreadyExists,
-			wantErr: errorz.CodeConflict,
-		},
-		{
-			name: "invalid entity maps to 422",
-			in: CreateEventInput{
-				TenantID: uuid.New(), CategoryID: uuid.New(), Name: "x", StartDate: start, EndDate: start.Add(time.Hour),
-			},
-			expects: true,
-			repoErr: repository.ErrInvalidEntity,
-			wantErr: errorz.CodeUnprocessableEntity,
-		},
-		{
-			name: "unexpected repo error maps to 500",
-			in: CreateEventInput{
-				TenantID: uuid.New(), CategoryID: uuid.New(), Name: "x", StartDate: start, EndDate: start.Add(time.Hour),
-			},
-			expects: true,
-			repoErr: errors.New("boom"),
-			wantErr: errorz.CodeInternal,
-		},
-		{
-			name: "happy path",
-			in: CreateEventInput{
-				TenantID: uuid.New(), CategoryID: uuid.New(), Name: "x", StartDate: start, EndDate: start.Add(24 * time.Hour),
-			},
-			expects: true,
-		},
-	}
 	falseVal := false
-	tests = append(tests, struct {
-		name    string
-		in      CreateEventInput
-		expects bool
-		repoErr error
-		wantErr string
-	}{
-		name: "rsvp_required false is preserved, not defaulted",
-		in: CreateEventInput{
-			TenantID: uuid.New(), CategoryID: uuid.New(), Name: "x",
-			StartDate: start, EndDate: start.Add(time.Hour), RsvpRequired: &falseVal,
-		},
-		expects: true,
+
+	t.Run("rsvp_required defaults to true when omitted", func(t *testing.T) {
+		got := buildEvent(CreateEventInput{StartDate: start, EndDate: start.Add(time.Hour)})
+		if !got.RsvpRequired {
+			t.Errorf("RsvpRequired = %v, want true", got.RsvpRequired)
+		}
 	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
-			templateRepo := mockrepository.NewMockRepository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID](ctrl)
-			workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
-			if tt.expects {
-				repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(tt.repoErr)
-			}
-			if tt.expects && tt.repoErr == nil {
-				// Create succeeded: copyWorkflowStepTemplates always runs.
-				templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
-			}
+	t.Run("rsvp_required false is preserved, not defaulted", func(t *testing.T) {
+		got := buildEvent(CreateEventInput{StartDate: start, EndDate: start.Add(time.Hour), RsvpRequired: &falseVal})
+		if got.RsvpRequired {
+			t.Errorf("RsvpRequired = %v, want false", got.RsvpRequired)
+		}
+	})
 
-			svc := NewService(logger.NewNoOp(), repo, templateRepo, workflowStepRepo)
-			got, err := svc.Create(context.Background(), tt.in)
-			assertErrorzCode(t, err, tt.wantErr)
-			if tt.wantErr == "" {
-				if got == nil {
-					t.Fatal("expected non-nil entity on success")
-				}
-				if got.IsMultiDay != isMultiDay(tt.in.StartDate, tt.in.EndDate) {
-					t.Errorf("IsMultiDay = %v, want %v", got.IsMultiDay, isMultiDay(tt.in.StartDate, tt.in.EndDate))
-				}
-				wantRsvpRequired := true
-				if tt.in.RsvpRequired != nil {
-					wantRsvpRequired = *tt.in.RsvpRequired
-				}
-				if got.RsvpRequired != wantRsvpRequired {
-					t.Errorf("RsvpRequired = %v, want %v", got.RsvpRequired, wantRsvpRequired)
-				}
-			}
-		})
-	}
+	t.Run("is_multi_day derived from dates", func(t *testing.T) {
+		got := buildEvent(CreateEventInput{StartDate: start, EndDate: start.Add(24 * time.Hour)})
+		if !got.IsMultiDay {
+			t.Error("IsMultiDay = false, want true")
+		}
+	})
 }
 
-func TestEventService_Create_CopiesWorkflowStepTemplates(t *testing.T) {
+// TestEventService_Create_ValidatesDates exercises only the validation that
+// runs before Create's (*sqlkit.DB).WithTransaction call — the only part of
+// the public wrapper reachable without a live database in a unit test (a nil
+// db panics once WithTransaction is actually invoked). The transactional
+// body is covered directly via TestEventService_createEvent below, mirroring
+// users' transferMaster split.
+func TestEventService_Create_ValidatesDates(t *testing.T) {
+	start := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
+	svc := NewService(logger.NewNoOp(), nil, nil, nil, nil, nil)
+
+	_, err := svc.Create(context.Background(), CreateEventInput{
+		TenantID: uuid.New(), CategoryID: uuid.New(), Name: "x", StartDate: start, EndDate: start.Add(-time.Hour),
+	})
+	assertErrorzCode(t, err, errorz.CodeBadRequest)
+}
+
+// TestEventService_createEvent exercises Create's transactional body
+// (insert + workflow-step-template copy + ticket-type-template seed)
+// directly against mocked collaborators, without a live transaction — the
+// same reasoning as users' TestUserService_transferMaster.
+func TestEventService_createEvent(t *testing.T) {
+	newEntity := func() *Event { return &Event{ID: uuid.New(), CategoryID: uuid.New()} }
+
+	t.Run("already exists maps to 409, no further steps run", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(repository.ErrAlreadyExists)
+		seeder := &stubTicketTypeSeeder{}
+		svc := &eventServiceImpl{repo: repo, ticketTypeSeeder: seeder, logger: logger.NewNoOp()}
+
+		err := svc.createEvent(context.Background(), newEntity())
+		assertErrorzCode(t, err, errorz.CodeConflict)
+		if seeder.called {
+			t.Error("ticketTypeSeeder should not be called when the event insert fails")
+		}
+	})
+
+	t.Run("invalid entity maps to 422", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(repository.ErrInvalidEntity)
+		svc := &eventServiceImpl{repo: repo, logger: logger.NewNoOp()}
+
+		err := svc.createEvent(context.Background(), newEntity())
+		assertErrorzCode(t, err, errorz.CodeUnprocessableEntity)
+	})
+
+	t.Run("unexpected repo error maps to 500", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("boom"))
+		svc := &eventServiceImpl{repo: repo, logger: logger.NewNoOp()}
+
+		err := svc.createEvent(context.Background(), newEntity())
+		assertErrorzCode(t, err, errorz.CodeInternal)
+	})
+
+	t.Run("workflow step template copy failure aborts before the ticket type seed runs", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		templateRepo := mockrepository.NewMockRepository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID](ctrl)
+		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), errors.New("boom"))
+		seeder := &stubTicketTypeSeeder{}
+		svc := &eventServiceImpl{repo: repo, templateRepo: templateRepo, ticketTypeSeeder: seeder, logger: logger.NewNoOp()}
+
+		err := svc.createEvent(context.Background(), newEntity())
+		assertErrorzCode(t, err, errorz.CodeInternal)
+		if seeder.called {
+			t.Error("ticketTypeSeeder should not be called when the workflow step template copy fails (transaction aborts)")
+		}
+	})
+
+	t.Run("ticket type seed failure propagates (aborts the transaction)", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		templateRepo := mockrepository.NewMockRepository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID](ctrl)
+		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
+		seeder := &stubTicketTypeSeeder{err: errorz.Conflict().WithMessage("ticket type template conflict")}
+		svc := &eventServiceImpl{repo: repo, templateRepo: templateRepo, ticketTypeSeeder: seeder, logger: logger.NewNoOp()}
+
+		err := svc.createEvent(context.Background(), newEntity())
+		assertErrorzCode(t, err, errorz.CodeConflict)
+	})
+
+	t.Run("happy path seeds ticket types from the event's own id/category_id", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		templateRepo := mockrepository.NewMockRepository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID](ctrl)
+		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
+		seeder := &stubTicketTypeSeeder{}
+		svc := &eventServiceImpl{repo: repo, templateRepo: templateRepo, ticketTypeSeeder: seeder, logger: logger.NewNoOp()}
+
+		entity := newEntity()
+		if err := svc.createEvent(context.Background(), entity); err != nil {
+			t.Fatalf("createEvent() error = %v", err)
+		}
+		if !seeder.called {
+			t.Fatal("expected ticketTypeSeeder.SeedFromCategoryTemplates to be called")
+		}
+		if seeder.calledEventID != entity.ID || seeder.calledCategoryID != entity.CategoryID {
+			t.Errorf("seeder called with (%v, %v), want (%v, %v)",
+				seeder.calledEventID, seeder.calledCategoryID, entity.ID, entity.CategoryID)
+		}
+	})
+}
+
+func TestEventService_copyWorkflowStepTemplates(t *testing.T) {
 	categoryID := uuid.New()
-	in := CreateEventInput{
-		TenantID: uuid.New(), CategoryID: categoryID, Name: "x",
-		StartDate: time.Now(), EndDate: time.Now().Add(time.Hour),
-	}
+	entity := &Event{ID: uuid.New(), CategoryID: categoryID}
 
-	tests := []struct {
-		name          string
-		templates     []*workflowsteptemplate.WorkflowStepTemplate
-		templateErr   error
-		stepCreateErr error
-		wantStepCalls int
-	}{
-		{name: "no templates for category copies nothing"},
-		{
-			name:        "template lookup failure is non-fatal",
-			templateErr: errors.New("boom"),
-		},
-		{
-			name: "templates are copied as workflow steps",
-			templates: []*workflowsteptemplate.WorkflowStepTemplate{
-				{ID: uuid.New(), CategoryID: categoryID, Name: "Check-in", OrderIndex: 0},
-				{ID: uuid.New(), CategoryID: categoryID, Name: "Photo booth", OrderIndex: 1, AllowsMultiple: true},
-			},
-			wantStepCalls: 2,
-		},
-		{
-			name: "a single step copy failure is non-fatal and does not block the rest",
-			templates: []*workflowsteptemplate.WorkflowStepTemplate{
-				{ID: uuid.New(), CategoryID: categoryID, Name: "Check-in", OrderIndex: 0},
-			},
-			stepCreateErr: errors.New("boom"),
-			wantStepCalls: 1,
-		},
-	}
+	t.Run("template lookup failure aborts and maps to 500", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		templateRepo := mockrepository.NewMockRepository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID](ctrl)
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), errors.New("boom"))
+		svc := &eventServiceImpl{templateRepo: templateRepo, logger: logger.NewNoOp()}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
-			templateRepo := mockrepository.NewMockRepository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID](ctrl)
-			workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
+		err := svc.copyWorkflowStepTemplates(context.Background(), entity)
+		assertErrorzCode(t, err, errorz.CodeInternal)
+	})
 
-			repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-			templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(tt.templates, int64(len(tt.templates)), tt.templateErr)
-			if tt.wantStepCalls > 0 {
-				workflowStepRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(tt.stepCreateErr).Times(tt.wantStepCalls)
-			}
+	t.Run("no templates for category copies nothing", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		templateRepo := mockrepository.NewMockRepository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID](ctrl)
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
+		svc := &eventServiceImpl{templateRepo: templateRepo, logger: logger.NewNoOp()}
 
-			svc := NewService(logger.NewNoOp(), repo, templateRepo, workflowStepRepo)
-			got, err := svc.Create(context.Background(), in)
-			if err != nil {
-				t.Fatalf("Create() error = %v, want nil (template copy is best-effort)", err)
-			}
-			if got == nil {
-				t.Fatal("expected non-nil entity")
-			}
-		})
-	}
+		if err := svc.copyWorkflowStepTemplates(context.Background(), entity); err != nil {
+			t.Fatalf("copyWorkflowStepTemplates() error = %v", err)
+		}
+	})
+
+	t.Run("templates are copied as workflow steps", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		templateRepo := mockrepository.NewMockRepository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID](ctrl)
+		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
+		templates := []*workflowsteptemplate.WorkflowStepTemplate{
+			{ID: uuid.New(), CategoryID: categoryID, Name: "Check-in", OrderIndex: 0},
+			{ID: uuid.New(), CategoryID: categoryID, Name: "Photo booth", OrderIndex: 1, AllowsMultiple: true},
+		}
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(templates, int64(2), nil)
+		workflowStepRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+		svc := &eventServiceImpl{templateRepo: templateRepo, workflowStepRepo: workflowStepRepo, logger: logger.NewNoOp()}
+
+		if err := svc.copyWorkflowStepTemplates(context.Background(), entity); err != nil {
+			t.Fatalf("copyWorkflowStepTemplates() error = %v", err)
+		}
+	})
+
+	t.Run("a step copy failure aborts immediately, no more templates are attempted", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		templateRepo := mockrepository.NewMockRepository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID](ctrl)
+		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
+		templates := []*workflowsteptemplate.WorkflowStepTemplate{
+			{ID: uuid.New(), CategoryID: categoryID, Name: "Check-in", OrderIndex: 0},
+			{ID: uuid.New(), CategoryID: categoryID, Name: "Photo booth", OrderIndex: 1},
+		}
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(templates, int64(2), nil)
+		// Only the first template's Create call is expected: a failure aborts
+		// the loop instead of continuing to the second template.
+		workflowStepRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("boom"))
+		svc := &eventServiceImpl{templateRepo: templateRepo, workflowStepRepo: workflowStepRepo, logger: logger.NewNoOp()}
+
+		err := svc.copyWorkflowStepTemplates(context.Background(), entity)
+		assertErrorzCode(t, err, errorz.CodeInternal)
+	})
 }
 
 func TestEventService_GetByID(t *testing.T) {
@@ -223,7 +273,7 @@ func TestEventService_GetByID(t *testing.T) {
 			repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
 			repo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(tt.repoRes, tt.repoErr)
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil)
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil)
 			_, err := svc.GetByID(context.Background(), uuid.New())
 			assertErrorzCode(t, err, tt.wantErr)
 		})
@@ -300,7 +350,7 @@ func TestEventService_Update(t *testing.T) {
 				repo.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(tt.updateErr)
 			}
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil)
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil)
 			got, err := svc.Update(context.Background(), uuid.New(), tt.in)
 			assertErrorzCode(t, err, tt.wantErr)
 			if tt.wantErr == "" && tt.name == "happy path partial update recomputes is_multi_day" && !got.IsMultiDay {
@@ -330,7 +380,7 @@ func TestEventService_Delete(t *testing.T) {
 			repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
 			repo.EXPECT().Delete(gomock.Any(), gomock.Any()).Return(tt.repoErr)
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil)
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil)
 			err := svc.Delete(context.Background(), uuid.New())
 			assertErrorzCode(t, err, tt.wantErr)
 		})
@@ -356,7 +406,7 @@ func TestEventService_List(t *testing.T) {
 				List(gomock.Any(), gomock.Any()).
 				Return([]*Event{{Name: "x"}}, int64(1), tt.repoErr)
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil)
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil)
 			params, err := query.ParseListParams(url.Values{}, query.ListParseConfig{})
 			if err != nil {
 				t.Fatalf("ParseListParams() error = %v", err)
