@@ -16,7 +16,16 @@ Last regenerated: 2026-09-01 (B6 `staffing` — adds `roles`(internal-only)/`sta
 
 ### Base URL & versioning
 
-All endpoints are prefixed `/api/v1`, except `/health`, `/ready`, `/metrics`, and `/swagger/*`.
+All endpoints are prefixed `/api/v1`, except the unauthenticated ops endpoints `/health`, `/ready`,
+`/version`, `/metrics`, and `/swagger/*`.
+
+### Ops endpoints
+
+| Method | Path | Success | Notes |
+|---|---|---|---|
+| `GET` | `/health` | 200 | Liveness — process is up. |
+| `GET` | `/ready` | 200 / 503 | Readiness — 503 during shutdown or when the DB/Redis dependency check fails. |
+| `GET` | `/version` | 200 `{ "version": "<value>" }` | Build version (`main.version`, `"dev"` unless set via `-ldflags "-X main.version=..."`). |
 
 ### Auth
 
