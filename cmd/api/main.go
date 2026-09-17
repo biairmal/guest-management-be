@@ -46,6 +46,11 @@ import (
 
 // @externalDocs.description  OpenAPI
 // @externalDocs.url          https://swagger.io/resources/open-api/
+
+// version is the build version served by GET /version. It defaults to "dev"
+// and is overridden at build time via -ldflags "-X main.version=<value>".
+var version = "dev"
+
 func main() {
 	cfg := loadConfig()
 
@@ -233,6 +238,7 @@ func buildRouter(cfg *appconfig.Config, log logger.Logger, ready *atomic.Bool, d
 
 	r.Get("/health", httpkit.Health())
 	r.Get("/ready", httpkit.Readiness(readinessCheck(ready, deps.db, deps.redisClient)))
+	r.Get("/version", httpkit.Version(version))
 	if cfg.Metrics.Enabled {
 		r.Handle("/metrics", promhttp.Handler())
 	}
