@@ -2,6 +2,10 @@ github.com/KyleBanks/depth v1.2.1 h1:5h8fQADFrWtarTdtDudMmGsC7GPbOAu6RVB3ffsVFHc
 github.com/KyleBanks/depth v1.2.1/go.mod h1:jzSb9d0L43HxTQfT+oSA1EEp2q+ne2uh6XgeJcm8brE=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
+github.com/biairmal/go-sdk v0.1.0 h1:r3KObmfsIT1KOOH0ySWo/NiiWaHPQcFhiwI213l4Rgg=
+github.com/biairmal/go-sdk v0.1.0/go.mod h1:0i62cPWDEMlmt83XOSmG/b8zCaLdy496FR5nkrFvKd8=
+github.com/biairmal/go-sdk/mocks v0.1.0 h1:FrnlTxhiXeVuJO6XBgci36Q1K/WuAwCodp/U2Yb0y8Q=
+github.com/biairmal/go-sdk/mocks v0.1.0/go.mod h1:wMCtLC0Qx7TBFjfbSPbu5Wyj6qySIcv4yro1WYOMNAw=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
 github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
 github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=
