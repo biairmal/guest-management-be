@@ -1102,6 +1102,202 @@ rule this story establishes; only the password endpoint is actually built now (Y
 - `must_change_password` is not added as a new field on `Refresh`'s response population beyond the free reuse
   described above; no additional business rule (e.g. forcing re-login, invalidating tokens) is attached to it.
 
+#### UX Design (ui-ux-designer)
+
+Scope note: this subsection is filed here because B11 has the richest Story/Technical Design of the three
+backend slices it covers, but it designs the **whole** login + user-management surface — B3 `auth` (login,
+`must_change_password`/`user_id` on `TokenPair`) and B2 `users` (base CRUD) included, since neither has its own
+Story block to attach a UX Design to.
+
+**Visual mockup:** published as a live Claude Design canvas —
+[Login and User Management](https://claude.ai/artifact/EWK58Mm2N74WbRU2E77NNc). 20 artboards across four pages
+("Auth" / "Auth (dark)" / "User management" / "User management (dark)"): Login, Forced password change, User list
+(expanded and collapsed sider), **Create user (dedicated page)**, **User detail (dedicated page — edit + all
+account actions)**, Reset password, Transfer tenant master, Delete user, Change-my-password — each with a dark
+twin on the matching `*-dark` page, same x-position so a light/dark pair is easy to flip between. Working
+`.dc.html` source + `canvas.json` for anyone who wants to re-seed/edit:
+`C:\Users\banda\AppData\Local\Temp\claude\c--Dev-Projects-Guest-Management\e15bc76a-b4d6-438f-922f-097a6e33100b\scratchpad\design\`.
+The chrome (light `#f5f5f5` content, table/tag/modal styling) is lifted from `guest-management-fe/app/page.tsx`'s
+existing Layout/Sider/Menu/Table scaffold — new screens extend that vocabulary rather than inventing a second one.
+
+**Superseded (retone pass, later amendment):** the "Indigo × Plex" light-only theme described immediately below
+(`#f5f5f5` canvas, white header/sider/cards) was the *original* theme for these screens. It has since been
+replaced in place by the settled **Direction D "Full Dark Elevated"** token pair — see `DESIGN_SYSTEM.md` §1 for
+the canonical light+dark hex table and §7 for the User List's Filter/Sort wiring. All ten screens below are now
+retoned to those tokens (light updated in place, dark added as `*Dark.dc.html` twins); read the theme section
+below only for the original rationale on primary/accent color choice (still current — indigo/teal/Plex didn't
+change), not for the surface colors (canvas/chrome/pop, which did).
+
+**Theme (explicit product direction):** the app moves off antd's stock blue/default-font look. Chosen system —
+"Indigo × Plex" (see the "Style directions" page on the canvas above for the rejected alternatives and why):
+- Primary `#4F46E5` (indigo), accent `#0F766E` (teal, used for secondary/positive tags — deliberately not green,
+  to stay visually distinct from antd's semantic `success` color).
+- **Header/sider are light** (`#fff` background, `#E4E4E7` hairline border), not antd's dark-navy default —
+  amended after the first draft used a dark `#18181B` chrome; the product owner found the dark variant hard to
+  look at for a tool used all day. Selected `Menu` item is a light indigo tint (`#EEF2FF` background, `#4F46E5`
+  text/icon), matching antd's own light-theme `Menu` selected style rather than a filled dark highlight.
+- **Sider is collapsible to an icon-only rail** (`collapsedWidth`, no labels, trigger at the bottom) — see the
+  "User list (sider collapsed)" artboard. One shared `Layout`/`Sider` component drives every screen on this
+  page, so this isn't a per-screen concern for `frontend-developer` to re-solve.
+- Danger/warning/success semantics are **unchanged** (still antd defaults, e.g. `#ff4d4f` danger) — only the
+  brand primary/accent and chrome moved, so existing status-color meaning isn't disturbed.
+- Typeface: IBM Plex Sans throughout (headings and body — one family, weight does the differentiating), IBM
+  Plex Mono for generated/technical strings (temp passwords, ids, scan codes) where tabular alignment and
+  unambiguous characters matter. Both loaded via Google Fonts.
+- `antd` `ConfigProvider` theme tokens for `frontend-developer` to wire up in `guest-management-fe` (e.g.
+  `app/layout.tsx` or a root theme provider):
+  ```ts
+  {
+    token: {
+      colorPrimary: '#4F46E5',
+      colorInfo: '#4F46E5',
+      colorLink: '#4F46E5',
+      fontFamily: "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      borderRadius: 8,
+    },
+  }
+  ```
+  No `Layout`/`Menu` dark-theme component overrides — the default light `Layout`/`Menu` tokens already match
+  (selected-item background derives from `colorPrimaryBg`, which antd computes from `colorPrimary`). Use
+  `Layout.Sider collapsible collapsedWidth={80}` for the collapse behavior. Use a manual `#EEF2FF` tint for the
+  indigo-tinted `Tag`s already in the mockups if `colorPrimaryBg` doesn't match closely enough; the teal accent
+  (`#0F766E`) isn't an antd token — apply it directly via `Tag color="#0F766E"` (or a custom class) where the
+  design calls for the accent rather than the primary. Reference the "Chosen — Indigo × Plex" artboard on the
+  canvas's "Style directions" page for the full swatch/type sample if anything here is ambiguous.
+
+**Amendment (explicit product direction, post-first-draft):** the first draft put Edit/Reset password/
+Transfer-master/Delete as inline row-action icons on the User list `Table`, and Create/Edit behind one shared
+`Drawer`. The product owner rejected that shape — inline row actions risk an unintentional click (edit or delete
+fired from a dense action-icon row), and a shared drawer for create+edit added a second surface to maintain.
+Replaced with: the list is **view-only** (row click navigates to a dedicated user-detail route, no action icons
+in the table at all), **Create user** is its own page (not a drawer), and **User detail** is its own page holding
+the editable Email/Role fields plus every account action (Reset password, Transfer tenant master, Delete) as
+explicit buttons — each still opening its own confirmation `Modal` before the mutating call fires. This is now
+the standing pattern for any future entity list in this app: list = view/navigate only, mutations live on a
+detail or dedicated-create route, never as row icons.
+
+**API grounding** (DEVELOPMENT_PLAN.md B11 Technical Design + FEATURES.md#users/#auth + `api/swagger/swagger.json`,
+since `API_CONTRACT.md` predates B11 and is stale on this slice):
+- `POST /api/v1/auth/login` — `{ email, password }` → `TokenPair { access_token, refresh_token, token_type,
+  expires_in, must_change_password, user_id }`. Generic `401 invalid email or password` for both unknown email
+  and wrong password — the login form must show one generic error, never hint which field is wrong.
+- `POST /api/v1/users` — no `tenant_id` field (server-resolved from JWT); `role_id` (system-scope only),
+  `is_tenant_master?` (optional field the API accepts), `must_change_password` always forced `true` server-side
+  (not a request field). **Product direction: the Create User form never sends `is_tenant_master`** — tenant
+  master is only ever assigned through the future tenant-management feature (app-owner/super-admin side, not
+  yet built), never at ordinary user creation. The field staying optional on the API is fine; the frontend
+  simply omits it from this form.
+- `PUT /api/v1/users/{id}` — `email?`, `role_id?`, `is_tenant_master?` only; **no `password` field** — this is
+  why the edit form must not show a password input at all, not even disabled.
+- `POST /api/v1/users/{id}/password` (admin, `manage_users`-gated) vs. `POST /api/v1/users/me/password`
+  (self-service, no path param, target resolved from the JWT subject) — both take `{ password }` only, no
+  `current_password` field exists on either, so neither form should invent one.
+- `POST /api/v1/users/{id}/transfer-master` — empty body, `{id}` is the target; 403 if caller isn't currently
+  `is_tenant_master`, 404 if target is cross-tenant.
+- **Known gap, not this design's to fix:** there is no `GET /roles` endpoint (`roles` ships model+repository
+  only, API_CONTRACT.md §8) — the Role `Select` in the user form can't be populated from an API call. The
+  Frontend Tasks item below hardcodes the seeded system-scope catalog (Super Admin / Tenant Admin / Tenant Staff,
+  STAFFING_RBAC.md §3) client-side; flag to solutions-architect if that becomes brittle enough to warrant a
+  lookup endpoint.
+
+**Screens:**
+
+1. **Login** — centered card, email `Input` + password `Input.Password`, one `Alert type="error"` for the
+   generic invalid-credentials message, primary `Button` block "Log in". On success: read `must_change_password`
+   off the response — `true` routes to the forced-password-change screen first, `false` goes straight to the
+   dashboard. No "forgot password" affordance — no such endpoint exists.
+2. **Forced password change** — full-screen interstitial (not a dashboard modal — it sits before the app shell
+   loads), new/confirm password `Input.Password` fields, primary `Button` "Set new password and continue"
+   calling `POST /users/me/password`. A muted "Skip for now" text action is legitimate, not a shortcut around a
+   missing enforcement rule — REQUIREMENT.md/FEATURES.md are explicit this flag "encourages, but does not
+   enforce."
+3. **User list** — `Table` redesigned to exactly 5 filterable+sortable columns: **Name**, **Email**, **Role**
+   `Tag`, **Created date**, **Updated date** (drops the old Tenant master/Password columns and trailing chevron).
+   Tenant master and "must change password" are no longer columns — each is a small dot badge folded into the
+   Name cell instead (title="Tenant master" / title="Must change password"). `Input.Search` by name/email, plus
+   "Filter" and "Sort" `Button`s in the toolbar (badge = active condition/key count) opening the same
+   popover-based multi-condition/multi-sort builders designed on the "Patterns — breadcrumb + filter/sort" canvas
+   page (`FilterPanelOpen.dc.html`/`SortPanelOpen.dc.html`), now scoped to Name/Email/Role/Created date/Updated
+   date instead of that page's generic Events-list fields — not `Table`'s own single-column filter/sorter.
+   Primary `Button` "New user" (routes to #4). No inline row actions of any kind — the whole row is a link to
+   that user's detail page (#4a); this is the only way to reach edit/reset/transfer/delete, so a stray click in
+   the table can't mutate anything. Entire page — including the nav item — is hidden for a caller without
+   `manage_users`, not just route-blocked. **Open flag:** `name` does not exist on the backend `User`
+   entity/API yet (`FEATURES.md#users` models only `email`/`role_id`/`is_tenant_master`/`must_change_password`)
+   — the Name column/field is designed against explicit product direction anyway, but `solutions-architect`/
+   `backend-developer` need to add it (migration + DTO + API surface) before this list is buildable end-to-end.
+   Light + dark mockups now live on canvas pages `users` (light, updated in place) / `users-dark` (new twin),
+   with the Auth screens' equivalent retone on `auth`/`auth-dark` — see `DESIGN_SYSTEM.md` §1/§7.
+4. **Create user** — its own route/page (not a drawer or modal): `Form` with Email/Password/Role `Select`,
+   Cancel/Create `Button`s. This is the only screen with a Password field — creating is the only case where a
+   caller sets *someone else's* initial password. No tenant-master field — see the API grounding note above.
+4a. **User detail** — its own route/page (e.g. `app/users/[id]`), reached only via a list-row click. Header
+   (avatar, email, Role/Master/Must-change `Tag`s), an editable Email/Role `Form` (no Password field — `PUT
+   /users/{id}` doesn't take one) with Save/Cancel, then an "Account actions" section listing Reset password and
+   Transfer tenant master (see #5/#6) as plain `Button`s each opening its own `Modal`, then a visually distinct
+   "Danger zone" card with Delete user (see #6a). Tenant master is shown as a read-only `Tag` in the edit form,
+   never an editable checkbox — only the dedicated Transfer action (#6) may change it, since editing it directly
+   risks a 409 against the one-master-per-tenant constraint.
+5. **Change my password** (self-service) — reached from an `Avatar` + `Dropdown` in the header ("Change
+   password" / "Log out"), opens a `Modal` with new/confirm password fields, calls `POST /users/me/password`.
+6. **Reset a user's password** (admin) — "Reset password" button on the user-detail page (#4a) → `Modal` with
+   an `Alert type="warning"` spelling out that this re-arms `must_change_password` to `true` for the target even
+   if it was already `false` (AC5) — this is a distinct action/route from #5, not a shared "set password" dialog
+   with a branch. New-password field ships with a "Generate" button (client-side random string) since the admin
+   is choosing a password on someone else's behalf.
+6a. **Transfer tenant-master ownership** — "Transfer ownership" button on the user-detail page (#4a), only
+   rendered when the signed-in user is the current master. `Modal` with an `Alert type="error"` ("you will
+   immediately lose tenant-master privileges"), a `Select` of the tenant's other active users, and a
+   confirmation `Checkbox` gating the danger-styled submit button.
+6b. **Delete user** — "Delete user" button in the detail page's Danger zone card → `Modal` (or `Modal.confirm`)
+   with an `Alert type="error"` and an explicit "are you sure" line before the destructive call fires. Only
+   reachable from the detail page, never from the list, so deleting always requires navigating to the specific
+   user first.
+
+### Frontend Tasks
+
+- [ ] Login page (`app/login/`) — `Form` (email `Input`, password `Input.Password`), `Alert type="error"` for
+      the generic 401, `Button type="primary" htmlType="submit" block loading=...`. On success, branch on
+      `TokenPair.must_change_password` to either the forced-password-change route or the dashboard.
+- [ ] Forced password-change screen — full-screen route (not a `Modal`) gating entry to the app shell when
+      `must_change_password` is true; `Form` with new/confirm `Input.Password`, submit calls
+      `POST /api/v1/users/me/password`; include the "Skip for now" exit.
+- [ ] Auth/session plumbing — store the token pair, attach `Authorization: Bearer` to API calls, refresh via
+      `POST /api/v1/auth/refresh` on 401, decode `user_id`/`must_change_password` off login+refresh responses;
+      hide the "Users" `Menu` item (in the existing `app/page.tsx` Sider) for a caller without `manage_users`.
+- [ ] Shared app `Layout` — light `Header`/`Sider` (no dark theme), `Sider` `collapsible` with
+      `collapsedWidth={80}` (icon-only rail, trigger at the bottom); one component every screen below reuses,
+      not a per-screen concern.
+- [ ] User list page — `Table` with columns Name/Email/Role/Created date/Updated date (tenant-master and
+      must-change-password folded into small dot badges in the Name cell, not columns), bound to
+      `GET /api/v1/users` (server-side pagination/sort/filter per the `?page&size&sort&email=` query shape, plus
+      whatever params the backend adds for the new fields). `Input.Search` on name/email. "Filter"/"Sort"
+      toolbar `Button`s (badge = active count) opening popover-based multi-condition/multi-sort builders scoped
+      to Name/Email/Role/Created date/Updated date, per `FilterPanelOpen.dc.html`/`SortPanelOpen.dc.html` on the
+      canvas's "Patterns" page — not `Table`'s built-in per-column filter/sorter. No action column — each row
+      links to `app/users/[id]` (screen #4a); no edit/delete affordance lives in this table. **Blocked on the
+      `name` field not existing on the backend `User` entity/API yet** — coordinate with `solutions-architect`/
+      `backend-developer` to add it (migration + DTO) before wiring the Name column/sort/filter against real
+      data.
+- [ ] Create user page (`app/users/new`) — `Form` against `POST /api/v1/users` (Email/Password/Role only, no
+      tenant-master field); Role `Select` options hardcoded to the seeded system-scope catalog (Super
+      Admin/Tenant Admin/Tenant Staff — no `GET /roles` endpoint exists).
+- [ ] User detail page (`app/users/[id]`) — `GET /api/v1/users/{id}` to load; editable Email/Role `Form` against
+      `PUT /api/v1/users/{id}` (no password field); Tenant master rendered as a read-only `Tag`; an "Account
+      actions" section holding the Reset-password and Transfer-master buttons/modals below, plus a Danger-zone
+      card with the Delete-user button/modal below.
+- [ ] Change-my-password `Modal` — header `Avatar` + `Dropdown` ("Change password"/"Log out"), `Form` calling
+      `POST /api/v1/users/me/password`.
+- [ ] Reset-user-password `Modal` (admin) — button on the user detail page calling
+      `POST /api/v1/users/{id}/password`, with the `Alert type="warning"` re-arm notice from screen #6; keep
+      this a fully separate component/handler from the self-service modal above, per the Technical Design's
+      explicit split.
+- [ ] Transfer-tenant-master `Modal` — button on the user detail page, rendered only when the signed-in user
+      `is_tenant_master`, calling `POST /api/v1/users/{id}/transfer-master`; target `Select` sourced from the
+      already-loaded tenant user list minus self.
+- [ ] Delete-user `Modal`/`Modal.confirm` — button in the detail page's Danger zone calling
+      `DELETE /api/v1/users/{id}`; reachable only from the detail page, never from the list.
+
 ### B12. `ticket-type-templates`
 
 #### Story (product-manager)
