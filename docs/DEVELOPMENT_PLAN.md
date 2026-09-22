@@ -37,6 +37,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B12 | Domain | `ticket-type-templates` (default ticket types per event category) | B4, B5, B7 | ✅ **Done** |
 | B13 | Domain | `event-reports` (live guest/workflow-step counts) | B8, B9 | ⬜ (not started — Story written, see phase notes) |
 | B14 | Domain | `incidents` (event incident tickets) | B4, B6 | ⬜ (not started — Story written, see phase notes) |
+| B15 | Domain | `category-template-sets` (save a category's steps + ticket types + step access as one versioned unit) | B5, B12 | ⬜ (Story + Technical Design written, ready for backend-developer) |
 
 ---
 
@@ -327,6 +328,7 @@ each phase names its migration and tables. Ordered by data dependency.
 | **B12** | `ticket-type-templates` | `000019` — `ticket_type_templates` | CRUD `/api/v1/event-categories/{category_id}/ticket-type-templates`; copied into `ticket_types` on event create (transactional) |
 | **B13** | `event-reports` | not yet designed, read-only over existing tables | `GET /api/v1/events/{event_id}/report` (shape TBD) |
 | **B14** | `incidents` | not yet designed | CRUD-ish `/api/v1/events/{event_id}/incidents` |
+| **B15** | `category-template-sets` (changes `events` + `tickets`) | `000020` — versions on categories/templates/events, `ticket_type_template_workflow_steps` | `GET`/`POST`/`PUT /api/v1/event-categories[/{id}]` carry the whole template set; per-item template endpoints removed |
 
 ### Phase notes
 
@@ -369,6 +371,11 @@ each phase names its migration and tables. Ordered by data dependency.
   counts (REQUIREMENT.md §4.9). Story below; not yet designed.
 - **B14 `incidents`** — new slice, brand-new domain concept (REQUIREMENT.md §3.13, §4.10): event-scoped incident
   tickets staff can raise and other event staff can see. Story below; not yet designed.
+- **B15 `category-template-sets`** — reworks B5/B12's per-item template CRUD into one versioned, transactional
+  save of a category's whole template set, adds template-level step access, and records the template version on
+  each event (REQUIREMENT.md §3.5, §3.12, §4.11). Driven by the category-management UI (design canvas, "Event
+  categories" pages) and by a latent bug: soft-deleted template rows still hold their `UNIQUE` slot, so deleting
+  and re-adding a ticket type name or step position returns 409 forever. Story + Technical Design below.
 
 ### B7. `tickets` (ticket types)
 
@@ -1549,6 +1556,183 @@ As event staff, I want to create and view incident tickets for my event, so that
 
 New domain entity — `Incident` — already added to REQUIREMENT.md §3.13 and §4.10, and to the domain diagram
 (§6).
+
+### B15. `category-template-sets`
+
+#### Story (product-manager)
+
+As a tenant admin, I want to set up a category's workflow steps, ticket types, and which steps each ticket type
+includes on one screen and save them together, so that every new event in that category starts with exactly the
+setup I intended, and I never end up with a half-saved or silently overwritten configuration
+(REQUIREMENT.md §3.5, §3.12, §4.11). UI: design canvas, "Event categories" pages (create page, edit form with
+save bar, validation / saving / save-failed / conflict states).
+
+**Acceptance criteria**
+1. `GET /api/v1/event-categories/{id}` returns the category with its current `template_version`, its ordered
+   `workflow_steps`, and its `ticket_types`, each ticket type listing the steps it includes.
+2. `POST /api/v1/event-categories` creates a category **with** its whole template set in one request; if any
+   part fails, no category is created.
+3. `PUT /api/v1/event-categories/{id}` replaces the category's name and whole template set in one request and
+   one transaction; if any part fails, nothing changes.
+4. Each successful `PUT` increments `template_version`; the previous version's template rows are soft-deleted and
+   kept as history. Removing a step or ticket type and adding one back with the same name or position in a later
+   save succeeds (no 409 from old rows).
+5. `PUT` must carry the `template_version` it was based on; if the category's current version differs (someone
+   saved in between), it returns 409 and changes nothing.
+6. Creating an event copies the category's **current** template version: its steps, its ticket types, and each
+   ticket type's step access (a seeded ticket type includes exactly the event steps copied from the step templates
+   it included). The event records `category_template_version`. A ticket type created manually on an event still
+   defaults to all current steps (B7 AC7, unchanged).
+7. Saving a category's templates never changes events already created from it.
+8. Invalid payloads return 400 with per-field detail keyed by JSON path (e.g. `ticket_types[1].name`): missing
+   names, ticket type names that repeat within the category (case-insensitive), step references out of range.
+9. Writes require `manage_events`. Tenant categories are scoped to the caller's tenant from the JWT (another
+   tenant's category → 404). App categories (`source = app`) can be created/changed only by the platform tenant;
+   a tenant caller gets 403 on write and can still read them.
+
+**Out of scope:** a version-history read endpoint (history is kept in the data, no UI needs it yet), merging
+concurrent edits, pushing template changes to existing events, editing ticket type `rules` beyond pass-through.
+
+#### Technical Design (solutions-architect)
+
+**Slice boundary:** no new slice. The category (`events/category`) becomes the aggregate root of its template
+set and owns the save; step templates stay in `events/workflowsteptemplate`, ticket type templates in
+`tickets/tickettypetemplate`. `events` still never imports `tickets`: `events/category` declares a consumer-side
+interface that `tickettypetemplate` implements, wired in `internal/app` — the same idiom as B12's
+`TicketTypeSeeder`. (Direction check: `tickets` → `events` imports already exist, so `tickettypetemplate`
+importing `events/category`'s input/output types is allowed.)
+
+**Data model — migration `000020_category_template_versions`:**
+
+- `event_categories`: add `template_version INT NOT NULL DEFAULT 1`.
+- `workflow_step_templates`: add `version INT NOT NULL DEFAULT 1` (backfills existing rows as version 1, then
+  drop the default so code always sets it); replace `UNIQUE (category_id, order_index)` with
+  `UNIQUE (category_id, version, order_index)`; **drop `ticket_type_applicability`** (never read, superseded by
+  the junction below).
+- `ticket_type_templates`: add `version INT NOT NULL DEFAULT 1` (same backfill + drop default); replace
+  `UNIQUE (category_id, name)` with `UNIQUE (category_id, version, name)`.
+- New `ticket_type_template_workflow_steps`: `ticket_type_template_id UUID NOT NULL FK→ticket_type_templates(id)
+  ON DELETE CASCADE`, `workflow_step_template_id UUID NOT NULL FK→workflow_step_templates(id) ON DELETE CASCADE`,
+  `PRIMARY KEY (ticket_type_template_id, workflow_step_template_id)`, plus an index on
+  `workflow_step_template_id`. Mirrors `ticket_type_workflow_steps` one level up. Rows are write-once per version
+  (a new version gets new rows), so history stays intact without soft-delete columns.
+- Backfill: for each live ticket type template, insert a junction row for every live step template of the same
+  category — preserves today's "seeded types get every step" behaviour for existing data.
+- `events`: add `category_template_version INT NOT NULL DEFAULT 1` (existing events were seeded from the only
+  version that existed).
+- The constraint names being dropped are Postgres's auto-generated ones — check them with `\d` before writing
+  the `DROP CONSTRAINT`. The down migration is lossy once multiple versions exist (it can only keep one version
+  per category); say so in its header comment.
+
+Why versions and not partial unique indexes: the product owner wants history, and versioned rows give each event
+a precise record of what it was seeded from (`category_template_version`). Versions also fix the 409 bug on
+their own, because a new version's rows never collide with an old version's.
+
+**API surface** (routes unchanged; bodies change; list endpoint unchanged):
+
+- `GET /api/v1/event-categories/{id}` →
+  `{id, source, tenant_id, name, template_version, created_at, updated_at, workflow_steps: [{id, name,
+  allows_multiple}], ticket_types: [{id, name, rules, steps: [int]}]}`. Array order of `workflow_steps` is step
+  order; `steps` are indexes into `workflow_steps`.
+- `POST /api/v1/event-categories` — body `{source, tenant_id?, name, workflow_steps: [{name, allows_multiple}],
+  ticket_types: [{name, rules?, steps: [int]}]}` → 201 with the GET shape (`template_version = 1`). `tenant_id`
+  is ignored for tenant callers (taken from the JWT); only the platform tenant may send `source = app`.
+- `PUT /api/v1/event-categories/{id}` — body `{name, template_version, workflow_steps, ticket_types}` (same item
+  shapes) → 200 with the GET shape at the new version. Full replacement; `source`/`tenant_id` are immutable here.
+- `DELETE /api/v1/event-categories/{id}` — unchanged behaviour, gains the same auth scoping.
+- **Removed:** the HTTP layer of `/api/v1/event-categories/{category_id}/workflow-step-templates` and
+  `/api/v1/event-categories/{category_id}/ticket-type-templates` (routes, handlers, their now-unused services,
+  Swagger). A repo-wide search found no callers (the frontend is not integrated yet; no Postman collection uses
+  them). Models and repositories stay — seeding and the new save use them.
+- Steps are referenced by **array index**, not client-generated refs: new steps have no ids yet, and indexes are
+  unambiguous within one payload.
+
+**Validation:** boundary tags on the DTOs for shape (`name` required, `max=100` on each array — matches
+`query.DefaultMaxSize`, which is also the seeding list limit, so a template set can never be silently truncated
+at event creation). Business rules in the service, returned as `errorz.BadRequest()` with
+`.WithMeta("fields", map[string]string{...})` keyed by JSON path, the same meta shape go-sdk's validator emits:
+ticket type names unique case-insensitively, every `steps` entry within `0..len(workflow_steps)-1` with no
+duplicates. `steps: []` is valid (the UI warns, doesn't block).
+
+**Save algorithm — `CategoryService.Replace(ctx, id, in)`, one `WithTransaction`:**
+
+1. **Version compare-and-swap** — new `category` repository method
+   `BumpTemplateVersion(ctx, id uuid.UUID, expected int, name string, tenantScope) (newVersion int, err error)`:
+   `UPDATE event_categories SET name = $1, template_version = template_version + 1, updated_at = now()
+   WHERE id = $2 AND template_version = $3 AND deleted_at IS NULL [AND tenant scope] RETURNING
+   template_version`. No row → re-read to tell 404 (missing / other tenant) from 409 (stale version). The row lock
+   taken by the `UPDATE` serialises concurrent saves: the second one waits, then fails the version check.
+2. List the current version's live step templates and soft-delete them (`workflowsteptemplate` repo `Delete`).
+3. Insert the new step templates at `newVersion`, `order_index` = array index; keep the new ids in payload order.
+4. Call `TicketTypeTemplateStore.ReplaceForCategory(ctx, categoryID, newVersion, drafts)` where each draft is
+   `{Name, Rules, WorkflowStepTemplateIDs}` (indexes already resolved to the ids from step 3). The `tickets` side
+   soft-deletes its current-version rows, inserts the new ones at `newVersion`, and writes the junction rows.
+5. Return the GET shape built from what was just written.
+
+`Create` runs the same steps 3–5 after inserting the category at version 1. Consumer-side interface in
+`events/category`:
+
+```go
+// TicketTypeTemplateStore reads and replaces a category's ticket type
+// templates for one template version. Implemented by tickets'
+// tickettypetemplate service; wired in internal/app so events never
+// imports tickets. Runs inside the caller's transaction (ctx).
+type TicketTypeTemplateStore interface {
+    ListForCategory(ctx context.Context, categoryID uuid.UUID, version int) ([]TicketTypeTemplateView, error)
+    ReplaceForCategory(ctx context.Context, categoryID uuid.UUID, version int, in []TicketTypeTemplateDraft) error
+}
+```
+
+**Custom SQL must join the transaction — fixes a shipped bug.** `BumpTemplateVersion` and the new junction
+repository must run on `sqlkit.ExtractTx(ctx)` when a transaction is present, falling back to `db.Leader()`.
+The existing `tickettype/ticket_type_workflow_step_repository.go` does **not** do this (it always uses
+`r.db.Leader()` / `r.db.Follower()`). So during B12's event-creation transaction its junction inserts run on a
+different connection, can't see the uncommitted ticket type/step rows, and very likely fail the FK. Because
+`seedDefaultWorkflowSteps` logs and swallows that error, template-seeded ticket types probably end up with **no**
+step access today, which blocks guests at every step. Fix it in this change: make that repository
+transaction-aware too, and add one `*_integration_test.go` that creates an event from templates and asserts the
+seeded ticket types' step ids (the gap ADR-008's Confirmation section already names). If transaction-aware
+execution is needed in more places, a small `sqlkit` helper (for example `db.Executor(ctx)` returning tx-or-leader) belongs
+in go-sdk, not copied per repository.
+
+**Seeding changes (`events/event`, `tickets/tickettype`):**
+
+- `createEvent` reads the category's `template_version` with a new category repository method that selects the
+  row `FOR SHARE` inside the event transaction. A concurrent template save then waits for the event to commit, so
+  the version recorded on the event is exactly the rows copied. It sets `Event.CategoryTemplateVersion`.
+- `copyWorkflowStepTemplates` filters by `version` and returns `map[stepTemplateID]eventStepID`.
+- `TicketTypeSeeder.SeedFromCategoryTemplates(ctx, eventID, categoryID uuid.UUID, version int,
+  stepIDs map[uuid.UUID]uuid.UUID) error` — filters templates by `version`, creates each ticket type, and sets its
+  steps to the mapped ids from the junction. Errors propagate (no best-effort path inside the transaction); the
+  manual `Create` path keeps its fail-open default unchanged.
+
+**Auth:** gate `POST`/`PUT`/`DELETE` on `manage_events` (the seeded permission already reads "events and
+categories"; declare the code in an `events` constants file — permission codes are feature-owned). Tenant scope
+from `authz.TenantIDFromContext` on every single-resource call: a tenant category of another tenant → 404; a
+tenant caller writing an app category → 403; `source = app` writes allowed only when the caller's tenant is the
+seeded platform tenant (`00000000-0000-0000-0000-000000000001`). `GET /{id}` stays readable by any authenticated
+caller for app categories and by the owning tenant for tenant ones. This closes PRD-001 Q4 for single-category
+routes only.
+
+**Touches shipped code (call out in the PR):** `events/category` (DTOs, service, handler, repository, routes),
+`events/event` (`Create`, `copyWorkflowStepTemplates`, seeder interface), `events/workflowsteptemplate` (model
+`Version`, drop `TicketTypeApplicability`, delete handler/routes/service), `tickets/tickettypetemplate` (model
+`Version`, new junction repository, `TicketTypeTemplateStore` implementation, delete handler/routes),
+`tickets/tickettype` (seeder signature, transaction-aware junction repository), `internal/app` wiring, Swagger,
+`FEATURES.md#events` / `#tickets`, the AGENTS.md feature-map rows, `DATABASE.md` (new columns + table, drop
+`ticket_type_applicability`). AI Empire docs to follow: API-001, DB-001, and an ADR amending ADR-007 (versioned
+template sets) and ADR-008 (version recorded on the event).
+
+**Non-goals:**
+
+- No version-history endpoint or restore — rows are kept, nothing reads old versions yet.
+- No list-endpoint tenant scoping (it still accepts a `tenant_id` filter from anyone) — PRD-001 Q4 stays open for
+  `GET /event-categories`; scope it when the list gets its own pass.
+- No per-field boundary-validator paths for nested arrays — go-sdk's validator keys `fields` by field name, not
+  JSON path. The frontend runs the same rules before saving, so nested boundary errors are rare; a go-sdk change to
+  key by namespace is a follow-up, not part of this item.
+- No `rules` schema — stays opaque JSON.
+- No merge of concurrent edits — the version check rejects; the UI offers reload.
 
 ### Cross-references to go-sdk
 

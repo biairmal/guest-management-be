@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/biairmal/go-sdk/lib/logger"
+	reposql "github.com/biairmal/go-sdk/lib/repository/sql"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
 	"github.com/google/uuid"
 )
@@ -26,9 +27,9 @@ import (
 type TicketTypeWorkflowStepRepository interface {
 	// SetWorkflowStepIDs replaces the full set of workflow steps
 	// ticketTypeID applies to with workflowStepIDs (full-replace semantics,
-	// not incremental add/remove). Not wrapped in a transaction — no
-	// feature in this codebase uses one yet; a failure partway through is
-	// recovered by resubmitting the same call.
+	// not incremental add/remove). Joins the transaction in ctx when there
+	// is one (event creation's seeding runs inside it); on its own, a
+	// failure partway through is recovered by resubmitting the same call.
 	SetWorkflowStepIDs(ctx context.Context, ticketTypeID uuid.UUID, workflowStepIDs []uuid.UUID) error
 	// WorkflowStepIDsByTicketTypeID returns the workflow step IDs
 	// ticketTypeID currently applies to. Returns an empty slice (not an
@@ -39,20 +40,26 @@ type TicketTypeWorkflowStepRepository interface {
 // sqlTicketTypeWorkflowStepRepository implements TicketTypeWorkflowStepRepository
 // with direct SQL over ticket_type_workflow_steps, bypassing the generic
 // repository/sql machinery (which is built around a single-entity table).
+// Connections come from go-sdk's BaseRepository: the transaction in ctx when
+// present, else leader (writes) / follower (reads). Before B15 this always
+// used the leader/follower directly, so inside event creation's transaction
+// the inserts ran on another connection, couldn't see the uncommitted rows,
+// and failed their FKs.
 type sqlTicketTypeWorkflowStepRepository struct {
-	db  *sqlkit.DB
-	log logger.Logger
+	base *reposql.BaseRepository
+	log  logger.Logger
 }
 
 // NewTicketTypeWorkflowStepRepository returns a TicketTypeWorkflowStepRepository
 // backed by direct SQL.
 func NewTicketTypeWorkflowStepRepository(log logger.Logger, db *sqlkit.DB) TicketTypeWorkflowStepRepository {
-	return &sqlTicketTypeWorkflowStepRepository{db: db, log: log}
+	return &sqlTicketTypeWorkflowStepRepository{
+		base: reposql.NewBaseRepository(db, "ticket_type_workflow_steps"), log: log,
+	}
 }
 
 // WorkflowStepIDsByTicketTypeID reads the workflow_step_ids currently
-// assigned to ticketTypeID. Reads use the follower connection
-// (db.Follower()) since this is a read-only lookup.
+// assigned to ticketTypeID.
 func (r *sqlTicketTypeWorkflowStepRepository) WorkflowStepIDsByTicketTypeID(
 	ctx context.Context, ticketTypeID uuid.UUID,
 ) ([]uuid.UUID, error) {
@@ -62,7 +69,7 @@ func (r *sqlTicketTypeWorkflowStepRepository) WorkflowStepIDsByTicketTypeID(
 		r.log.DebugfWithContext(ctx, "query: %s args: %v", q, []any{ticketTypeID})
 	}
 
-	rows, err := r.db.Follower().QueryContext(ctx, q, ticketTypeID)
+	rows, err := r.base.GetReadConnection(ctx).QueryContext(ctx, q, ticketTypeID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket_type_workflow_steps: query workflow step ids: %w", err)
 	}
@@ -84,8 +91,7 @@ func (r *sqlTicketTypeWorkflowStepRepository) WorkflowStepIDsByTicketTypeID(
 
 // SetWorkflowStepIDs replaces ticketTypeID's entire set of workflow step
 // associations: every existing row is deleted, then one row per id in
-// workflowStepIDs is inserted. Writes use the leader connection
-// (db.Leader()).
+// workflowStepIDs is inserted.
 func (r *sqlTicketTypeWorkflowStepRepository) SetWorkflowStepIDs(
 	ctx context.Context, ticketTypeID uuid.UUID, workflowStepIDs []uuid.UUID,
 ) error {
@@ -93,7 +99,7 @@ func (r *sqlTicketTypeWorkflowStepRepository) SetWorkflowStepIDs(
 	if r.log != nil {
 		r.log.DebugfWithContext(ctx, "query: %s args: %v", deleteQuery, []any{ticketTypeID})
 	}
-	if _, err := r.db.Leader().ExecContext(ctx, deleteQuery, ticketTypeID); err != nil {
+	if _, err := r.base.GetConnection(ctx).ExecContext(ctx, deleteQuery, ticketTypeID); err != nil {
 		return fmt.Errorf("ticket_type_workflow_steps: delete existing: %w", err)
 	}
 
@@ -102,7 +108,7 @@ func (r *sqlTicketTypeWorkflowStepRepository) SetWorkflowStepIDs(
 		if r.log != nil {
 			r.log.DebugfWithContext(ctx, "query: %s args: %v", insertQuery, []any{ticketTypeID, workflowStepID})
 		}
-		if _, err := r.db.Leader().ExecContext(ctx, insertQuery, ticketTypeID, workflowStepID); err != nil {
+		if _, err := r.base.GetConnection(ctx).ExecContext(ctx, insertQuery, ticketTypeID, workflowStepID); err != nil {
 			return fmt.Errorf("ticket_type_workflow_steps: insert: %w", err)
 		}
 	}

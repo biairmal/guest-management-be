@@ -99,7 +99,7 @@ Response `data` shape:
 
 ### Nested-resource ID scoping
 
-Endpoints nested under a parent (`/events/{event_id}/workflow-steps`, `/event-categories/{category_id}/workflow-step-templates`,
+Endpoints nested under a parent (`/events/{event_id}/workflow-steps`,
 `/events/{event_id}/staff`) always resolve the child **scoped to that parent**: a child that exists but belongs
 to a different parent resolves as `404`, not a cross-parent leak. The parent ID is never part of the request
 body — always the URL.
@@ -216,31 +216,39 @@ CRUD + list. `role_id` **must reference a `system`-scope role** (see [roles](#8-
 
 ---
 
-## 5. `events` — event categories, events, workflow steps, workflow step templates
+## 5. `events` — event categories (with template sets), events, workflow steps
 
-Source: `internal/features/events`. Four related resources under one slice.
+Source: `internal/features/events`. Three related resources under one slice.
 
 ### 5.1 Event categories — `/api/v1/event-categories`
 
-**`EventCategory`:** `{ "id", "source": "app"|"tenant", "tenant_id"?: uuid, "name", "created_at", "updated_at", "deleted_at"? }`.
+A category carries its **template set** (workflow steps, ticket types, which steps each ticket type includes), saved as one versioned unit (B15). The per-item `/event-categories/{category_id}/workflow-step-templates` and `/ticket-type-templates` endpoints were removed.
+
+**`EventCategory`** (list items): `{ "id", "source": "app"|"tenant", "tenant_id"?: uuid, "name", "template_version": int, "created_at", "updated_at", "deleted_at"? }`.
+
+**`Detail`** (single-category responses): `EventCategory` + `{ "workflow_steps": [{ "id", "name", "allows_multiple" }], "ticket_types": [{ "id", "name", "rules": object, "steps": [int] }] }` — `workflow_steps` order is step order; `steps` are ascending indexes into `workflow_steps`.
 
 | Method | Path | Body | Success | Notable errors |
 |---|---|---|---|---|
 | `GET` | `/` | — | 200 `PageResponse<EventCategory>` | 400 |
-| `GET` | `/{id}` | — | 200 | 400 · 404 |
-| `POST` | `/` | `CreateInput` | 201 | 400 · 409 · 422 |
-| `PUT` | `/{id}` | `UpdateInput` | 200 | 400 · 404 |
-| `DELETE` | `/{id}` | — | 204 | 400 · 404 |
+| `GET` | `/{id}` | — | 200 `Detail` | 400 · 404 (incl. another tenant's category) |
+| `POST` | `/` | `CreateInput` | 201 `Detail` | 400 · 403 · 409 · 422 |
+| `PUT` | `/{id}` | `ReplaceInput` | 200 `Detail` | 400 · 403 · 404 · 409 (stale `template_version`) |
+| `DELETE` | `/{id}` | — | 204 | 400 · 403 · 404 |
 
-**`CreateInput`:** `{ "source": "app"|"tenant" (required), "tenant_id"?: uuid, "name": string (required) }` — `tenant_id` must be null when `source="app"`, required when `source="tenant"` (400 otherwise).
+Writes require `manage_events`. Tenant scope comes from the JWT; only the platform tenant may write `source="app"` categories (403 otherwise).
 
-**`UpdateInput`:** same fields, all optional.
+**`CreateInput`:** `{ "source": "app"|"tenant" (required), "tenant_id"?: uuid (platform tenant only), "name": string (required), "workflow_steps": [{ "name" (required), "allows_multiple"?: bool }] (max 100), "ticket_types": [{ "name" (required), "rules"?: object, "steps": [int] }] (max 100) }`.
+
+**`ReplaceInput`:** `{ "name" (required), "template_version": int (required — the version the edit was based on), "workflow_steps", "ticket_types" }` — full replacement at `template_version + 1`; a mismatch is 409 with `meta.template_version` = current, nothing changed.
+
+**Template set rules** (400, `meta.fields` keyed by JSON path): ticket type names unique case-insensitively (`ticket_types[2].name`); each `steps` entry in range and not repeated (`ticket_types[0].steps[1]`).
 
 **List:** sort allow-list `id, source, tenant_id, name, created_at, updated_at`. Filters: `name`, `source`, `tenant_id`.
 
 ### 5.2 Events — `/api/v1/events`
 
-**`Event`:** `{ "id", "tenant_id", "category_id", "name", "description"?: string, "start_date", "end_date", "is_multi_day": bool, "created_at", "updated_at", "deleted_at"? }`. `is_multi_day` is **derived**, never caller-supplied.
+**`Event`:** `{ "id", "tenant_id", "category_id", "category_template_version": int, "name", "description"?: string, "start_date", "end_date", "is_multi_day": bool, "created_at", "updated_at", "deleted_at"? }`. `is_multi_day` is **derived**, never caller-supplied.
 
 | Method | Path | Body | Success | Notable errors |
 |---|---|---|---|---|
@@ -250,7 +258,7 @@ Source: `internal/features/events`. Four related resources under one slice.
 | `PUT` | `/{id}` | `UpdateEventInput` | 200 | 400 · 404 |
 | `DELETE` | `/{id}` | — | 204 | 400 · 404 |
 
-**`CreateEventInput`:** `{ "tenant_id": uuid (required), "category_id": uuid (required), "name": string (required), "description"?: string, "start_date": RFC3339 (required), "end_date": RFC3339 (required) }`. On create, the service also **best-effort copies** the category's `workflow_step_templates` into new `workflow_steps` for the event (silent no-op if none/failure — doesn't fail the create).
+**`CreateEventInput`:** `{ "tenant_id": uuid (required), "category_id": uuid (required), "name": string (required), "description"?: string, "start_date": RFC3339 (required), "end_date": RFC3339 (required) }`. On create, the service copies the category's **current template version** — its workflow steps, its ticket types, and each ticket type's step access — onto the event in the same transaction (any failure fails the create; a missing category is 422), and records it as `category_template_version` on the `Event`.
 
 **`UpdateEventInput`:** all fields optional except `tenant_id`, which is immutable (not part of this input).
 
@@ -276,24 +284,6 @@ Source: `internal/features/events`. Four related resources under one slice.
 **`SyncWorkflowStepInput`** (array body for `PUT /`): `{ "id"?: uuid, "name": string (required), "order_index": int (>=0), "allows_multiple"?: bool }` — entries with `id` are updated, entries without are created, and any existing step **not** in the array is deleted. This is the single "one screen, one save button" endpoint a UI should use for add/update/delete/reorder; the single-item `POST`/`PUT {id}`/`DELETE {id}` above remain available for scripted/one-off use.
 
 **List:** sort allow-list `id, name, order_index, allows_multiple, created_at, updated_at`. Filters: `name`. `event_id` is always forced from the URL, never a query filter.
-
-### 5.4 Workflow step templates — `/api/v1/event-categories/{category_id}/workflow-step-templates`
-
-**`WorkflowStepTemplate`:** `{ "id", "category_id", "name", "order_index": int, "allows_multiple": bool, "ticket_type_applicability"?: object, "created_at", "updated_at", "deleted_at"? }`.
-
-| Method | Path | Body | Success | Notable errors |
-|---|---|---|---|---|
-| `GET` | `/` | — | 200 `PageResponse<WorkflowStepTemplate>` | 400 |
-| `GET` | `/{id}` | — | 200 | 400 · 404 |
-| `POST` | `/` | `CreateWorkflowStepTemplateInput` | 201 | 400 · 409 · 422 |
-| `PUT` | `/{id}` | `UpdateWorkflowStepTemplateInput` | 200 | 400 · 404 · 409 |
-| `DELETE` | `/{id}` | — | 204 | 400 · 404 |
-
-**`CreateWorkflowStepTemplateInput`:** `{ "name": string (required), "order_index": int (>=0), "allows_multiple"?: bool, "ticket_type_applicability"?: object }` — the last field is opaque, passed through unvalidated. No **Sync** endpoint here (unlike event workflow steps) — templates are administered one at a time.
-
-**`UpdateWorkflowStepTemplateInput`:** all fields optional.
-
-**List:** sort allow-list `id, name, order_index, allows_multiple, created_at, updated_at`. Filters: `name`. `category_id` always forced from the URL.
 
 ---
 

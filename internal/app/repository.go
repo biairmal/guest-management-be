@@ -25,6 +25,7 @@ import (
 // repositories holds all feature repositories wired for the application.
 type repositories struct {
 	categoryRepository               sdkrepository.Repository[category.EventCategory, uuid.UUID]
+	categoryVersionRepository        category.TemplateVersionRepository
 	eventRepository                  sdkrepository.Repository[event.Event, uuid.UUID]
 	workflowStepRepository           sdkrepository.Repository[workflowstep.WorkflowStep, uuid.UUID]
 	workflowStepTemplateRepository   sdkrepository.Repository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID]
@@ -37,6 +38,7 @@ type repositories struct {
 	ticketTypeRepository             sdkrepository.Repository[tickettype.TicketType, uuid.UUID]
 	ticketTypeWorkflowStepRepository tickettype.TicketTypeWorkflowStepRepository
 	ticketTypeTemplateRepository     sdkrepository.Repository[tickettypetemplate.TicketTypeTemplate, uuid.UUID]
+	ticketTypeTemplateStepRepository tickettypetemplate.WorkflowStepRepository
 	guestRepository                  sdkrepository.Repository[guests.Guest, uuid.UUID]
 	ticketRepository                 sdkrepository.Repository[guests.Ticket, uuid.UUID]
 	guestPIIEncryptor                guests.PIIEncryptor
@@ -112,9 +114,10 @@ func (a *App) initializeRepository(
 	}
 
 	return &repositories{
-		categoryRepository:     category.NewCategoryRepository(log, db, categoryCacheOpts),
-		eventRepository:        event.NewEventRepository(log, db, eventCacheOpts),
-		workflowStepRepository: workflowstep.NewWorkflowStepRepository(log, db, workflowStepCacheOpts),
+		categoryRepository:        category.NewCategoryRepository(log, db, categoryCacheOpts),
+		categoryVersionRepository: category.NewTemplateVersionRepository(log, db),
+		eventRepository:           event.NewEventRepository(log, db, eventCacheOpts),
+		workflowStepRepository:    workflowstep.NewWorkflowStepRepository(log, db, workflowStepCacheOpts),
 		workflowStepTemplateRepository: workflowsteptemplate.NewWorkflowStepTemplateRepository(
 			log, db, workflowStepTemplateCacheOpts,
 		),
@@ -126,6 +129,7 @@ func (a *App) initializeRepository(
 		staffAssignmentRepository:        staffing.NewStaffAssignmentRepository(log, db, staffAssignmentCacheOpts),
 		ticketTypeRepository:             tickettype.NewTicketTypeRepository(log, db, ticketTypeCacheOpts),
 		ticketTypeWorkflowStepRepository: tickettype.NewTicketTypeWorkflowStepRepository(log, db),
+		ticketTypeTemplateStepRepository: tickettypetemplate.NewWorkflowStepRepository(log, db),
 		ticketTypeTemplateRepository: tickettypetemplate.NewTicketTypeTemplateRepository(
 			log, db, ticketTypeTemplateCacheOpts,
 		),

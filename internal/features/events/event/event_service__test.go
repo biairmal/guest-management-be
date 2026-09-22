@@ -17,6 +17,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/core/query"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
+	mockcategory "github.com/biairmal/guest-management-be/mocks/events/category"
 )
 
 // stubTicketTypeSeeder is a real, minimal TicketTypeSeeder for tests that
@@ -29,13 +30,27 @@ type stubTicketTypeSeeder struct {
 	called           bool
 	calledEventID    uuid.UUID
 	calledCategoryID uuid.UUID
+	calledVersion    int
+	calledStepIDs    map[uuid.UUID]uuid.UUID
 }
 
-func (s *stubTicketTypeSeeder) SeedFromCategoryTemplates(_ context.Context, eventID, categoryID uuid.UUID) error {
+func (s *stubTicketTypeSeeder) SeedFromCategoryTemplates(
+	_ context.Context, eventID, categoryID uuid.UUID, version int, stepIDs map[uuid.UUID]uuid.UUID,
+) error {
 	s.called = true
 	s.calledEventID = eventID
 	s.calledCategoryID = categoryID
+	s.calledVersion = version
+	s.calledStepIDs = stepIDs
 	return s.err
+}
+
+// lockedVersion returns a TemplateVersionRepository mock expecting one
+// FOR SHARE read that returns version.
+func lockedVersion(ctrl *gomock.Controller, version int, err error) *mockcategory.MockTemplateVersionRepository {
+	m := mockcategory.NewMockTemplateVersionRepository(ctrl)
+	m.EXPECT().TemplateVersionForShare(gomock.Any(), gomock.Any()).Return(version, err)
+	return m
 }
 
 func TestIsMultiDay(t *testing.T) {
@@ -93,7 +108,7 @@ func TestBuildEvent(t *testing.T) {
 // users' transferMaster split.
 func TestEventService_Create_ValidatesDates(t *testing.T) {
 	start := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
-	svc := NewService(logger.NewNoOp(), nil, nil, nil, nil, nil)
+	svc := NewService(logger.NewNoOp(), nil, nil, nil, nil, nil, nil)
 
 	_, err := svc.Create(context.Background(), CreateEventInput{
 		TenantID: uuid.New(), CategoryID: uuid.New(), Name: "x", StartDate: start, EndDate: start.Add(-time.Hour),
@@ -113,7 +128,10 @@ func TestEventService_createEvent(t *testing.T) {
 		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(repository.ErrAlreadyExists)
 		seeder := &stubTicketTypeSeeder{}
-		svc := &eventServiceImpl{repo: repo, ticketTypeSeeder: seeder, logger: logger.NewNoOp()}
+		svc := &eventServiceImpl{
+			repo: repo, versionRepo: lockedVersion(ctrl, 2, nil),
+			ticketTypeSeeder: seeder, logger: logger.NewNoOp(),
+		}
 
 		err := svc.createEvent(context.Background(), newEntity())
 		assertErrorzCode(t, err, errorz.CodeConflict)
@@ -126,7 +144,10 @@ func TestEventService_createEvent(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(repository.ErrInvalidEntity)
-		svc := &eventServiceImpl{repo: repo, logger: logger.NewNoOp()}
+		svc := &eventServiceImpl{
+			repo: repo, versionRepo: lockedVersion(ctrl, 2, nil),
+			logger: logger.NewNoOp(),
+		}
 
 		err := svc.createEvent(context.Background(), newEntity())
 		assertErrorzCode(t, err, errorz.CodeUnprocessableEntity)
@@ -136,7 +157,10 @@ func TestEventService_createEvent(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("boom"))
-		svc := &eventServiceImpl{repo: repo, logger: logger.NewNoOp()}
+		svc := &eventServiceImpl{
+			repo: repo, versionRepo: lockedVersion(ctrl, 2, nil),
+			logger: logger.NewNoOp(),
+		}
 
 		err := svc.createEvent(context.Background(), newEntity())
 		assertErrorzCode(t, err, errorz.CodeInternal)
@@ -149,7 +173,10 @@ func TestEventService_createEvent(t *testing.T) {
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), errors.New("boom"))
 		seeder := &stubTicketTypeSeeder{}
-		svc := &eventServiceImpl{repo: repo, templateRepo: templateRepo, ticketTypeSeeder: seeder, logger: logger.NewNoOp()}
+		svc := &eventServiceImpl{
+			repo: repo, versionRepo: lockedVersion(ctrl, 2, nil),
+			templateRepo: templateRepo, ticketTypeSeeder: seeder, logger: logger.NewNoOp(),
+		}
 
 		err := svc.createEvent(context.Background(), newEntity())
 		assertErrorzCode(t, err, errorz.CodeInternal)
@@ -165,20 +192,54 @@ func TestEventService_createEvent(t *testing.T) {
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
 		seeder := &stubTicketTypeSeeder{err: errorz.Conflict().WithMessage("ticket type template conflict")}
-		svc := &eventServiceImpl{repo: repo, templateRepo: templateRepo, ticketTypeSeeder: seeder, logger: logger.NewNoOp()}
+		svc := &eventServiceImpl{
+			repo: repo, versionRepo: lockedVersion(ctrl, 2, nil),
+			templateRepo: templateRepo, ticketTypeSeeder: seeder, logger: logger.NewNoOp(),
+		}
 
 		err := svc.createEvent(context.Background(), newEntity())
 		assertErrorzCode(t, err, errorz.CodeConflict)
 	})
 
-	t.Run("happy path seeds ticket types from the event's own id/category_id", func(t *testing.T) {
+	t.Run("missing category maps to 422, nothing is inserted", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		svc := &eventServiceImpl{versionRepo: lockedVersion(ctrl, 0, repository.ErrNotFound), logger: logger.NewNoOp()}
+
+		err := svc.createEvent(context.Background(), newEntity())
+		assertErrorzCode(t, err, errorz.CodeUnprocessableEntity)
+	})
+
+	t.Run("template version lookup failure maps to 500", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		svc := &eventServiceImpl{versionRepo: lockedVersion(ctrl, 0, errors.New("boom")), logger: logger.NewNoOp()}
+
+		err := svc.createEvent(context.Background(), newEntity())
+		assertErrorzCode(t, err, errorz.CodeInternal)
+	})
+
+	t.Run("happy path records the version and seeds from the event's own id/category_id", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
 		templateRepo := mockrepository.NewMockRepository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID](ctrl)
-		repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
+		workflowStepRepo := mockrepository.NewMockRepository[workflowstep.WorkflowStep, uuid.UUID](ctrl)
+		stepTemplateID := uuid.New()
+		repo.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, e *Event) error {
+				if e.CategoryTemplateVersion != 2 {
+					t.Errorf("inserted CategoryTemplateVersion = %d, want 2", e.CategoryTemplateVersion)
+				}
+				return nil
+			})
+		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).
+			Return([]*workflowsteptemplate.WorkflowStepTemplate{{ID: stepTemplateID, Name: "Check-in"}}, int64(1), nil)
+		var copied *workflowstep.WorkflowStep
+		workflowStepRepo.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, s *workflowstep.WorkflowStep) error { copied = s; return nil })
 		seeder := &stubTicketTypeSeeder{}
-		svc := &eventServiceImpl{repo: repo, templateRepo: templateRepo, ticketTypeSeeder: seeder, logger: logger.NewNoOp()}
+		svc := &eventServiceImpl{
+			repo: repo, versionRepo: lockedVersion(ctrl, 2, nil),
+			templateRepo: templateRepo, workflowStepRepo: workflowStepRepo, ticketTypeSeeder: seeder, logger: logger.NewNoOp(),
+		}
 
 		entity := newEntity()
 		if err := svc.createEvent(context.Background(), entity); err != nil {
@@ -190,6 +251,10 @@ func TestEventService_createEvent(t *testing.T) {
 		if seeder.calledEventID != entity.ID || seeder.calledCategoryID != entity.CategoryID {
 			t.Errorf("seeder called with (%v, %v), want (%v, %v)",
 				seeder.calledEventID, seeder.calledCategoryID, entity.ID, entity.CategoryID)
+		}
+		if seeder.calledVersion != 2 || seeder.calledStepIDs[stepTemplateID] != copied.ID {
+			t.Errorf("seeder got version %d steps %v, want 2 and %v→%v",
+				seeder.calledVersion, seeder.calledStepIDs, stepTemplateID, copied.ID)
 		}
 	})
 }
@@ -204,7 +269,7 @@ func TestEventService_copyWorkflowStepTemplates(t *testing.T) {
 		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), errors.New("boom"))
 		svc := &eventServiceImpl{templateRepo: templateRepo, logger: logger.NewNoOp()}
 
-		err := svc.copyWorkflowStepTemplates(context.Background(), entity)
+		_, err := svc.copyWorkflowStepTemplates(context.Background(), entity)
 		assertErrorzCode(t, err, errorz.CodeInternal)
 	})
 
@@ -214,7 +279,7 @@ func TestEventService_copyWorkflowStepTemplates(t *testing.T) {
 		templateRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
 		svc := &eventServiceImpl{templateRepo: templateRepo, logger: logger.NewNoOp()}
 
-		if err := svc.copyWorkflowStepTemplates(context.Background(), entity); err != nil {
+		if _, err := svc.copyWorkflowStepTemplates(context.Background(), entity); err != nil {
 			t.Fatalf("copyWorkflowStepTemplates() error = %v", err)
 		}
 	})
@@ -231,7 +296,7 @@ func TestEventService_copyWorkflowStepTemplates(t *testing.T) {
 		workflowStepRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 		svc := &eventServiceImpl{templateRepo: templateRepo, workflowStepRepo: workflowStepRepo, logger: logger.NewNoOp()}
 
-		if err := svc.copyWorkflowStepTemplates(context.Background(), entity); err != nil {
+		if _, err := svc.copyWorkflowStepTemplates(context.Background(), entity); err != nil {
 			t.Fatalf("copyWorkflowStepTemplates() error = %v", err)
 		}
 	})
@@ -250,7 +315,7 @@ func TestEventService_copyWorkflowStepTemplates(t *testing.T) {
 		workflowStepRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("boom"))
 		svc := &eventServiceImpl{templateRepo: templateRepo, workflowStepRepo: workflowStepRepo, logger: logger.NewNoOp()}
 
-		err := svc.copyWorkflowStepTemplates(context.Background(), entity)
+		_, err := svc.copyWorkflowStepTemplates(context.Background(), entity)
 		assertErrorzCode(t, err, errorz.CodeInternal)
 	})
 }
@@ -273,7 +338,7 @@ func TestEventService_GetByID(t *testing.T) {
 			repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
 			repo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(tt.repoRes, tt.repoErr)
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil)
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil)
 			_, err := svc.GetByID(context.Background(), uuid.New())
 			assertErrorzCode(t, err, tt.wantErr)
 		})
@@ -350,7 +415,7 @@ func TestEventService_Update(t *testing.T) {
 				repo.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(tt.updateErr)
 			}
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil)
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil)
 			got, err := svc.Update(context.Background(), uuid.New(), tt.in)
 			assertErrorzCode(t, err, tt.wantErr)
 			if tt.wantErr == "" && tt.name == "happy path partial update recomputes is_multi_day" && !got.IsMultiDay {
@@ -380,7 +445,7 @@ func TestEventService_Delete(t *testing.T) {
 			repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
 			repo.EXPECT().Delete(gomock.Any(), gomock.Any()).Return(tt.repoErr)
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil)
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil)
 			err := svc.Delete(context.Background(), uuid.New())
 			assertErrorzCode(t, err, tt.wantErr)
 		})
@@ -406,7 +471,7 @@ func TestEventService_List(t *testing.T) {
 				List(gomock.Any(), gomock.Any()).
 				Return([]*Event{{Name: "x"}}, int64(1), tt.repoErr)
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil)
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil)
 			params, err := query.ParseListParams(url.Values{}, query.ListParseConfig{})
 			if err != nil {
 				t.Fatalf("ParseListParams() error = %v", err)

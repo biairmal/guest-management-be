@@ -190,7 +190,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a new event category. Source must be \"app\" or \"tenant\"; tenant_id required when source is \"tenant\".",
+                "description": "Creates an event category with its whole template set (workflow_steps, ticket_types) at template_version 1, in one transaction. The tenant comes from the JWT; only the platform tenant may create source \"app\" categories. Requires manage_events.",
                 "consumes": [
                     "application/json"
                 ],
@@ -216,11 +216,17 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events_category.EventCategory"
+                            "$ref": "#/definitions/internal_features_events_category.Detail"
                         }
                     },
                     "400": {
-                        "description": "Invalid request body or validation error",
+                        "description": "Invalid request body or validation error (meta.fields keyed by JSON path)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_events, or app category by a non-platform tenant",
                         "schema": {
                             "type": "object"
                         }
@@ -246,736 +252,6 @@
                 }
             }
         },
-        "/api/v1/event-categories/{category_id}/ticket-type-templates": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns a paginated list of ticket type templates for an event category. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (name). Requires the manage_events permission.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ticket-type-templates"
-                ],
-                "summary": "List ticket type templates",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event category UUID",
-                        "name": "category_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page number (1-based)",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size (default 20, max 100)",
-                        "name": "size",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort: field,dir (e.g. sort=name,ASC)",
-                        "name": "sort",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by name (exact match)",
-                        "name": "name",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/dto.PageResponse-internal_features_tickets_tickettypetemplate_TicketTypeTemplate"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid category id or query",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthenticated",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "403": {
-                        "description": "Missing manage_events permission",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Creates a new ticket type template under an event category; name is unique per category. Copied onto every event created under this category thereafter (see events' POST /api/v1/events). Requires the manage_events permission.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ticket-type-templates"
-                ],
-                "summary": "Create ticket type template",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event category UUID",
-                        "name": "category_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Ticket type template payload",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.CreateTicketTypeTemplateInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request body or validation error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthenticated",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "403": {
-                        "description": "Missing manage_events permission",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "409": {
-                        "description": "Ticket type template name already exists for this category",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "422": {
-                        "description": "Unprocessable entity",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/event-categories/{category_id}/ticket-type-templates/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns a single ticket type template by UUID, scoped to its event category. Requires the manage_events permission.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ticket-type-templates"
-                ],
-                "summary": "Get ticket type template by ID",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event category UUID",
-                        "name": "category_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Ticket type template UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid ID format",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthenticated",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "403": {
-                        "description": "Missing manage_events permission",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Ticket type template not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Partially updates a ticket type template's name/rules. Only provided fields are applied; category_id is immutable. Does not retroactively change ticket types already seeded from this template on existing events. Requires the manage_events permission.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ticket-type-templates"
-                ],
-                "summary": "Update ticket type template",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event category UUID",
-                        "name": "category_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Ticket type template UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Fields to update",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.UpdateTicketTypeTemplateInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid ID or request body",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthenticated",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "403": {
-                        "description": "Missing manage_events permission",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Ticket type template not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "409": {
-                        "description": "Ticket type template name already exists for this category",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Soft-deletes a ticket type template by ID, scoped to its event category. Does not retroactively change ticket types already seeded from this template on existing events. Requires the manage_events permission.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ticket-type-templates"
-                ],
-                "summary": "Delete ticket type template",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event category UUID",
-                        "name": "category_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Ticket type template UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No content"
-                    },
-                    "400": {
-                        "description": "Invalid ID format",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthenticated",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "403": {
-                        "description": "Missing manage_events permission",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Ticket type template not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/event-categories/{category_id}/workflow-step-templates": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns a paginated list of workflow step templates for an event category. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (name).",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "workflow-step-templates"
-                ],
-                "summary": "List workflow step templates",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event category UUID",
-                        "name": "category_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page number (1-based)",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size (default 20, max 100)",
-                        "name": "size",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort: field,dir (e.g. sort=order_index,ASC)",
-                        "name": "sort",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by name (exact match)",
-                        "name": "name",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_workflowsteptemplate_WorkflowStepTemplate"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid category id or query",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Creates a new workflow step template under an event category. order_index must be unique per category.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "workflow-step-templates"
-                ],
-                "summary": "Create workflow step template",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event category UUID",
-                        "name": "category_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Workflow step template payload",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_events_workflowsteptemplate.CreateWorkflowStepTemplateInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request body or validation error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict (order_index already used for this category)",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "422": {
-                        "description": "Unprocessable entity",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/event-categories/{category_id}/workflow-step-templates/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns a single workflow step template by UUID, scoped to its event category.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "workflow-step-templates"
-                ],
-                "summary": "Get workflow step template by ID",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event category UUID",
-                        "name": "category_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Workflow step template UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid ID format",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Workflow step template not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Updates an existing workflow step template by ID. Only provided fields are applied (partial update); category_id is immutable.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "workflow-step-templates"
-                ],
-                "summary": "Update workflow step template",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event category UUID",
-                        "name": "category_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Workflow step template UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Fields to update",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_events_workflowsteptemplate.UpdateWorkflowStepTemplateInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid ID or request body",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Workflow step template not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict (order_index already used for this category)",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Soft-deletes a workflow step template by ID, scoped to its event category.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "workflow-step-templates"
-                ],
-                "summary": "Delete workflow step template",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event category UUID",
-                        "name": "category_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Workflow step template UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No content"
-                    },
-                    "400": {
-                        "description": "Invalid ID format",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Workflow step template not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/event-categories/{id}": {
             "get": {
                 "security": [
@@ -983,7 +259,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns a single event category by UUID.",
+                "description": "Returns a single event category with its current template_version, ordered workflow_steps, and ticket_types (each listing the indexes of the steps it includes). Another tenant's category is 404.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1007,7 +283,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events_category.EventCategory"
+                            "$ref": "#/definitions/internal_features_events_category.Detail"
                         }
                     },
                     "400": {
@@ -1036,7 +312,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Updates an existing event category by ID. Only provided fields are applied (partial update).",
+                "description": "Replaces the category's name and whole template set as the next template_version, in one transaction. template_version must be the version the edit was based on; if someone saved in between, 409 and nothing changes. Existing events are never changed. Requires manage_events.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1046,7 +322,7 @@
                 "tags": [
                     "event-categories"
                 ],
-                "summary": "Update event category",
+                "summary": "Replace event category template set",
                 "parameters": [
                     {
                         "type": "string",
@@ -1056,12 +332,12 @@
                         "required": true
                     },
                     {
-                        "description": "Fields to update",
+                        "description": "Full replacement",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events_category.UpdateInput"
+                            "$ref": "#/definitions/internal_features_events_category.ReplaceInput"
                         }
                     }
                 ],
@@ -1069,17 +345,29 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_features_events_category.EventCategory"
+                            "$ref": "#/definitions/internal_features_events_category.Detail"
                         }
                     },
                     "400": {
-                        "description": "Invalid ID or request body",
+                        "description": "Invalid ID, request body, or validation error (meta.fields keyed by JSON path)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_events, or app category by a non-platform tenant",
                         "schema": {
                             "type": "object"
                         }
                     },
                     "404": {
                         "description": "Event category not found",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "409": {
+                        "description": "Stale template_version (meta.template_version is the current one)",
                         "schema": {
                             "type": "object"
                         }
@@ -1098,7 +386,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Soft-deletes an event category by ID.",
+                "description": "Soft-deletes an event category by ID. Requires manage_events; app categories only by the platform tenant.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1124,6 +412,12 @@
                     },
                     "400": {
                         "description": "Invalid ID format",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_events, or app category by a non-platform tenant",
                         "schema": {
                             "type": "object"
                         }
@@ -4697,35 +3991,6 @@
                 }
             }
         },
-        "dto.PageResponse-internal_features_events_workflowsteptemplate_WorkflowStepTemplate": {
-            "type": "object",
-            "properties": {
-                "has_next": {
-                    "type": "boolean"
-                },
-                "has_prev": {
-                    "type": "boolean"
-                },
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/internal_features_events_workflowsteptemplate.WorkflowStepTemplate"
-                    }
-                },
-                "page": {
-                    "type": "integer"
-                },
-                "size": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                },
-                "total_pages": {
-                    "type": "integer"
-                }
-            }
-        },
         "dto.PageResponse-internal_features_guests_Guest": {
             "type": "object",
             "properties": {
@@ -4900,35 +4165,6 @@
                 }
             }
         },
-        "dto.PageResponse-internal_features_tickets_tickettypetemplate_TicketTypeTemplate": {
-            "type": "object",
-            "properties": {
-                "has_next": {
-                    "type": "boolean"
-                },
-                "has_prev": {
-                    "type": "boolean"
-                },
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/internal_features_tickets_tickettypetemplate.TicketTypeTemplate"
-                    }
-                },
-                "page": {
-                    "type": "integer"
-                },
-                "size": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                },
-                "total_pages": {
-                    "type": "integer"
-                }
-            }
-        },
         "dto.PageResponse-internal_features_users_User": {
             "type": "object",
             "properties": {
@@ -5023,6 +4259,61 @@
                 },
                 "tenant_id": {
                     "type": "string"
+                },
+                "ticket_types": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events_category.TicketTypeInput"
+                    }
+                },
+                "workflow_steps": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events_category.WorkflowStepInput"
+                    }
+                }
+            }
+        },
+        "internal_features_events_category.Detail": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "template_version": {
+                    "type": "integer"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "ticket_types": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events_category.TicketTypeView"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "workflow_steps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events_category.WorkflowStepView"
+                    }
                 }
             }
         },
@@ -5044,6 +4335,9 @@
                 "source": {
                     "type": "string"
                 },
+                "template_version": {
+                    "type": "integer"
+                },
                 "tenant_id": {
                     "type": "string"
                 },
@@ -5052,21 +4346,100 @@
                 }
             }
         },
-        "internal_features_events_category.UpdateInput": {
+        "internal_features_events_category.ReplaceInput": {
             "type": "object",
+            "required": [
+                "name",
+                "template_version"
+            ],
             "properties": {
                 "name": {
-                    "type": "string",
-                    "minLength": 1
+                    "type": "string"
                 },
-                "source": {
-                    "type": "string",
-                    "enum": [
-                        "app",
-                        "tenant"
-                    ]
+                "template_version": {
+                    "type": "integer",
+                    "minimum": 1
                 },
-                "tenant_id": {
+                "ticket_types": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events_category.TicketTypeInput"
+                    }
+                },
+                "workflow_steps": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events_category.WorkflowStepInput"
+                    }
+                }
+            }
+        },
+        "internal_features_events_category.TicketTypeInput": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "rules": {
+                    "type": "object"
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_features_events_category.TicketTypeView": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "rules": {
+                    "type": "object"
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_features_events_category.WorkflowStepInput": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "allows_multiple": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_events_category.WorkflowStepView": {
+            "type": "object",
+            "properties": {
+                "allows_multiple": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -5110,6 +4483,10 @@
             "properties": {
                 "category_id": {
                     "type": "string"
+                },
+                "category_template_version": {
+                    "description": "CategoryTemplateVersion is the category template version this event's\nworkflow steps and ticket types were copied from (B15). Set by Create.",
+                    "type": "integer"
                 },
                 "created_at": {
                     "type": "string"
@@ -5248,87 +4625,6 @@
                 },
                 "order_index": {
                     "type": "integer"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_features_events_workflowsteptemplate.CreateWorkflowStepTemplateInput": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "allows_multiple": {
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "order_index": {
-                    "type": "integer",
-                    "minimum": 0
-                },
-                "ticket_type_applicability": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                }
-            }
-        },
-        "internal_features_events_workflowsteptemplate.UpdateWorkflowStepTemplateInput": {
-            "type": "object",
-            "properties": {
-                "allows_multiple": {
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string",
-                    "minLength": 1
-                },
-                "order_index": {
-                    "type": "integer",
-                    "minimum": 0
-                },
-                "ticket_type_applicability": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                }
-            }
-        },
-        "internal_features_events_workflowsteptemplate.WorkflowStepTemplate": {
-            "type": "object",
-            "properties": {
-                "allows_multiple": {
-                    "type": "boolean"
-                },
-                "category_id": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "deleted_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "order_index": {
-                    "type": "integer"
-                },
-                "ticket_type_applicability": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
                 },
                 "updated_at": {
                     "type": "string"
@@ -5843,67 +5139,6 @@
             }
         },
         "internal_features_tickets_tickettype.UpdateTicketTypeInput": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "minLength": 1
-                },
-                "rules": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                }
-            }
-        },
-        "internal_features_tickets_tickettypetemplate.CreateTicketTypeTemplateInput": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "rules": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                }
-            }
-        },
-        "internal_features_tickets_tickettypetemplate.TicketTypeTemplate": {
-            "type": "object",
-            "properties": {
-                "category_id": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "deleted_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "rules": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_features_tickets_tickettypetemplate.UpdateTicketTypeTemplateInput": {
             "type": "object",
             "properties": {
                 "name": {

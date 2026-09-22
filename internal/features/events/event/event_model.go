@@ -14,18 +14,21 @@ import (
 //
 // swagger:model Event
 type Event struct {
-	ID           uuid.UUID  `json:"id"                     db:"id"`
-	TenantID     uuid.UUID  `json:"tenant_id"               db:"tenant_id"`
-	CategoryID   uuid.UUID  `json:"category_id"             db:"category_id"`
-	Name         string     `json:"name"                    db:"name"`
-	Description  *string    `json:"description,omitempty"   db:"description"`
-	StartDate    time.Time  `json:"start_date"              db:"start_date"`
-	EndDate      time.Time  `json:"end_date"                db:"end_date"`
-	IsMultiDay   bool       `json:"is_multi_day"            db:"is_multi_day"`
-	RsvpRequired bool       `json:"rsvp_required"           db:"rsvp_required"`
-	CreatedAt    time.Time  `json:"created_at"              db:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"              db:"updated_at"`
-	DeletedAt    *time.Time `json:"deleted_at,omitempty"    db:"deleted_at"`
+	ID         uuid.UUID `json:"id"                     db:"id"`
+	TenantID   uuid.UUID `json:"tenant_id"               db:"tenant_id"`
+	CategoryID uuid.UUID `json:"category_id"             db:"category_id"`
+	// CategoryTemplateVersion is the category template version this event's
+	// workflow steps and ticket types were copied from (B15). Set by Create.
+	CategoryTemplateVersion int        `json:"category_template_version" db:"category_template_version"`
+	Name                    string     `json:"name"                    db:"name"`
+	Description             *string    `json:"description,omitempty"   db:"description"`
+	StartDate               time.Time  `json:"start_date"              db:"start_date"`
+	EndDate                 time.Time  `json:"end_date"                db:"end_date"`
+	IsMultiDay              bool       `json:"is_multi_day"            db:"is_multi_day"`
+	RsvpRequired            bool       `json:"rsvp_required"           db:"rsvp_required"`
+	CreatedAt               time.Time  `json:"created_at"              db:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"              db:"updated_at"`
+	DeletedAt               *time.Time `json:"deleted_at,omitempty"    db:"deleted_at"`
 }
 
 // TableName returns the database table name.

@@ -11,7 +11,9 @@ import (
 const ticketTypeTemplatesTable = "ticket_type_templates"
 
 // ticketTypeTemplateColumns are the columns selected on reads (GetByID, List).
-var ticketTypeTemplateColumns = []string{"id", "category_id", "name", "rules", "created_at", "updated_at", "deleted_at"}
+var ticketTypeTemplateColumns = []string{
+	"id", "category_id", "version", "name", "rules", "created_at", "updated_at", "deleted_at",
+}
 
 // NewTicketTypeTemplateRepository returns a soft-delete-aware repository for
 // ticket type templates. TID is uuid.UUID — kept typed all the way through

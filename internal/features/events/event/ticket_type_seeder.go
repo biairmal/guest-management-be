@@ -7,7 +7,10 @@ import (
 )
 
 // TicketTypeSeeder seeds new ticket types for a newly created event from its
-// category's ticket-type templates (B12). Implemented by tickets'
+// category's ticket-type templates at the given template version (B12/B15),
+// each including exactly the event steps copied from the step templates it
+// included — stepIDs maps workflow step template ID to the new event
+// workflow step ID. Implemented by tickets'
 // tickettype.Service; wired in internal/app — the only layer allowed to know
 // both events and tickets — so this package never imports tickets, keeping
 // each slice independently extractable (docs/ARCHITECTURE.md). Same
@@ -27,5 +30,7 @@ import (
 // hand-written stub instead (stubTicketTypeSeeder), the same accepted
 // exception as guests' noopInvitationPublisher.
 type TicketTypeSeeder interface {
-	SeedFromCategoryTemplates(ctx context.Context, eventID, categoryID uuid.UUID) error
+	SeedFromCategoryTemplates(
+		ctx context.Context, eventID, categoryID uuid.UUID, version int, stepIDs map[uuid.UUID]uuid.UUID,
+	) error
 }

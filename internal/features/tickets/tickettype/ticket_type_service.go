@@ -67,12 +67,14 @@ type TicketTypeService interface {
 		ctx context.Context, eventID, id uuid.UUID, workflowStepIDs []uuid.UUID,
 	) (*TicketType, error)
 	// SeedFromCategoryTemplates implements events/event's TicketTypeSeeder:
-	// it copies categoryID's ticket_type_templates onto eventID as new
-	// TicketTypes, via the same internal creation path as Create (so
-	// seedDefaultWorkflowSteps' full-applicability default applies
-	// identically, B7 AC7/B12 AC5). Wired as the TicketTypeSeeder
-	// implementation in internal/app — this package never imports events.
-	SeedFromCategoryTemplates(ctx context.Context, eventID, categoryID uuid.UUID) error
+	// it copies categoryID's ticket_type_templates at version onto eventID
+	// as new TicketTypes, each including exactly the event steps copied from
+	// the step templates it included (stepIDs maps step template ID → event
+	// step ID). Wired as the TicketTypeSeeder implementation in
+	// internal/app — this package never imports events.
+	SeedFromCategoryTemplates(
+		ctx context.Context, eventID, categoryID uuid.UUID, version int, stepIDs map[uuid.UUID]uuid.UUID,
+	) error
 }
 
 // ticketTypeServiceImpl is the concrete implementation of TicketTypeService.
@@ -81,6 +83,7 @@ type ticketTypeServiceImpl struct {
 	junctionRepo     TicketTypeWorkflowStepRepository
 	workflowStepRepo repository.ReadRepository[workflowstep.WorkflowStep, uuid.UUID]
 	templateRepo     repository.ReadRepository[tickettypetemplate.TicketTypeTemplate, uuid.UUID]
+	templateStepRepo tickettypetemplate.WorkflowStepRepository
 	logger           logger.Logger
 }
 
@@ -92,17 +95,19 @@ type ticketTypeServiceImpl struct {
 // workflow steps owned by events/workflowstep, never writes to them.
 // templateRepo is a same-feature, sibling-entity dependency on
 // tickettypetemplate's repository — backs SeedFromCategoryTemplates — mirroring
-// events/event's existing direct dependency on workflowsteptemplate's repo.
+// events/event's existing direct dependency on workflowsteptemplate's repo;
+// templateStepRepo is its step junction, read for each template's step access.
 func NewTicketTypeService(
 	logger logger.Logger,
 	repo repository.Repository[TicketType, uuid.UUID],
 	junctionRepo TicketTypeWorkflowStepRepository,
 	workflowStepRepo repository.ReadRepository[workflowstep.WorkflowStep, uuid.UUID],
 	templateRepo repository.ReadRepository[tickettypetemplate.TicketTypeTemplate, uuid.UUID],
+	templateStepRepo tickettypetemplate.WorkflowStepRepository,
 ) TicketTypeService {
 	return &ticketTypeServiceImpl{
 		repo: repo, junctionRepo: junctionRepo, workflowStepRepo: workflowStepRepo,
-		templateRepo: templateRepo, logger: logger,
+		templateRepo: templateRepo, templateStepRepo: templateStepRepo, logger: logger,
 	}
 }
 
@@ -124,16 +129,17 @@ func (s *ticketTypeServiceImpl) Create(
 	if len(rules) == 0 {
 		rules = emptyJSONObject
 	}
-	return s.createTicketType(ctx, eventID, in.Name, rules)
+	entity, err := s.insertTicketType(ctx, eventID, in.Name, rules)
+	if err != nil {
+		return nil, err
+	}
+	entity.WorkflowStepIDs = s.seedDefaultWorkflowSteps(ctx, eventID, entity.ID)
+	return entity, nil
 }
 
-// createTicketType inserts a new ticket type under eventID with the given
-// name/rules and seeds its default workflow-step applicability — the shared
-// path behind both Create (a caller-supplied name/rules) and
-// SeedFromCategoryTemplates (a template's name/rules), so a
-// template-seeded ticket type gets identical default behavior to a manually
-// created one (B12 AC5).
-func (s *ticketTypeServiceImpl) createTicketType(
+// insertTicketType inserts a new ticket type under eventID with the given
+// name/rules — the shared insert behind Create and SeedFromCategoryTemplates.
+func (s *ticketTypeServiceImpl) insertTicketType(
 	ctx context.Context, eventID uuid.UUID, name string, rules json.RawMessage,
 ) (*TicketType, error) {
 	entity := &TicketType{ID: uuid.New(), EventID: eventID, Name: name, Rules: rules}
@@ -147,40 +153,61 @@ func (s *ticketTypeServiceImpl) createTicketType(
 		s.logger.ErrorWithContext(ctx, "ticket type create failed", logger.F("error", err))
 		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to create ticket type")
 	}
-
-	entity.WorkflowStepIDs = s.seedDefaultWorkflowSteps(ctx, eventID, entity.ID)
-
 	s.logger.InfoWithContext(ctx, "ticket type created", logger.F("id", entity.ID), logger.F("event_id", eventID))
 	return entity, nil
 }
 
-// SeedFromCategoryTemplates lists categoryID's ticket_type_templates and
-// creates a matching TicketType under eventID for each one, via
-// createTicketType. Unlike Create's own best-effort workflow-step seed, a
-// failure here returns immediately instead of logging and continuing: this
-// runs inside EventService.Create's transaction (ctx carries the
-// transaction from (*sqlkit.DB).WithTransaction), so a partial copy must
-// abort and roll back the whole event creation rather than leave the event
-// with some but not all of its category's default ticket types (B12 AC2).
-func (s *ticketTypeServiceImpl) SeedFromCategoryTemplates(ctx context.Context, eventID, categoryID uuid.UUID) error {
+// SeedFromCategoryTemplates lists categoryID's ticket_type_templates at
+// version and creates a matching TicketType under eventID for each one,
+// including exactly the event steps (via stepIDs) copied from the step
+// templates the template included. Unlike Create's best-effort default
+// step seed, every failure returns immediately: this runs inside
+// EventService.Create's transaction, so a partial copy must roll back the
+// whole event creation (B12 AC2).
+func (s *ticketTypeServiceImpl) SeedFromCategoryTemplates(
+	ctx context.Context, eventID, categoryID uuid.UUID, version int, stepIDs map[uuid.UUID]uuid.UUID,
+) error {
 	templates, _, err := s.templateRepo.List(ctx, &repository.ListOptions{
 		Filter: repository.Filter{Conditions: []repository.FilterCondition{
 			{Field: "category_id", Operator: repository.FilterOperatorEq, Value: categoryID},
+			{Field: "version", Operator: repository.FilterOperatorEq, Value: version},
 		}},
 		Pagination: repository.Pagination{Limit: query.DefaultMaxSize},
 	})
 	if err != nil {
-		s.logger.ErrorWithContext(ctx, "ticket type template lookup failed",
-			logger.F("event_id", eventID), logger.F("category_id", categoryID), logger.F("error", err))
-		return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to look up ticket type templates")
+		return s.seedFailed(ctx, eventID, "failed to look up ticket type templates", err)
+	}
+	ids := make([]uuid.UUID, len(templates))
+	for i, tmpl := range templates {
+		ids[i] = tmpl.ID
+	}
+	templateSteps, err := s.templateStepRepo.WorkflowStepTemplateIDs(ctx, ids)
+	if err != nil {
+		return s.seedFailed(ctx, eventID, "failed to look up ticket type template steps", err)
 	}
 
 	for _, tmpl := range templates {
-		if _, err := s.createTicketType(ctx, eventID, tmpl.Name, tmpl.Rules); err != nil {
+		entity, err := s.insertTicketType(ctx, eventID, tmpl.Name, tmpl.Rules)
+		if err != nil {
 			return err
+		}
+		eventStepIDs := make([]uuid.UUID, 0, len(templateSteps[tmpl.ID]))
+		for _, stepTemplateID := range templateSteps[tmpl.ID] {
+			if id, ok := stepIDs[stepTemplateID]; ok {
+				eventStepIDs = append(eventStepIDs, id)
+			}
+		}
+		if err := s.junctionRepo.SetWorkflowStepIDs(ctx, entity.ID, eventStepIDs); err != nil {
+			return s.seedFailed(ctx, eventID, "failed to set seeded ticket type workflow steps", err)
 		}
 	}
 	return nil
+}
+
+// seedFailed logs and wraps a SeedFromCategoryTemplates failure.
+func (s *ticketTypeServiceImpl) seedFailed(ctx context.Context, eventID uuid.UUID, msg string, err error) error {
+	s.logger.ErrorWithContext(ctx, msg, logger.F("event_id", eventID), logger.F("error", err))
+	return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage(msg)
 }
 
 // seedDefaultWorkflowSteps looks up eventID's current workflow steps and

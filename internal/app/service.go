@@ -9,7 +9,6 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/events/category"
 	"github.com/biairmal/guest-management-be/internal/features/events/event"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
-	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 	"github.com/biairmal/guest-management-be/internal/features/guests"
 	"github.com/biairmal/guest-management-be/internal/features/roles"
 	"github.com/biairmal/guest-management-be/internal/features/scans"
@@ -22,20 +21,18 @@ import (
 )
 
 type service struct {
-	categoryService             category.Service
-	eventService                event.Service
-	workflowStepService         workflowstep.Service
-	workflowStepTemplateService workflowsteptemplate.Service
-	tenantService               tenants.TenantService
-	userService                 users.UserService
-	authService                 appauth.Service
-	messageTemplateService      templates.MessageTemplateService
-	staffAssignmentService      staffing.StaffAssignmentService
-	ticketTypeService           tickettype.TicketTypeService
-	ticketTypeTemplateService   tickettypetemplate.Service
-	guestService                guests.GuestService
-	scanLogService              scans.ScanLogService
-	authzChecker                *coreauthz.Checker
+	categoryService        category.Service
+	eventService           event.Service
+	workflowStepService    workflowstep.Service
+	tenantService          tenants.TenantService
+	userService            users.UserService
+	authService            appauth.Service
+	messageTemplateService templates.MessageTemplateService
+	staffAssignmentService staffing.StaffAssignmentService
+	ticketTypeService      tickettype.TicketTypeService
+	guestService           guests.GuestService
+	scanLogService         scans.ScanLogService
+	authzChecker           *coreauthz.Checker
 }
 
 func (a *App) initializeService(
@@ -51,21 +48,27 @@ func (a *App) initializeService(
 	ticketTypeService := tickettype.NewTicketTypeService(
 		logger, repositories.ticketTypeRepository,
 		repositories.ticketTypeWorkflowStepRepository, repositories.workflowStepRepository,
-		repositories.ticketTypeTemplateRepository,
+		repositories.ticketTypeTemplateRepository, repositories.ticketTypeTemplateStepRepository,
 	)
 
 	return &service{
-		categoryService: category.NewService(logger, repositories.categoryRepository),
+		// The tickets-side Store is the category's TicketTypeTemplateStore
+		// (B15) — wired here so events never imports tickets.
+		categoryService: category.NewService(
+			logger, repositories.categoryRepository, repositories.categoryVersionRepository,
+			repositories.workflowStepTemplateRepository,
+			tickettypetemplate.NewStore(
+				logger, repositories.ticketTypeTemplateRepository, repositories.ticketTypeTemplateStepRepository,
+			),
+			a.db,
+		),
 		eventService: event.NewService(
 			logger, repositories.eventRepository,
 			repositories.workflowStepTemplateRepository, repositories.workflowStepRepository,
-			ticketTypeService, a.db,
+			ticketTypeService, repositories.categoryVersionRepository, a.db,
 		),
 		workflowStepService: workflowstep.NewService(logger, repositories.workflowStepRepository),
-		workflowStepTemplateService: workflowsteptemplate.NewService(
-			logger, repositories.workflowStepTemplateRepository,
-		),
-		tenantService: tenants.NewTenantService(logger, repositories.tenantRepository),
+		tenantService:       tenants.NewTenantService(logger, repositories.tenantRepository),
 		userService: users.NewUserService(
 			logger, repositories.userRepository, repositories.roleRepository, a.db,
 		),
@@ -79,9 +82,6 @@ func (a *App) initializeService(
 			repositories.userRepository, repositories.roleRepository,
 		),
 		ticketTypeService: ticketTypeService,
-		ticketTypeTemplateService: tickettypetemplate.NewService(
-			logger, repositories.ticketTypeTemplateRepository,
-		),
 		guestService: guests.NewGuestService(
 			logger, repositories.guestRepository, repositories.ticketRepository,
 			repositories.eventRepository, repositories.ticketTypeRepository,

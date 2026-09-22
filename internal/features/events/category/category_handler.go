@@ -67,12 +67,12 @@ func (h *Handler) List(r *http.Request) (any, error) {
 // GetByID godoc
 //
 //	@Summary		Get event category by ID
-//	@Description	Returns a single event category by UUID.
+//	@Description	Returns a single event category with its current template_version, ordered workflow_steps, and ticket_types (each listing the indexes of the steps it includes). Another tenant's category is 404.
 //	@Tags			event-categories
 //	@Accept			json
 //	@Produce		json
 //	@Param			id	path		string	true	"Event category UUID"
-//	@Success		200	{object}	category.EventCategory
+//	@Success		200	{object}	category.Detail
 //	@Failure		400	{object}	object	"Invalid ID format"
 //	@Failure		404	{object}	object	"Event category not found"
 //	@Failure		500	{object}	object	"Internal server error"
@@ -96,13 +96,14 @@ func (h *Handler) GetByID(r *http.Request) (any, error) {
 // Create godoc
 //
 //	@Summary		Create event category
-//	@Description	Creates a new event category. Source must be "app" or "tenant"; tenant_id required when source is "tenant".
+//	@Description	Creates an event category with its whole template set (workflow_steps, ticket_types) at template_version 1, in one transaction. The tenant comes from the JWT; only the platform tenant may create source "app" categories. Requires manage_events.
 //	@Tags			event-categories
 //	@Accept			json
 //	@Produce		json
 //	@Param			body	body		category.CreateInput	true	"Event category payload"
-//	@Success		201		{object}	category.EventCategory
-//	@Failure		400		{object}	object	"Invalid request body or validation error"
+//	@Success		201		{object}	category.Detail
+//	@Failure		400		{object}	object	"Invalid request body or validation error (meta.fields keyed by JSON path)"
+//	@Failure		403		{object}	object	"Missing manage_events, or app category by a non-platform tenant"
 //	@Failure		409		{object}	object	"Conflict (e.g. already exists)"
 //	@Failure		422		{object}	object	"Unprocessable entity"
 //	@Failure		500		{object}	object	"Internal server error"
@@ -123,37 +124,39 @@ func (h *Handler) Create(r *http.Request) (any, error) {
 	return response.Created(entity), nil
 }
 
-// Update handles PUT /event-categories/{id}.
+// Replace handles PUT /event-categories/{id}.
 //
-// Update godoc
+// Replace godoc
 //
-//	@Summary		Update event category
-//	@Description	Updates an existing event category by ID. Only provided fields are applied (partial update).
+//	@Summary		Replace event category template set
+//	@Description	Replaces the category's name and whole template set as the next template_version, in one transaction. template_version must be the version the edit was based on; if someone saved in between, 409 and nothing changes. Existing events are never changed. Requires manage_events.
 //	@Tags			event-categories
 //	@Accept			json
 //	@Produce		json
-//	@Param			id		path		string				true	"Event category UUID"
-//	@Param			body	body		category.UpdateInput	true	"Fields to update"
-//	@Success		200		{object}	category.EventCategory
-//	@Failure		400		{object}	object	"Invalid ID or request body"
+//	@Param			id		path		string					true	"Event category UUID"
+//	@Param			body	body		category.ReplaceInput	true	"Full replacement"
+//	@Success		200		{object}	category.Detail
+//	@Failure		400		{object}	object	"Invalid ID, request body, or validation error (meta.fields keyed by JSON path)"
+//	@Failure		403		{object}	object	"Missing manage_events, or app category by a non-platform tenant"
 //	@Failure		404		{object}	object	"Event category not found"
+//	@Failure		409		{object}	object	"Stale template_version (meta.template_version is the current one)"
 //	@Failure		500		{object}	object	"Internal server error"
 //	@Security		BearerAuth
 //	@Router			/api/v1/event-categories/{id} [put]
-func (h *Handler) Update(r *http.Request) (any, error) {
+func (h *Handler) Replace(r *http.Request) (any, error) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return nil, errorz.BadRequest().WithMessage("invalid event category id")
 	}
-	var body UpdateInput
+	var body ReplaceInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return nil, errorz.BadRequest().WithMessage("invalid request body")
 	}
 	if err := h.validator.Struct(body); err != nil {
 		return nil, err
 	}
-	entity, err := h.service.Update(r.Context(), id, body)
+	entity, err := h.service.Replace(r.Context(), id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -165,13 +168,14 @@ func (h *Handler) Update(r *http.Request) (any, error) {
 // Delete godoc
 //
 //	@Summary		Delete event category
-//	@Description	Soft-deletes an event category by ID.
+//	@Description	Soft-deletes an event category by ID. Requires manage_events; app categories only by the platform tenant.
 //	@Tags			event-categories
 //	@Accept			json
 //	@Produce		json
 //	@Param			id	path		string	true	"Event category UUID"
 //	@Success		204	"No content"
 //	@Failure		400	{object}	object	"Invalid ID format"
+//	@Failure		403	{object}	object	"Missing manage_events, or app category by a non-platform tenant"
 //	@Failure		404	{object}	object	"Event category not found"
 //	@Failure		500	{object}	object	"Internal server error"
 //	@Security		BearerAuth

@@ -7,51 +7,41 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/events/category"
 	"github.com/biairmal/guest-management-be/internal/features/events/event"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
-	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 	"github.com/biairmal/guest-management-be/internal/features/guests"
 	"github.com/biairmal/guest-management-be/internal/features/scans"
 	"github.com/biairmal/guest-management-be/internal/features/staffing"
 	"github.com/biairmal/guest-management-be/internal/features/templates"
 	"github.com/biairmal/guest-management-be/internal/features/tenants"
 	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettype"
-	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettypetemplate"
 	"github.com/biairmal/guest-management-be/internal/features/users"
 )
 
 type handler struct {
-	categoryHandler             *category.Handler
-	eventHandler                *event.Handler
-	workflowStepHandler         *workflowstep.Handler
-	workflowStepTemplateHandler *workflowsteptemplate.Handler
-	tenantHandler               *tenants.TenantHandler
-	userHandler                 *users.UserHandler
-	authHandler                 *appauth.Handler
-	messageTemplateHandler      *templates.MessageTemplateHandler
-	staffAssignmentHandler      *staffing.StaffAssignmentHandler
-	ticketTypeHandler           *tickettype.TicketTypeHandler
-	ticketTypeTemplateHandler   *tickettypetemplate.Handler
-	guestHandler                *guests.GuestHandler
-	scanLogHandler              *scans.ScanLogHandler
+	categoryHandler        *category.Handler
+	eventHandler           *event.Handler
+	workflowStepHandler    *workflowstep.Handler
+	tenantHandler          *tenants.TenantHandler
+	userHandler            *users.UserHandler
+	authHandler            *appauth.Handler
+	messageTemplateHandler *templates.MessageTemplateHandler
+	staffAssignmentHandler *staffing.StaffAssignmentHandler
+	ticketTypeHandler      *tickettype.TicketTypeHandler
+	guestHandler           *guests.GuestHandler
+	scanLogHandler         *scans.ScanLogHandler
 }
 
 func (a *App) initializeHandler(_ logger.Logger, validator validation.Validator, service *service) *handler {
 	return &handler{
-		categoryHandler:     category.NewHandler(service.categoryService, validator),
-		eventHandler:        event.NewHandler(service.eventService, validator),
-		workflowStepHandler: workflowstep.NewHandler(service.workflowStepService, validator),
-		workflowStepTemplateHandler: workflowsteptemplate.NewHandler(
-			service.workflowStepTemplateService, validator,
-		),
+		categoryHandler:        category.NewHandler(service.categoryService, validator),
+		eventHandler:           event.NewHandler(service.eventService, validator),
+		workflowStepHandler:    workflowstep.NewHandler(service.workflowStepService, validator),
 		tenantHandler:          tenants.NewTenantHandler(service.tenantService, validator),
 		userHandler:            users.NewUserHandler(service.userService, validator),
 		authHandler:            appauth.NewHandler(service.authService, validator),
 		messageTemplateHandler: templates.NewMessageTemplateHandler(service.messageTemplateService, validator),
 		staffAssignmentHandler: staffing.NewStaffAssignmentHandler(service.staffAssignmentService, validator),
 		ticketTypeHandler:      tickettype.NewTicketTypeHandler(service.ticketTypeService, validator),
-		ticketTypeTemplateHandler: tickettypetemplate.NewHandler(
-			service.ticketTypeTemplateService, validator,
-		),
-		guestHandler:   guests.NewGuestHandler(service.guestService, validator),
-		scanLogHandler: scans.NewScanLogHandler(service.scanLogService, validator),
+		guestHandler:           guests.NewGuestHandler(service.guestService, validator),
+		scanLogHandler:         scans.NewScanLogHandler(service.scanLogService, validator),
 	}
 }

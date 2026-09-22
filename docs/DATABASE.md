@@ -32,10 +32,11 @@ This document describes the PostgreSQL schema for the Guest Management System: t
 | EventStaffAssignment    | `event_staff_assignments`     | User assigned to event with a role (permissions from role). |
 | Event                   | `events`                      | Event; `tenant_id`, `category_id`, dates, `is_multi_day`. |
 | Event Category          | `event_categories`            | Category (app or tenant); single table with `source`. |
-| WorkflowStepTemplate    | `workflow_step_templates`     | Template steps per category. |
+| WorkflowStepTemplate    | `workflow_step_templates`     | Template steps per category, per template version. |
 | WorkflowStep            | `workflow_steps`              | Event-level workflow steps (from templates + custom). |
 | TicketType              | `ticket_types`                | Ticket type per event (e.g. Regular, VIP); rules in JSONB. |
 | TicketTypeTemplate      | `ticket_type_templates`       | Template ticket types per category; copied onto an event's ticket types at creation. |
+| (junction)              | `ticket_type_template_workflow_steps` | Which step templates each ticket type template includes. |
 | TicketType ↔ WorkflowStep | `ticket_type_workflow_steps` | Many-to-many: ticket type ↔ workflow step. |
 | Ticket                  | `tickets`                     | QR ticket; `guest_id`, `event_id`, `ticket_type_id`, `status`. |
 | Guest                   | `guests`                      | Guest per event; `rsvp_status`, optional `ticket_id`. |
@@ -148,6 +149,7 @@ Event categories with a single table and a `source` discriminator: `app` (global
 | source      | VARCHAR(32)  | No       | One of: app, tenant (CHECK; managed in Go). App = global template; tenant = tenant override. |
 | tenant_id   | UUID         | Yes      | Tenant that owns this category when source = tenant; NULL when source = app. |
 | name        | TEXT         | No       | Category display name. |
+| template_version | INT     | No       | Version of the category's current template set (default 1); incremented by every template save (B15). |
 | created_at  | TIMESTAMPTZ  | No       | When the row was created. |
 | updated_at  | TIMESTAMPTZ  | No       | When the row was last updated. |
 | deleted_at  | TIMESTAMPTZ  | Yes      | When the row was soft-deleted; NULL if active. |
@@ -158,21 +160,21 @@ Event categories with a single table and a `source` discriminator: `app` (global
 
 ### 3.7 workflow_step_templates
 
-Template workflow steps attached to an event category. When an event is created or configured, the application copies these into `workflow_steps` (no FK back to template).
+Template workflow steps of an event category, one set per template version. When an event is created, the application copies the category's current version into `workflow_steps` (no FK back to template). A template save soft-deletes the previous version's rows (kept as history) and inserts the new version.
 
-| Column                    | Type        | Nullable | Description |
-| ------------------------- | ----------- | -------- | ----------- |
-| id                        | UUID        | No       | Primary key. |
-| category_id               | UUID        | No       | Category this template belongs to (FK to event_categories.id). |
-| name                      | TEXT        | No       | Step name (e.g. Check-in, Photo booth). |
-| order_index               | INT         | No       | Order within the category (unique per category). |
-| allows_multiple           | BOOLEAN     | No       | Whether this step can be completed more than once per ticket. |
-| ticket_type_applicability | JSONB       | Yes      | Optional rules for which ticket types this step applies to. |
-| created_at                | TIMESTAMPTZ | No       | When the row was created. |
-| updated_at                | TIMESTAMPTZ | No       | When the row was last updated. |
-| deleted_at                | TIMESTAMPTZ | Yes      | When the row was soft-deleted; NULL if active. |
+| Column          | Type        | Nullable | Description |
+| --------------- | ----------- | -------- | ----------- |
+| id              | UUID        | No       | Primary key. |
+| category_id     | UUID        | No       | Category this template belongs to (FK to event_categories.id). |
+| version         | INT         | No       | Category template version this row belongs to (no default; set by code). |
+| name            | TEXT        | No       | Step name (e.g. Check-in, Photo booth). |
+| order_index     | INT         | No       | Order within the category's version. |
+| allows_multiple | BOOLEAN     | No       | Whether this step can be completed more than once per ticket. |
+| created_at      | TIMESTAMPTZ | No       | When the row was created. |
+| updated_at      | TIMESTAMPTZ | No       | When the row was last updated. |
+| deleted_at      | TIMESTAMPTZ | Yes      | When the row was soft-deleted; NULL if active. |
 
-**Constraint:** `UNIQUE (category_id, order_index)`.
+**Constraint:** `UNIQUE (category_id, version, order_index)`. (`ticket_type_applicability` was dropped in 000020; step access lives in `ticket_type_template_workflow_steps`.)
 
 ---
 
@@ -185,6 +187,7 @@ Events belong to a tenant and an event category. Each event has workflow steps, 
 | id           | UUID        | No       | Primary key. |
 | tenant_id    | UUID        | No       | Tenant that owns this event (FK to tenants.id). |
 | category_id  | UUID        | No       | Event category used for this event (FK to event_categories.id). |
+| category_template_version | INT | No | Category template version the event's steps and ticket types were copied from (default 1 for pre-B15 events). |
 | name         | TEXT        | No       | Event display name. |
 | description  | TEXT        | Yes      | Event description. |
 | start_date   | TIMESTAMPTZ | No       | Event start (with timezone). |
@@ -259,19 +262,31 @@ Ticket types per event (e.g. Regular, VIP). Rules (e.g. single_entry, multi_entr
 
 ### 3.11a ticket_type_templates
 
-Per-category default ticket types, copied onto a newly created event's `ticket_types` (same name/rules) when the event's category has any. No FK back from `ticket_types` — a one-time copy at event-creation time, not a live link (editing/deleting a template never retroactively changes an already-created event's ticket types).
+Per-category default ticket types, one set per template version, copied onto a newly created event's `ticket_types` (same name/rules, plus step access from `ticket_type_template_workflow_steps`). No FK back from `ticket_types` — a one-time copy at event-creation time, not a live link (a later template save never changes an already-created event's ticket types).
 
 | Column      | Type        | Nullable | Description |
 | ----------- | ----------- | -------- | ----------- |
 | id          | UUID        | No       | Primary key. |
 | category_id | UUID        | No       | Event category this template belongs to (FK to event_categories.id). |
-| name        | TEXT        | No       | Ticket type name (e.g. Regular, VIP); unique per category. |
+| version     | INT         | No       | Category template version this row belongs to (no default; set by code). |
+| name        | TEXT        | No       | Ticket type name (e.g. Regular, VIP); unique per category version. |
 | rules       | JSONB       | No       | Entry rules and other config (default `{}`); copied verbatim onto the seeded ticket type. |
 | created_at  | TIMESTAMPTZ | No       | When the row was created. |
 | updated_at  | TIMESTAMPTZ | No       | When the row was last updated. |
 | deleted_at  | TIMESTAMPTZ | Yes      | When the row was soft-deleted; NULL if active. |
 
-**Constraint:** `UNIQUE (category_id, name)`.
+**Constraint:** `UNIQUE (category_id, version, name)`.
+
+---
+
+### 3.11b ticket_type_template_workflow_steps
+
+Junction table: which workflow step templates a ticket type template includes — mirrors `ticket_type_workflow_steps` one level up. Rows are write-once per version (a new version gets new template rows), so there is no soft delete. Event creation maps these onto the new event's `ticket_type_workflow_steps`.
+
+| Column                    | Type | Nullable | Description |
+| ------------------------- | ---- | -------- | ----------- |
+| ticket_type_template_id   | UUID | No       | FK to ticket_type_templates.id (ON DELETE CASCADE); part of primary key. |
+| workflow_step_template_id | UUID | No       | FK to workflow_step_templates.id (ON DELETE CASCADE); part of primary key; indexed. |
 
 ---
 
@@ -384,6 +399,8 @@ erDiagram
 
     event_categories ||--o{ workflow_step_templates : "has"
     event_categories ||--o{ ticket_type_templates : "has"
+    ticket_type_templates ||--o{ ticket_type_template_workflow_steps : "includes"
+    workflow_step_templates ||--o{ ticket_type_template_workflow_steps : "included by"
     events }o--|| event_categories : "category"
     events ||--o{ workflow_steps : "has"
     events ||--o{ ticket_types : "has"
@@ -404,12 +421,13 @@ erDiagram
     roles { uuid id varchar128 name varchar16 scope }
     role_permissions { uuid role_id uuid permission_id }
     users { uuid id uuid tenant_id string email uuid role_id bool is_tenant_master timestamptz deleted_at }
-    event_categories { uuid id varchar32 source uuid tenant_id_nullable string name timestamptz deleted_at }
-    workflow_step_templates { uuid id uuid category_id int order_index bool allows_multiple timestamptz deleted_at }
-    events { uuid id uuid tenant_id uuid category_id timestamptz start_date timestamptz end_date timestamptz deleted_at }
+    event_categories { uuid id varchar32 source uuid tenant_id_nullable string name int template_version timestamptz deleted_at }
+    workflow_step_templates { uuid id uuid category_id int version int order_index bool allows_multiple timestamptz deleted_at }
+    events { uuid id uuid tenant_id uuid category_id int category_template_version timestamptz start_date timestamptz end_date timestamptz deleted_at }
     workflow_steps { uuid id uuid event_id int order_index bool allows_multiple timestamptz deleted_at }
     ticket_types { uuid id uuid event_id string name jsonb rules timestamptz deleted_at }
-    ticket_type_templates { uuid id uuid category_id string name jsonb rules timestamptz deleted_at }
+    ticket_type_templates { uuid id uuid category_id int version string name jsonb rules timestamptz deleted_at }
+    ticket_type_template_workflow_steps { uuid ticket_type_template_id uuid workflow_step_template_id }
     ticket_type_workflow_steps { uuid ticket_type_id uuid workflow_step_id }
     guests { uuid id uuid event_id varchar32 rsvp_status uuid ticket_id_nullable timestamptz deleted_at }
     tickets { uuid id uuid guest_id uuid event_id uuid ticket_type_id string qr_code varchar32 status timestamptz deleted_at }
@@ -446,7 +464,7 @@ permissions, roles, role_permissions (system/reference data), scan_logs (audit t
 
 Migrations are applied in order from `./migrations` using golang-migrate. Sequence: 000001 (tenants) → 000002 (permissions, roles, role_permissions) → 000003 (users) → 000004 (event_categories, workflow_step_templates) → 000005 (events, workflow_steps) → 000006 (message_templates) → 000007 (event_staff_assignments) → 000008 (ticket_types, ticket_type_workflow_steps) → 000009 (guests, tickets) → 000010 (scan_logs) → 000011 (indexes) → 000012 (users.email unique across tenants, for B3 `auth` login) → 000013 (`roles.scope`) → 000014 (seed the System tenant + starter roles/permissions/role_permissions + the single-Super-Admin partial unique index, for B6 `staffing`) → 000015 (`event_staff_assignments` active-only unique index) → 000016 (`events.rsvp_required`) → 000017
 (`guests.ticket_type_id`/`invitation_token`/`email_hash`/`phone_hash`) → 000018 (`users.must_change_password`,
-for B11 `users` hardening) → 000019 (`ticket_type_templates`, for B12 `ticket-type-templates`).
+for B11 `users` hardening) → 000019 (`ticket_type_templates`, for B12 `ticket-type-templates`) → 000020 (template versions on `event_categories`/`workflow_step_templates`/`ticket_type_templates`, `events.category_template_version`, new `ticket_type_template_workflow_steps`, drops `workflow_step_templates.ticket_type_applicability`; down migration is lossy once a category has more than one version — for B15 `category-template-sets`).
 
 **000013–000015 (B6 `staffing`/role scoping):**
 

@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/biairmal/guest-management-be/internal/core/query"
+	"github.com/biairmal/guest-management-be/internal/features/events/category"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
 )
@@ -34,6 +35,7 @@ type eventServiceImpl struct {
 	templateRepo     repository.Repository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID]
 	workflowStepRepo repository.Repository[workflowstep.WorkflowStep, uuid.UUID]
 	ticketTypeSeeder TicketTypeSeeder
+	versionRepo      category.TemplateVersionRepository
 	db               *sqlkit.DB
 	logger           logger.Logger
 }
@@ -41,20 +43,22 @@ type eventServiceImpl struct {
 // NewService returns an Service with the given dependencies.
 // templateRepo/workflowStepRepo back Create's default-workflow-step copy
 // (see copyWorkflowStepTemplates); ticketTypeSeeder backs Create's
-// default-ticket-type copy (B12). db backs Create's transactional wrap of
-// both copies (go-sdk's (*sqlkit.DB).WithTransaction), following
-// NewUserService's precedent (db last).
+// default-ticket-type copy (B12); versionRepo reads the category's current
+// template version (B15). db backs Create's transactional wrap of all of
+// it (go-sdk's (*sqlkit.DB).WithTransaction), following NewUserService's
+// precedent (db last).
 func NewService(
 	logger logger.Logger,
 	repo repository.Repository[Event, uuid.UUID],
 	templateRepo repository.Repository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID],
 	workflowStepRepo repository.Repository[workflowstep.WorkflowStep, uuid.UUID],
 	ticketTypeSeeder TicketTypeSeeder,
+	versionRepo category.TemplateVersionRepository,
 	db *sqlkit.DB,
 ) Service {
 	return &eventServiceImpl{
 		logger: logger, repo: repo, templateRepo: templateRepo, workflowStepRepo: workflowStepRepo,
-		ticketTypeSeeder: ticketTypeSeeder, db: db,
+		ticketTypeSeeder: ticketTypeSeeder, versionRepo: versionRepo, db: db,
 	}
 }
 
@@ -112,14 +116,27 @@ func buildEvent(in CreateEventInput) *Event {
 	}
 }
 
-// createEvent inserts entity, then copies its category's
-// workflow-step-templates and ticket-type-templates onto it, all against
-// ctx — the transaction-carrying context Create's WithTransaction call
-// supplies, so a failure in any step rolls back the others. Split out from
-// Create purely for testability: it can be exercised directly against
-// mocked collaborators without a live database/transaction (see
-// docs/TESTING.md "Unit vs integration"), mirroring users' transferMaster.
+// createEvent reads the category's current template version, inserts entity
+// recording it, then copies that version's workflow-step-templates and
+// ticket-type-templates onto it, all against ctx — the transaction-carrying
+// context Create's WithTransaction call supplies, so a failure in any step
+// rolls back the others. The version is read FOR SHARE, so a concurrent
+// template save waits until this event commits: the recorded version is
+// exactly the rows copied. Split out from Create purely for testability: it
+// can be exercised directly against mocked collaborators without a live
+// database/transaction (see docs/TESTING.md "Unit vs integration"),
+// mirroring users' transferMaster.
 func (s *eventServiceImpl) createEvent(ctx context.Context, entity *Event) error {
+	version, err := s.versionRepo.TemplateVersionForShare(ctx, entity.CategoryID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return errorz.UnprocessableEntity().WithMessage("event category not found")
+		}
+		s.logger.ErrorWithContext(ctx, "event category template version lookup failed", logger.F("error", err))
+		return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to read event category")
+	}
+	entity.CategoryTemplateVersion = version
+
 	if err := s.repo.Create(ctx, entity); err != nil {
 		if errors.Is(err, repository.ErrAlreadyExists) {
 			return errorz.Conflict().WithMessage("event already exists")
@@ -131,24 +148,28 @@ func (s *eventServiceImpl) createEvent(ctx context.Context, entity *Event) error
 		return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to create event")
 	}
 
-	if err := s.copyWorkflowStepTemplates(ctx, entity); err != nil {
+	stepIDs, err := s.copyWorkflowStepTemplates(ctx, entity)
+	if err != nil {
 		return err
 	}
-	return s.ticketTypeSeeder.SeedFromCategoryTemplates(ctx, entity.ID, entity.CategoryID)
+	return s.ticketTypeSeeder.SeedFromCategoryTemplates(ctx, entity.ID, entity.CategoryID, version, stepIDs)
 }
 
 // copyWorkflowStepTemplates seeds entity's workflow steps from its
-// category's workflow_step_templates, if any exist — the customizable
-// starting point a UI shows right after creating an event. Runs inside
-// Create's transaction: a lookup or per-template copy failure now aborts
-// event creation (returning an errorz-wrapped error) instead of being
-// logged and skipped — a partial copy silently committed by a
-// no-longer-best-effort wrapper would be a worse, silently-inconsistent
-// outcome than the request failing outright so the caller can retry.
-func (s *eventServiceImpl) copyWorkflowStepTemplates(ctx context.Context, event *Event) error {
+// category's workflow_step_templates at event.CategoryTemplateVersion, if
+// any exist — the customizable starting point a UI shows right after
+// creating an event — and returns step template ID → new event step ID for
+// the ticket type seed. Runs inside Create's transaction: a lookup or
+// per-template copy failure aborts event creation (returning an
+// errorz-wrapped error) instead of being logged and skipped, so the caller
+// can retry rather than get a silently partial copy.
+func (s *eventServiceImpl) copyWorkflowStepTemplates(
+	ctx context.Context, event *Event,
+) (map[uuid.UUID]uuid.UUID, error) {
 	templates, _, err := s.templateRepo.List(ctx, &repository.ListOptions{
 		Filter: repository.Filter{Conditions: []repository.FilterCondition{
 			{Field: "category_id", Operator: repository.FilterOperatorEq, Value: event.CategoryID},
+			{Field: "version", Operator: repository.FilterOperatorEq, Value: event.CategoryTemplateVersion},
 		}},
 		Pagination: repository.Pagination{Limit: query.DefaultMaxSize},
 		Sorts:      []repository.Sort{{Field: "order_index", Direction: repository.SortAsc}},
@@ -156,9 +177,10 @@ func (s *eventServiceImpl) copyWorkflowStepTemplates(ctx context.Context, event 
 	if err != nil {
 		s.logger.ErrorWithContext(ctx, "workflow step template lookup failed",
 			logger.F("event_id", event.ID), logger.F("category_id", event.CategoryID), logger.F("error", err))
-		return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to look up workflow step templates")
+		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to look up workflow step templates")
 	}
 
+	stepIDs := make(map[uuid.UUID]uuid.UUID, len(templates))
 	for _, tmpl := range templates {
 		step := &workflowstep.WorkflowStep{
 			ID:             uuid.New(),
@@ -170,10 +192,11 @@ func (s *eventServiceImpl) copyWorkflowStepTemplates(ctx context.Context, event 
 		if err := s.workflowStepRepo.Create(ctx, step); err != nil {
 			s.logger.ErrorWithContext(ctx, "workflow step template copy failed",
 				logger.F("event_id", event.ID), logger.F("template_id", tmpl.ID), logger.F("error", err))
-			return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to copy workflow step template")
+			return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to copy workflow step template")
 		}
+		stepIDs[tmpl.ID] = step.ID
 	}
-	return nil
+	return stepIDs, nil
 }
 
 // GetByID returns an event by ID, or errorz.NotFound if not found or soft-deleted.

@@ -12,7 +12,7 @@ const eventsTable = "events"
 
 // eventColumns are the columns selected on reads (GetByID, List).
 var eventColumns = []string{
-	"id", "tenant_id", "category_id", "name", "description",
+	"id", "tenant_id", "category_id", "category_template_version", "name", "description",
 	"start_date", "end_date", "is_multi_day", "rsvp_required", "created_at", "updated_at", "deleted_at",
 }
 

@@ -12,8 +12,8 @@ const workflowStepTemplatesTable = "workflow_step_templates"
 
 // workflowStepTemplateColumns are the columns selected on reads (GetByID, List).
 var workflowStepTemplateColumns = []string{
-	"id", "category_id", "name", "order_index", "allows_multiple",
-	"ticket_type_applicability", "created_at", "updated_at", "deleted_at",
+	"id", "category_id", "version", "name", "order_index", "allows_multiple",
+	"created_at", "updated_at", "deleted_at",
 }
 
 // NewWorkflowStepTemplateRepository returns a soft-delete-aware repository

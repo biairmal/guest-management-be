@@ -134,6 +134,8 @@ Links a user to a specific event.
     - endDate
     - isMultiDay
     - rsvpRequired (default true — when false, a guest's ticket is issued at invitation time instead of waiting on RSVP confirmation)
+    - categoryTemplateVersion (the category's templateVersion this event was seeded from, §3.5 — a record of
+      history, not a live link; later template changes never touch the event)
     - staffAssignments[]
     - workflows[] (generated from templates + customized)
     - ticketTypes[]
@@ -155,8 +157,13 @@ Unified structure:
     - id
     - source (APP or TENANT)
     - name
-    - workflowStepTemplates[]
-    - ticketTypeTemplates[]
+    - templateVersion (starts at 1; +1 every time the category's templates are saved, §4.11)
+    - workflowStepTemplates[] (the rows at the current templateVersion)
+    - ticketTypeTemplates[] (the rows at the current templateVersion)
+
+A category's workflow step templates, ticket type templates, and the step access between them are one
+**template set**, saved together as a unit (§4.11). Each save creates a new version of the whole set; older
+versions are kept (soft-deleted) as history.
 
 ## 3.6 WorkflowStepTemplate
 
@@ -165,10 +172,10 @@ Defines default steps for a category.
     WorkflowStepTemplate
     - id
     - categoryId
+    - version (the category templateVersion this row belongs to)
     - name
-    - orderIndex
+    - orderIndex (unique per category + version)
     - allowsMultiple
-    - ticketTypeApplicability (optional)
 
 ## 3.7 WorkflowStep (Event-level)
 
@@ -233,14 +240,20 @@ Represents scanning a QR for workflow processing.
 ## 3.12 TicketTypeTemplate
 
 Defines the default ticket types for a category, mirroring `WorkflowStepTemplate` (§3.6). Copied onto
-every new event in the category at creation time (best-effort, same as workflow step templates), the
-same way `WorkflowStepTemplate` seeds `WorkflowStep`.
+every new event in the category at creation time, inside the event-creation transaction, the same way
+`WorkflowStepTemplate` seeds `WorkflowStep`.
 
     TicketTypeTemplate
     - id
     - categoryId
-    - name (Regular, VIP, etc.)
+    - version (the category templateVersion this row belongs to)
+    - name (Regular, VIP, etc.; unique per category + version)
     - rules (opaque JSON, same shape as TicketType.rules)
+    - workflowStepTemplateIds[] (template step access — which of the same version's workflow step
+      templates this ticket type includes; may be empty)
+
+Template step access is the template-level mirror of `TicketType.workflowStepIds[]` (§3.8): when an event
+is seeded, each ticket type gets exactly the event steps copied from the step templates it includes.
 
 ## 3.13 Incident
 
@@ -289,6 +302,9 @@ the incident is listable/visible to other event staff, not a notification delive
 -   Event creation seeds default ticket types from the category's `TicketTypeTemplate`s (§3.12), the
     same way workflow steps are seeded from `WorkflowStepTemplate` — a category with no ticket type
     templates leaves the new event with zero ticket types, unchanged from today.
+-   A seeded ticket type includes exactly the event steps copied from the step templates its template
+    includes (template step access, §3.12). A ticket type created manually on an event still includes all
+    of the event's current steps by default.
 
 ## 4.3 Workflow Handling
 
@@ -371,6 +387,22 @@ the incident is listable/visible to other event staff, not a notification delive
     channel is a separate, future concern (not prescribed here).
 -   An incident's status can be updated as it's handled (e.g. Open → InProgress → Resolved).
 
+## 4.11 Event Category Template Management
+
+-   An admin configures a category's whole template set on one screen: its name, its ordered workflow
+    step templates, its ticket type templates, and which steps each ticket type includes.
+-   The template set is **saved as one unit** — creating a category with its templates, or saving
+    changes to them, either fully succeeds or changes nothing (single transaction).
+-   Every save creates a new **template version** (`templateVersion` + 1). The previous version's rows
+    are soft-deleted but kept as history; they never block reusing a name or position in the new version.
+-   Each event records the `categoryTemplateVersion` it was seeded from (§3.4). Saving templates never
+    changes existing events.
+-   **Concurrent edits are detected, not merged:** a save states the `templateVersion` it started from;
+    if someone else saved in between, the save is rejected (409) and nothing changes.
+-   App default categories (`source = APP`) can only be changed by platform administrators; tenants see
+    them read-only. Tenant categories belong to, and are only visible to and changeable by, their own
+    tenant.
+
 ------------------------------------------------------------------------
 
 
@@ -410,9 +442,10 @@ Hierarchy: 1. App default\
 
     Tenant
     ├── Users (TenantStaff, TenantAdmin)
-    ├── TenantEventCategory
-    │       ├── WorkflowStepTemplate
-    │       └── TicketTypeTemplate
+    ├── TenantEventCategory (templateVersion)
+    │       ├── WorkflowStepTemplate (per version)
+    │       └── TicketTypeTemplate (per version)
+    │               └── WorkflowStepTemplates (many-to-many, template step access)
     └── Events
             ├── EventStaffAssignment → User
             ├── WorkflowStep (from templates + custom)
@@ -431,8 +464,10 @@ Hierarchy: 1. App default\
 
 1.  App default templates store the baseline workflows (and default ticket types, §3.12).
 2.  Tenant templates override them (add/remove/modify).
-3.  Event creation copies tenant templates — both `WorkflowStepTemplate` → `WorkflowStep` and
-    `TicketTypeTemplate` → `TicketType`.
-4.  Event-level customization allows final adjustments.
+3.  A category's templates are saved as one versioned set (§4.11); each save is a new version.
+4.  Event creation copies the category's current template version — `WorkflowStepTemplate` →
+    `WorkflowStep`, `TicketTypeTemplate` → `TicketType`, and template step access → each ticket type's
+    steps — and records that version on the event.
+5.  Event-level customization allows final adjustments.
 
 ------------------------------------------------------------------------
