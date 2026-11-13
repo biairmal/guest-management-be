@@ -261,6 +261,41 @@ func (h *GuestHandler) SendInvitation(r *http.Request) (any, error) {
 	return response.OK(out), nil
 }
 
+// IssueTicket handles POST /events/{event_id}/guests/{id}/ticket.
+//
+// IssueTicket godoc
+//
+//	@Summary		Issue guest ticket
+//	@Description	Issues the guest's ticket if none has been issued, whatever their RSVP status, and returns the guest with its ticket — the manual route for a guest whose ticket the RSVP flow never produced (e.g. invited while rsvp_required was on, confirmed after it was turned off). Idempotent: a guest who already has a ticket is returned unchanged with no second ticket. Does not change rsvp_status. Requires the manage_guests permission.
+//	@Tags			guests
+//	@Accept			json
+//	@Produce		json
+//	@Param			event_id	path		string	true	"Event UUID"
+//	@Param			id			path		string	true	"Guest UUID"
+//	@Success		200			{object}	guests.Guest
+//	@Failure		400			{object}	object	"No ticket type assigned"
+//	@Failure		401			{object}	object	"Unauthenticated"
+//	@Failure		403			{object}	object	"Missing manage_guests permission"
+//	@Failure		404			{object}	object	"Guest not found, or the event is in another tenant"
+//	@Failure		500			{object}	object	"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/api/v1/events/{event_id}/guests/{id}/ticket [post]
+func (h *GuestHandler) IssueTicket(r *http.Request) (any, error) {
+	eventID, err := eventIDFromPath(r)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		return nil, errorz.BadRequest().WithMessage("invalid guest id")
+	}
+	guest, err := h.service.IssueTicket(r.Context(), eventID, id)
+	if err != nil {
+		return nil, err
+	}
+	return response.OK(guest), nil
+}
+
 // RSVP handles POST /guests/rsvp/{token} — public, unauthenticated (see
 // guest_routes.go / config.yaml's route policy). token alone identifies the
 // guest, since the caller is never logged in.

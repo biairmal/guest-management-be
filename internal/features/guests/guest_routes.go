@@ -1,6 +1,8 @@
 package guests
 
 import (
+	"net/http"
+
 	"github.com/biairmal/go-sdk/lib/httpkit/handler"
 	"github.com/go-chi/chi/v5"
 
@@ -10,8 +12,16 @@ import (
 // InitGuestRoutes registers event-scoped guest routes on the given router.
 // Every route requires the manage_guests permission (see
 // guests_constants.go).
-func InitGuestRoutes(r *chi.Mux, h *GuestHandler, checker *authz.Checker) {
+//
+// inTenant is authz.RequireEventInTenant, built in internal/app and r.Use'd
+// first: a guest of another tenant's event must read as 404 before the
+// permission check can answer 403, so the (decrypted) PII of another tenant's
+// guests is unreachable even for a caller who holds manage_guests in their own.
+func InitGuestRoutes(
+	r *chi.Mux, h *GuestHandler, checker *authz.Checker, inTenant func(http.Handler) http.Handler,
+) {
 	r.Route("/api/v1/events/{event_id}/guests", func(r chi.Router) {
+		r.Use(inTenant)
 		r.Use(authz.RequirePermission(checker, PermissionManageGuests))
 		r.Get("/", handler.Handle(h.List))
 		r.Post("/", handler.Handle(h.Create))
@@ -19,6 +29,7 @@ func InitGuestRoutes(r *chi.Mux, h *GuestHandler, checker *authz.Checker) {
 		r.Put("/{id}", handler.Handle(h.Update))
 		r.Delete("/{id}", handler.Handle(h.Delete))
 		r.Post("/{id}/invitation", handler.Handle(h.SendInvitation))
+		r.Post("/{id}/ticket", handler.Handle(h.IssueTicket))
 	})
 }
 

@@ -88,11 +88,26 @@ func (mr *MockServiceMockRecorder) GetByID(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockService)(nil).GetByID), ctx, id)
 }
 
+// GetSetup mocks base method.
+func (m *MockService) GetSetup(ctx context.Context, eventID uuid.UUID) (*event.Setup, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSetup", ctx, eventID)
+	ret0, _ := ret[0].(*event.Setup)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSetup indicates an expected call of GetSetup.
+func (mr *MockServiceMockRecorder) GetSetup(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSetup", reflect.TypeOf((*MockService)(nil).GetSetup), ctx, eventID)
+}
+
 // List mocks base method.
-func (m *MockService) List(ctx context.Context, params *query.ListParams) (*dto.PageResponse[event.Event], error) {
+func (m *MockService) List(ctx context.Context, params *query.ListParams) (*dto.PageResponse[event.ListItem], error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "List", ctx, params)
-	ret0, _ := ret[0].(*dto.PageResponse[event.Event])
+	ret0, _ := ret[0].(*dto.PageResponse[event.ListItem])
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -101,6 +116,21 @@ func (m *MockService) List(ctx context.Context, params *query.ListParams) (*dto.
 func (mr *MockServiceMockRecorder) List(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockService)(nil).List), ctx, params)
+}
+
+// ReplaceSetup mocks base method.
+func (m *MockService) ReplaceSetup(ctx context.Context, eventID uuid.UUID, in event.SetupInput) (*event.Setup, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceSetup", ctx, eventID, in)
+	ret0, _ := ret[0].(*event.Setup)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReplaceSetup indicates an expected call of ReplaceSetup.
+func (mr *MockServiceMockRecorder) ReplaceSetup(ctx, eventID, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceSetup", reflect.TypeOf((*MockService)(nil).ReplaceSetup), ctx, eventID, in)
 }
 
 // Update mocks base method.

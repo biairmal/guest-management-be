@@ -444,7 +444,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns a paginated list of events. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (tenant_id, category_id, name).",
+                "description": "Returns a paginated list of the caller's tenant's events, each with its guest_count and confirmed_count. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (category_id, name, start_date, end_date). start_date/end_date accept a range operator suffix, e.g. start_date=2026-09-22T10:00:00Z;gt (also gte, lt, lte).",
                 "consumes": [
                     "application/json"
                 ],
@@ -476,12 +476,6 @@
                     },
                     {
                         "type": "string",
-                        "description": "Filter by tenant ID (exact match)",
-                        "name": "tenant_id",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
                         "description": "Filter by category ID (exact match)",
                         "name": "category_id",
                         "in": "query"
@@ -491,17 +485,35 @@
                         "description": "Filter by name (exact match)",
                         "name": "name",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by start date, RFC3339, optional ;gt/;gte/;lt/;lte suffix",
+                        "name": "start_date",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by end date, RFC3339, optional ;gt/;gte/;lt/;lte suffix",
+                        "name": "end_date",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_event_Event"
+                            "$ref": "#/definitions/dto.PageResponse-internal_features_events_event_ListItem"
                         }
                     },
                     "400": {
                         "description": "Invalid query (e.g. invalid sort field)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated (no tenant claim)",
                         "schema": {
                             "type": "object"
                         }
@@ -520,7 +532,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a new event scoped to a tenant and category. is_multi_day is derived from start_date/end_date.",
+                "description": "Creates a new event under the caller's tenant (from the JWT — not caller-supplied) and the given category. is_multi_day is derived from start_date/end_date. Requires the manage_events permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -551,6 +563,18 @@
                     },
                     "400": {
                         "description": "Invalid request body or validation error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated (no tenant claim)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_events permission",
                         "schema": {
                             "type": "object"
                         }
@@ -1033,6 +1057,80 @@
                 }
             }
         },
+        "/api/v1/events/{event_id}/guests/{id}/ticket": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Issues the guest's ticket if none has been issued, whatever their RSVP status, and returns the guest with its ticket — the manual route for a guest whose ticket the RSVP flow never produced (e.g. invited while rsvp_required was on, confirmed after it was turned off). Idempotent: a guest who already has a ticket is returned unchanged with no second ticket. Does not change rsvp_status. Requires the manage_guests permission.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "guests"
+                ],
+                "summary": "Issue guest ticket",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event UUID",
+                        "name": "event_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Guest UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_guests.Guest"
+                        }
+                    },
+                    "400": {
+                        "description": "No ticket type assigned",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_guests permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Guest not found, or the event is in another tenant",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/events/{event_id}/scans": {
             "get": {
                 "security": [
@@ -1191,6 +1289,147 @@
                     },
                     "409": {
                         "description": "Ticket invalidated, or workflow step already completed",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/events/{event_id}/setup": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the event's ordered workflow steps and its ticket types, each listing the steps it includes as ascending indexes into workflow_steps. Open to any authenticated caller of the event's tenant.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Get event setup",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event UUID",
+                        "name": "event_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_events_event.Setup"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid event id",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated (no tenant claim)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Event not found or in another tenant",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the event's whole setup — workflow steps, their order, ticket types, and each ticket type's step access — in one request and one transaction. Items sent with an id are updated in place and keep that id (guests, tickets and scan history that point at them are unaffected); items without one are created; existing items left out are deleted. Removing a ticket type that guests still hold is rejected and changes nothing. Requires the manage_events permission.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Replace event setup",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event UUID",
+                        "name": "event_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The event's whole setup",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_events_event.SetupInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_features_events_event.Setup"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid body, an id not belonging to this event, or a held ticket type removed — per-field detail under meta.fields",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated (no tenant claim)",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "403": {
+                        "description": "Missing manage_events permission",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Event not found or in another tenant",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "409": {
+                        "description": "Name or order conflict with a previously removed item",
                         "schema": {
                             "type": "object"
                         }
@@ -1618,7 +1857,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns a paginated list of ticket types for an event. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (name). Requires the manage_events permission.",
+                "description": "Returns a paginated list of ticket types for an event. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (name). Open to any authenticated caller of the event's tenant.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1681,92 +1920,6 @@
                             "type": "object"
                         }
                     },
-                    "403": {
-                        "description": "Missing manage_events permission",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Creates a new ticket type under an event; name is unique per event. The new ticket type defaults to applying to ALL of the event's current workflow steps. Requires the manage_events permission.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ticket-types"
-                ],
-                "summary": "Create ticket type",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event UUID",
-                        "name": "event_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Ticket type payload",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettype.CreateTicketTypeInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettype.TicketType"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request body or validation error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthenticated",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "403": {
-                        "description": "Missing manage_events permission",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "409": {
-                        "description": "Ticket type name already exists for this event",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "422": {
-                        "description": "Unprocessable entity",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
@@ -1783,7 +1936,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns a single ticket type by UUID, scoped to its event, including which of the event's workflow steps it applies to (workflow_step_ids). Requires the manage_events permission.",
+                "description": "Returns a single ticket type by UUID, scoped to its event, including which of the event's workflow steps it applies to (workflow_step_ids). Open to any authenticated caller of the event's tenant.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1825,251 +1978,6 @@
                     },
                     "401": {
                         "description": "Unauthenticated",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "403": {
-                        "description": "Missing manage_events permission",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Ticket type not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Partially updates a ticket type's name/rules. Only provided fields are applied; event_id is immutable. Requires the manage_events permission.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ticket-types"
-                ],
-                "summary": "Update ticket type",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event UUID",
-                        "name": "event_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Ticket type UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Fields to update",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettype.UpdateTicketTypeInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettype.TicketType"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid ID or request body",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthenticated",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "403": {
-                        "description": "Missing manage_events permission",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Ticket type not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "409": {
-                        "description": "Ticket type name already exists for this event",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Soft-deletes a ticket type by ID, scoped to its event. Requires the manage_events permission.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ticket-types"
-                ],
-                "summary": "Delete ticket type",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event UUID",
-                        "name": "event_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Ticket type UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No content"
-                    },
-                    "400": {
-                        "description": "Invalid ID format",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthenticated",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "403": {
-                        "description": "Missing manage_events permission",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Ticket type not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/events/{event_id}/ticket-types/{id}/workflow-steps": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Replaces the full set of workflow steps a ticket type applies to (full-replace, no incremental add/remove); every workflow_step_id must belong to the ticket type's own event. Requires the manage_events permission.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ticket-types"
-                ],
-                "summary": "Replace ticket type workflow steps",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event UUID",
-                        "name": "event_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Ticket type UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Full desired set of workflow step IDs",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettype.ReplaceWorkflowStepsInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_tickets_tickettype.TicketType"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request body, ID, or a workflow_step_id not belonging to this event",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthenticated",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "403": {
-                        "description": "Missing manage_events permission",
                         "schema": {
                             "type": "object"
                         }
@@ -2160,142 +2068,6 @@
                         }
                     }
                 }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Replaces an event's workflow steps with the given list: entries with \"id\" are updated, entries without are created, and any existing step not present in the list is deleted.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "workflow-steps"
-                ],
-                "summary": "Sync workflow steps",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event UUID",
-                        "name": "event_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Full desired list of workflow steps",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/internal_features_events_workflowstep.SyncWorkflowStepInput"
-                            }
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/internal_features_events_workflowstep.WorkflowStep"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request body, duplicate order_index, or an id not belonging to this event",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "422": {
-                        "description": "Unprocessable entity",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Creates a new workflow step under an event. order_index must be unique per event.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "workflow-steps"
-                ],
-                "summary": "Create workflow step",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event UUID",
-                        "name": "event_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Workflow step payload",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_events_workflowstep.CreateWorkflowStepInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_events_workflowstep.WorkflowStep"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request body or validation error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict (order_index already used for this event)",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "422": {
-                        "description": "Unprocessable entity",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
             }
         },
         "/api/v1/events/{event_id}/workflow-steps/{id}": {
@@ -2338,138 +2110,6 @@
                         "schema": {
                             "$ref": "#/definitions/internal_features_events_workflowstep.WorkflowStep"
                         }
-                    },
-                    "400": {
-                        "description": "Invalid ID format",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Workflow step not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Updates an existing workflow step by ID. Only provided fields are applied (partial update); event_id is immutable.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "workflow-steps"
-                ],
-                "summary": "Update workflow step",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event UUID",
-                        "name": "event_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Workflow step UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Fields to update",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_events_workflowstep.UpdateWorkflowStepInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_features_events_workflowstep.WorkflowStep"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid ID or request body",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Workflow step not found",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict (order_index already used for this event)",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Soft-deletes a workflow step by ID, scoped to its event.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "workflow-steps"
-                ],
-                "summary": "Delete workflow step",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Event UUID",
-                        "name": "event_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Workflow step UUID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No content"
                     },
                     "400": {
                         "description": "Invalid ID format",
@@ -3933,7 +3573,7 @@
                 }
             }
         },
-        "dto.PageResponse-internal_features_events_event_Event": {
+        "dto.PageResponse-internal_features_events_event_ListItem": {
             "type": "object",
             "properties": {
                 "has_next": {
@@ -3945,7 +3585,7 @@
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/internal_features_events_event.Event"
+                        "$ref": "#/definitions/internal_features_events_event.ListItem"
                     }
                 },
                 "page": {
@@ -4450,8 +4090,7 @@
                 "category_id",
                 "end_date",
                 "name",
-                "start_date",
-                "tenant_id"
+                "start_date"
             ],
             "properties": {
                 "category_id": {
@@ -4471,9 +4110,6 @@
                     "type": "boolean"
                 },
                 "start_date": {
-                    "type": "string"
-                },
-                "tenant_id": {
                     "type": "string"
                 }
             }
@@ -4523,6 +4159,138 @@
                 }
             }
         },
+        "internal_features_events_event.ListItem": {
+            "type": "object",
+            "properties": {
+                "category_id": {
+                    "type": "string"
+                },
+                "category_template_version": {
+                    "description": "CategoryTemplateVersion is the category template version this event's\nworkflow steps and ticket types were copied from (B15). Set by Create.",
+                    "type": "integer"
+                },
+                "confirmed_count": {
+                    "description": "ConfirmedCount is how many of them have rsvp_status = confirmed.",
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "end_date": {
+                    "type": "string"
+                },
+                "guest_count": {
+                    "description": "GuestCount is how many guests are on the event.",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_multi_day": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "rsvp_required": {
+                    "type": "boolean"
+                },
+                "start_date": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_features_events_event.Setup": {
+            "type": "object",
+            "properties": {
+                "ticket_types": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events_event.TicketTypeView"
+                    }
+                },
+                "workflow_steps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events_event.WorkflowStepView"
+                    }
+                }
+            }
+        },
+        "internal_features_events_event.SetupInput": {
+            "type": "object",
+            "properties": {
+                "ticket_types": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events_event.TicketTypeInput"
+                    }
+                },
+                "workflow_steps": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                        "$ref": "#/definitions/internal_features_events_event.WorkflowStepInput"
+                    }
+                }
+            }
+        },
+        "internal_features_events_event.TicketTypeInput": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "rules": {
+                    "type": "object"
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_features_events_event.TicketTypeView": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "rules": {
+                    "type": "object"
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "internal_features_events_event.UpdateEventInput": {
             "type": "object",
             "properties": {
@@ -4547,25 +4315,7 @@
                 }
             }
         },
-        "internal_features_events_workflowstep.CreateWorkflowStepInput": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "allows_multiple": {
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "order_index": {
-                    "type": "integer",
-                    "minimum": 0
-                }
-            }
-        },
-        "internal_features_events_workflowstep.SyncWorkflowStepInput": {
+        "internal_features_events_event.WorkflowStepInput": {
             "type": "object",
             "required": [
                 "name"
@@ -4579,26 +4329,20 @@
                 },
                 "name": {
                     "type": "string"
-                },
-                "order_index": {
-                    "type": "integer",
-                    "minimum": 0
                 }
             }
         },
-        "internal_features_events_workflowstep.UpdateWorkflowStepInput": {
+        "internal_features_events_event.WorkflowStepView": {
             "type": "object",
             "properties": {
                 "allows_multiple": {
                     "type": "boolean"
                 },
-                "name": {
-                    "type": "string",
-                    "minLength": 1
+                "id": {
+                    "type": "string"
                 },
-                "order_index": {
-                    "type": "integer",
-                    "minimum": 0
+                "name": {
+                    "type": "string"
                 }
             }
         },
@@ -5075,34 +4819,6 @@
                 }
             }
         },
-        "internal_features_tickets_tickettype.CreateTicketTypeInput": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "rules": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                }
-            }
-        },
-        "internal_features_tickets_tickettype.ReplaceWorkflowStepsInput": {
-            "type": "object",
-            "properties": {
-                "workflow_step_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
         "internal_features_tickets_tickettype.TicketType": {
             "type": "object",
             "properties": {
@@ -5134,21 +4850,6 @@
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
-                }
-            }
-        },
-        "internal_features_tickets_tickettype.UpdateTicketTypeInput": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "minLength": 1
-                },
-                "rules": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
                     }
                 }
             }

@@ -19,7 +19,7 @@ definitions:
       total_pages:
         type: integer
     type: object
-  dto.PageResponse-internal_features_events_event_Event:
+  dto.PageResponse-internal_features_events_event_ListItem:
     properties:
       has_next:
         type: boolean
@@ -27,7 +27,7 @@ definitions:
         type: boolean
       items:
         items:
-          $ref: '#/definitions/internal_features_events_event.Event'
+          $ref: '#/definitions/internal_features_events_event.ListItem'
         type: array
       page:
         type: integer
@@ -374,14 +374,11 @@ definitions:
         type: boolean
       start_date:
         type: string
-      tenant_id:
-        type: string
     required:
     - category_id
     - end_date
     - name
     - start_date
-    - tenant_id
     type: object
   internal_features_events_event.Event:
     properties:
@@ -415,6 +412,96 @@ definitions:
       updated_at:
         type: string
     type: object
+  internal_features_events_event.ListItem:
+    properties:
+      category_id:
+        type: string
+      category_template_version:
+        description: |-
+          CategoryTemplateVersion is the category template version this event's
+          workflow steps and ticket types were copied from (B15). Set by Create.
+        type: integer
+      confirmed_count:
+        description: ConfirmedCount is how many of them have rsvp_status = confirmed.
+        type: integer
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      description:
+        type: string
+      end_date:
+        type: string
+      guest_count:
+        description: GuestCount is how many guests are on the event.
+        type: integer
+      id:
+        type: string
+      is_multi_day:
+        type: boolean
+      name:
+        type: string
+      rsvp_required:
+        type: boolean
+      start_date:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_features_events_event.Setup:
+    properties:
+      ticket_types:
+        items:
+          $ref: '#/definitions/internal_features_events_event.TicketTypeView'
+        type: array
+      workflow_steps:
+        items:
+          $ref: '#/definitions/internal_features_events_event.WorkflowStepView'
+        type: array
+    type: object
+  internal_features_events_event.SetupInput:
+    properties:
+      ticket_types:
+        items:
+          $ref: '#/definitions/internal_features_events_event.TicketTypeInput'
+        maxItems: 100
+        type: array
+      workflow_steps:
+        items:
+          $ref: '#/definitions/internal_features_events_event.WorkflowStepInput'
+        maxItems: 100
+        type: array
+    type: object
+  internal_features_events_event.TicketTypeInput:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      rules:
+        type: object
+      steps:
+        items:
+          type: integer
+        type: array
+    required:
+    - name
+    type: object
+  internal_features_events_event.TicketTypeView:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      rules:
+        type: object
+      steps:
+        items:
+          type: integer
+        type: array
+    type: object
   internal_features_events_event.UpdateEventInput:
     properties:
       category_id:
@@ -431,19 +518,7 @@ definitions:
       start_date:
         type: string
     type: object
-  internal_features_events_workflowstep.CreateWorkflowStepInput:
-    properties:
-      allows_multiple:
-        type: boolean
-      name:
-        type: string
-      order_index:
-        minimum: 0
-        type: integer
-    required:
-    - name
-    type: object
-  internal_features_events_workflowstep.SyncWorkflowStepInput:
+  internal_features_events_event.WorkflowStepInput:
     properties:
       allows_multiple:
         type: boolean
@@ -451,22 +526,17 @@ definitions:
         type: string
       name:
         type: string
-      order_index:
-        minimum: 0
-        type: integer
     required:
     - name
     type: object
-  internal_features_events_workflowstep.UpdateWorkflowStepInput:
+  internal_features_events_event.WorkflowStepView:
     properties:
       allows_multiple:
         type: boolean
-      name:
-        minLength: 1
+      id:
         type: string
-      order_index:
-        minimum: 0
-        type: integer
+      name:
+        type: string
     type: object
   internal_features_events_workflowstep.WorkflowStep:
     properties:
@@ -783,24 +853,6 @@ definitions:
       type:
         type: string
     type: object
-  internal_features_tickets_tickettype.CreateTicketTypeInput:
-    properties:
-      name:
-        type: string
-      rules:
-        items:
-          type: integer
-        type: array
-    required:
-    - name
-    type: object
-  internal_features_tickets_tickettype.ReplaceWorkflowStepsInput:
-    properties:
-      workflow_step_ids:
-        items:
-          type: string
-        type: array
-    type: object
   internal_features_tickets_tickettype.TicketType:
     properties:
       created_at:
@@ -822,16 +874,6 @@ definitions:
       workflow_step_ids:
         items:
           type: string
-        type: array
-    type: object
-  internal_features_tickets_tickettype.UpdateTicketTypeInput:
-    properties:
-      name:
-        minLength: 1
-        type: string
-      rules:
-        items:
-          type: integer
         type: array
     type: object
   internal_features_users.CreateInput:
@@ -1193,8 +1235,11 @@ paths:
     get:
       consumes:
       - application/json
-      description: 'Returns a paginated list of events. Query: page, size, sort=field,dir
-        (repeatable), filter by allowed fields (tenant_id, category_id, name).'
+      description: 'Returns a paginated list of the caller''s tenant''s events, each
+        with its guest_count and confirmed_count. Query: page, size, sort=field,dir
+        (repeatable), filter by allowed fields (category_id, name, start_date, end_date).
+        start_date/end_date accept a range operator suffix, e.g. start_date=2026-09-22T10:00:00Z;gt
+        (also gte, lt, lte).'
       parameters:
       - description: Page number (1-based)
         in: query
@@ -1208,10 +1253,6 @@ paths:
         in: query
         name: sort
         type: string
-      - description: Filter by tenant ID (exact match)
-        in: query
-        name: tenant_id
-        type: string
       - description: Filter by category ID (exact match)
         in: query
         name: category_id
@@ -1220,15 +1261,27 @@ paths:
         in: query
         name: name
         type: string
+      - description: Filter by start date, RFC3339, optional ;gt/;gte/;lt/;lte suffix
+        in: query
+        name: start_date
+        type: string
+      - description: Filter by end date, RFC3339, optional ;gt/;gte/;lt/;lte suffix
+        in: query
+        name: end_date
+        type: string
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dto.PageResponse-internal_features_events_event_Event'
+            $ref: '#/definitions/dto.PageResponse-internal_features_events_event_ListItem'
         "400":
           description: Invalid query (e.g. invalid sort field)
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated (no tenant claim)
           schema:
             type: object
         "500":
@@ -1243,8 +1296,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates a new event scoped to a tenant and category. is_multi_day
-        is derived from start_date/end_date.
+      description: Creates a new event under the caller's tenant (from the JWT — not
+        caller-supplied) and the given category. is_multi_day is derived from start_date/end_date.
+        Requires the manage_events permission.
       parameters:
       - description: Event payload
         in: body
@@ -1261,6 +1315,14 @@ paths:
             $ref: '#/definitions/internal_features_events_event.Event'
         "400":
           description: Invalid request body or validation error
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated (no tenant claim)
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
           schema:
             type: object
         "409":
@@ -1589,6 +1651,59 @@ paths:
       summary: Send guest invitation
       tags:
       - guests
+  /api/v1/events/{event_id}/guests/{id}/ticket:
+    post:
+      consumes:
+      - application/json
+      description: 'Issues the guest''s ticket if none has been issued, whatever their
+        RSVP status, and returns the guest with its ticket — the manual route for
+        a guest whose ticket the RSVP flow never produced (e.g. invited while rsvp_required
+        was on, confirmed after it was turned off). Idempotent: a guest who already
+        has a ticket is returned unchanged with no second ticket. Does not change
+        rsvp_status. Requires the manage_guests permission.'
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: Guest UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_guests.Guest'
+        "400":
+          description: No ticket type assigned
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated
+          schema:
+            type: object
+        "403":
+          description: Missing manage_guests permission
+          schema:
+            type: object
+        "404":
+          description: Guest not found, or the event is in another tenant
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Issue guest ticket
+      tags:
+      - guests
   /api/v1/events/{event_id}/scans:
     get:
       consumes:
@@ -1705,6 +1820,106 @@ paths:
       summary: Record a scan
       tags:
       - scans
+  /api/v1/events/{event_id}/setup:
+    get:
+      consumes:
+      - application/json
+      description: Returns the event's ordered workflow steps and its ticket types,
+        each listing the steps it includes as ascending indexes into workflow_steps.
+        Open to any authenticated caller of the event's tenant.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events_event.Setup'
+        "400":
+          description: Invalid event id
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated (no tenant claim)
+          schema:
+            type: object
+        "404":
+          description: Event not found or in another tenant
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get event setup
+      tags:
+      - events
+    put:
+      consumes:
+      - application/json
+      description: Replaces the event's whole setup — workflow steps, their order,
+        ticket types, and each ticket type's step access — in one request and one
+        transaction. Items sent with an id are updated in place and keep that id (guests,
+        tickets and scan history that point at them are unaffected); items without
+        one are created; existing items left out are deleted. Removing a ticket type
+        that guests still hold is rejected and changes nothing. Requires the manage_events
+        permission.
+      parameters:
+      - description: Event UUID
+        in: path
+        name: event_id
+        required: true
+        type: string
+      - description: The event's whole setup
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_features_events_event.SetupInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_features_events_event.Setup'
+        "400":
+          description: Invalid body, an id not belonging to this event, or a held
+            ticket type removed — per-field detail under meta.fields
+          schema:
+            type: object
+        "401":
+          description: Unauthenticated (no tenant claim)
+          schema:
+            type: object
+        "403":
+          description: Missing manage_events permission
+          schema:
+            type: object
+        "404":
+          description: Event not found or in another tenant
+          schema:
+            type: object
+        "409":
+          description: Name or order conflict with a previously removed item
+          schema:
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Replace event setup
+      tags:
+      - events
   /api/v1/events/{event_id}/staff:
     get:
       consumes:
@@ -1984,7 +2199,7 @@ paths:
       - application/json
       description: 'Returns a paginated list of ticket types for an event. Query:
         page, size, sort=field,dir (repeatable), filter by allowed fields (name).
-        Requires the manage_events permission.'
+        Open to any authenticated caller of the event''s tenant.'
       parameters:
       - description: Event UUID
         in: path
@@ -2022,10 +2237,6 @@ paths:
           description: Unauthenticated
           schema:
             type: object
-        "403":
-          description: Missing manage_events permission
-          schema:
-            type: object
         "500":
           description: Internal server error
           schema:
@@ -2035,113 +2246,13 @@ paths:
       summary: List event ticket types
       tags:
       - ticket-types
-    post:
-      consumes:
-      - application/json
-      description: Creates a new ticket type under an event; name is unique per event.
-        The new ticket type defaults to applying to ALL of the event's current workflow
-        steps. Requires the manage_events permission.
-      parameters:
-      - description: Event UUID
-        in: path
-        name: event_id
-        required: true
-        type: string
-      - description: Ticket type payload
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_features_tickets_tickettype.CreateTicketTypeInput'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/internal_features_tickets_tickettype.TicketType'
-        "400":
-          description: Invalid request body or validation error
-          schema:
-            type: object
-        "401":
-          description: Unauthenticated
-          schema:
-            type: object
-        "403":
-          description: Missing manage_events permission
-          schema:
-            type: object
-        "409":
-          description: Ticket type name already exists for this event
-          schema:
-            type: object
-        "422":
-          description: Unprocessable entity
-          schema:
-            type: object
-        "500":
-          description: Internal server error
-          schema:
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Create ticket type
-      tags:
-      - ticket-types
   /api/v1/events/{event_id}/ticket-types/{id}:
-    delete:
-      consumes:
-      - application/json
-      description: Soft-deletes a ticket type by ID, scoped to its event. Requires
-        the manage_events permission.
-      parameters:
-      - description: Event UUID
-        in: path
-        name: event_id
-        required: true
-        type: string
-      - description: Ticket type UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "204":
-          description: No content
-        "400":
-          description: Invalid ID format
-          schema:
-            type: object
-        "401":
-          description: Unauthenticated
-          schema:
-            type: object
-        "403":
-          description: Missing manage_events permission
-          schema:
-            type: object
-        "404":
-          description: Ticket type not found
-          schema:
-            type: object
-        "500":
-          description: Internal server error
-          schema:
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Delete ticket type
-      tags:
-      - ticket-types
     get:
       consumes:
       - application/json
       description: Returns a single ticket type by UUID, scoped to its event, including
-        which of the event's workflow steps it applies to (workflow_step_ids). Requires
-        the manage_events permission.
+        which of the event's workflow steps it applies to (workflow_step_ids). Open
+        to any authenticated caller of the event's tenant.
       parameters:
       - description: Event UUID
         in: path
@@ -2166,10 +2277,6 @@ paths:
             type: object
         "401":
           description: Unauthenticated
-          schema:
-            type: object
-        "403":
-          description: Missing manage_events permission
           schema:
             type: object
         "404":
@@ -2183,121 +2290,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get ticket type by ID
-      tags:
-      - ticket-types
-    put:
-      consumes:
-      - application/json
-      description: Partially updates a ticket type's name/rules. Only provided fields
-        are applied; event_id is immutable. Requires the manage_events permission.
-      parameters:
-      - description: Event UUID
-        in: path
-        name: event_id
-        required: true
-        type: string
-      - description: Ticket type UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Fields to update
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_features_tickets_tickettype.UpdateTicketTypeInput'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_features_tickets_tickettype.TicketType'
-        "400":
-          description: Invalid ID or request body
-          schema:
-            type: object
-        "401":
-          description: Unauthenticated
-          schema:
-            type: object
-        "403":
-          description: Missing manage_events permission
-          schema:
-            type: object
-        "404":
-          description: Ticket type not found
-          schema:
-            type: object
-        "409":
-          description: Ticket type name already exists for this event
-          schema:
-            type: object
-        "500":
-          description: Internal server error
-          schema:
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Update ticket type
-      tags:
-      - ticket-types
-  /api/v1/events/{event_id}/ticket-types/{id}/workflow-steps:
-    put:
-      consumes:
-      - application/json
-      description: Replaces the full set of workflow steps a ticket type applies to
-        (full-replace, no incremental add/remove); every workflow_step_id must belong
-        to the ticket type's own event. Requires the manage_events permission.
-      parameters:
-      - description: Event UUID
-        in: path
-        name: event_id
-        required: true
-        type: string
-      - description: Ticket type UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Full desired set of workflow step IDs
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_features_tickets_tickettype.ReplaceWorkflowStepsInput'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_features_tickets_tickettype.TicketType'
-        "400":
-          description: Invalid request body, ID, or a workflow_step_id not belonging
-            to this event
-          schema:
-            type: object
-        "401":
-          description: Unauthenticated
-          schema:
-            type: object
-        "403":
-          description: Missing manage_events permission
-          schema:
-            type: object
-        "404":
-          description: Ticket type not found
-          schema:
-            type: object
-        "500":
-          description: Internal server error
-          schema:
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Replace ticket type workflow steps
       tags:
       - ticket-types
   /api/v1/events/{event_id}/workflow-steps:
@@ -2348,136 +2340,7 @@ paths:
       summary: List workflow steps
       tags:
       - workflow-steps
-    post:
-      consumes:
-      - application/json
-      description: Creates a new workflow step under an event. order_index must be
-        unique per event.
-      parameters:
-      - description: Event UUID
-        in: path
-        name: event_id
-        required: true
-        type: string
-      - description: Workflow step payload
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_features_events_workflowstep.CreateWorkflowStepInput'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/internal_features_events_workflowstep.WorkflowStep'
-        "400":
-          description: Invalid request body or validation error
-          schema:
-            type: object
-        "409":
-          description: Conflict (order_index already used for this event)
-          schema:
-            type: object
-        "422":
-          description: Unprocessable entity
-          schema:
-            type: object
-        "500":
-          description: Internal server error
-          schema:
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Create workflow step
-      tags:
-      - workflow-steps
-    put:
-      consumes:
-      - application/json
-      description: 'Replaces an event''s workflow steps with the given list: entries
-        with "id" are updated, entries without are created, and any existing step
-        not present in the list is deleted.'
-      parameters:
-      - description: Event UUID
-        in: path
-        name: event_id
-        required: true
-        type: string
-      - description: Full desired list of workflow steps
-        in: body
-        name: body
-        required: true
-        schema:
-          items:
-            $ref: '#/definitions/internal_features_events_workflowstep.SyncWorkflowStepInput'
-          type: array
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/internal_features_events_workflowstep.WorkflowStep'
-            type: array
-        "400":
-          description: Invalid request body, duplicate order_index, or an id not belonging
-            to this event
-          schema:
-            type: object
-        "422":
-          description: Unprocessable entity
-          schema:
-            type: object
-        "500":
-          description: Internal server error
-          schema:
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Sync workflow steps
-      tags:
-      - workflow-steps
   /api/v1/events/{event_id}/workflow-steps/{id}:
-    delete:
-      consumes:
-      - application/json
-      description: Soft-deletes a workflow step by ID, scoped to its event.
-      parameters:
-      - description: Event UUID
-        in: path
-        name: event_id
-        required: true
-        type: string
-      - description: Workflow step UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "204":
-          description: No content
-        "400":
-          description: Invalid ID format
-          schema:
-            type: object
-        "404":
-          description: Workflow step not found
-          schema:
-            type: object
-        "500":
-          description: Internal server error
-          schema:
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Delete workflow step
-      tags:
-      - workflow-steps
     get:
       consumes:
       - application/json
@@ -2515,56 +2378,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get workflow step by ID
-      tags:
-      - workflow-steps
-    put:
-      consumes:
-      - application/json
-      description: Updates an existing workflow step by ID. Only provided fields are
-        applied (partial update); event_id is immutable.
-      parameters:
-      - description: Event UUID
-        in: path
-        name: event_id
-        required: true
-        type: string
-      - description: Workflow step UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Fields to update
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_features_events_workflowstep.UpdateWorkflowStepInput'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_features_events_workflowstep.WorkflowStep'
-        "400":
-          description: Invalid ID or request body
-          schema:
-            type: object
-        "404":
-          description: Workflow step not found
-          schema:
-            type: object
-        "409":
-          description: Conflict (order_index already used for this event)
-          schema:
-            type: object
-        "500":
-          description: Internal server error
-          schema:
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Update workflow step
       tags:
       - workflow-steps
   /api/v1/events/{id}:

@@ -214,9 +214,30 @@ func TestParseListParamsFilterOperatorSuffix(t *testing.T) {
 		}
 	})
 
+	// The range operators B16 R3 added, so a list can express "starts after X"
+	// in one filter (the event list's Upcoming/Live/Ended tabs).
+	t.Run("range suffixes", func(t *testing.T) {
+		for _, op := range []repository.FilterOperator{
+			repository.FilterOperatorGt, repository.FilterOperatorGte,
+			repository.FilterOperatorLt, repository.FilterOperatorLte,
+		} {
+			params, err := ParseListParams(url.Values{"name": {"Ali;" + string(op)}}, cfg)
+			if err != nil {
+				t.Fatalf("ParseListParams(;%s) error = %v, want nil", op, err)
+			}
+			if got := params.Filters["name"]; got.Value != "Ali" || got.Operator != op {
+				t.Errorf("filters[name] = %+v, want {Ali %s}", got, op)
+			}
+		}
+	})
+
 	t.Run("unrecognized operator is rejected", func(t *testing.T) {
-		if _, err := ParseListParams(url.Values{"name": {"Ali;gt"}}, cfg); err == nil {
+		// "in" is a real go-sdk operator but deliberately not whitelisted here.
+		if _, err := ParseListParams(url.Values{"name": {"Ali;in"}}, cfg); err == nil {
 			t.Error("ParseListParams() error = nil, want error for unsupported operator")
+		}
+		if _, err := ParseListParams(url.Values{"name": {"Ali;nonsense"}}, cfg); err == nil {
+			t.Error("ParseListParams() error = nil, want error for unknown operator")
 		}
 	})
 }

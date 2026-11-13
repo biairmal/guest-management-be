@@ -38,6 +38,7 @@ debt, and builds the shared building blocks that Track B features depend on. Sev
 | B13 | Domain | `event-reports` (live guest/workflow-step counts) | B8, B9 | ⬜ (not started — Story written, see phase notes) |
 | B14 | Domain | `incidents` (event incident tickets) | B4, B6 | ⬜ (not started — Story written, see phase notes) |
 | B15 | Domain | `category-template-sets` (save a category's steps + ticket types + step access as one versioned unit) | B5, B12 | ⬜ (Story + Technical Design written, ready for backend-developer) |
+| B16 | Domain | `event-management-api-gaps` (transactional setup save, manual ticket issue, date filters, `manage_events` gate + tenant from the JWT, tenant check on every `{event_id}` route, guest counts on the list) | B4, B7, B8, B15 | ✅ **Done** |
 
 ---
 
@@ -329,6 +330,7 @@ each phase names its migration and tables. Ordered by data dependency.
 | **B13** | `event-reports` | not yet designed, read-only over existing tables | `GET /api/v1/events/{event_id}/report` (shape TBD) |
 | **B14** | `incidents` | not yet designed | CRUD-ish `/api/v1/events/{event_id}/incidents` |
 | **B15** | `category-template-sets` (changes `events` + `tickets`) | `000020` — versions on categories/templates/events, `ticket_type_template_workflow_steps` | `GET`/`POST`/`PUT /api/v1/event-categories[/{id}]` carry the whole template set; per-item template endpoints removed |
+| **B16** | `event-management-api-gaps` (changes `events`, `tickets`, `guests`, `core/authz`, `core/query`) | none | `GET`/`PUT /api/v1/events/{event_id}/setup`; `POST /api/v1/events/{event_id}/guests/{id}/ticket`; `manage_events` gate + tenant from JWT on `/events`; tenant check on every `{event_id}` route; date filters + guest counts on `GET /events` |
 
 ### Phase notes
 
@@ -376,6 +378,11 @@ each phase names its migration and tables. Ordered by data dependency.
   each event (REQUIREMENT.md §3.5, §3.12, §4.11). Driven by the category-management UI (design canvas, "Event
   categories" pages) and by a latent bug: soft-deleted template rows still hold their `UNIQUE` slot, so deleting
   and re-adding a ticket type name or step position returns 409 forever. Story + Technical Design below.
+- **B16 `event-management-api-gaps`** — the five API gaps (R1–R5) found while designing the event-management UI
+  (design canvas, "Event management" pages): transactional setup save, manual ticket issue, date filters,
+  `manage_events` gate with tenant from the JWT, guest counts on the list. Designing R4 surfaced a cross-tenant
+  hole on every `{event_id}` route (only `staffing` checks tenant), fixed here with one `authz` middleware. Story +
+  Technical Design below.
 
 ### B7. `tickets` (ticket types)
 
@@ -1733,6 +1740,195 @@ template sets) and ADR-008 (version recorded on the event).
   key by namespace is a follow-up, not part of this item.
 - No `rules` schema — stays opaque JSON.
 - No merge of concurrent edits — the version check rejects; the UI offers reload.
+
+### B16. `event-management-api-gaps`
+
+#### Story (product-manager)
+
+As a tenant admin, I want to manage my tenant's events from the web app — list them by status with guest
+progress, edit an event's steps and ticket types in one save, and issue a guest's ticket myself when needed — and
+I want no other tenant to be able to see or change my events. (REQUIREMENT.md §3.4–§3.7, §4.1–§4.3, STAFFING_RBAC.md
+§6.) UI: design canvas, "Event management" pages; the gaps below are the API recommendations R1–R5 noted there,
+all accepted by the product owner on 2026-09-22.
+
+**Acceptance criteria**
+
+*R1 — one transactional setup save*
+1. `GET /api/v1/events/{event_id}/setup` returns the event's ordered `workflow_steps` and its `ticket_types`, each
+   ticket type listing the steps it includes.
+2. `PUT /api/v1/events/{event_id}/setup` replaces the event's whole setup (steps, their order, ticket types, and
+   each ticket type's step access) in one request and one transaction; if any part fails, nothing changes.
+3. Items sent with an `id` are updated in place and keep that id; items without one are created; existing items
+   left out are deleted. Guests, tickets and scan history that point at kept items are unaffected.
+4. Removing a ticket type that guests still hold is rejected with 400 and changes nothing; the error names the
+   ticket type and how many guests hold it.
+5. Invalid payloads return 400 with per-field detail keyed by JSON path, using the same rules as the category
+   save (B15 AC8), plus: an `id` that doesn't belong to this event.
+6. The per-item write routes for event workflow steps and ticket types are removed; the setup `PUT` is the only
+   way to change them. Their `GET` routes stay (the guest ticket-type picker and the scan step picker use them).
+
+*R2 — issue a ticket manually*
+7. `POST /api/v1/events/{event_id}/guests/{id}/ticket` issues the guest's ticket if none has been issued and
+   returns the guest with its ticket, whatever the guest's RSVP status. If a ticket already exists it returns the
+   guest unchanged (200, no second ticket). A guest without a ticket type → 400. Requires `manage_guests`.
+
+*R3 — list filtering by date*
+8. `GET /api/v1/events` accepts `start_date` and `end_date` filters with `gt`, `gte`, `lt`, `lte` operators
+   (e.g. `start_date=2026-09-22T10:00:00Z;gt`), so Upcoming, Live and Ended can each be one request.
+
+*R4 — permission gate and tenant from the token*
+9. `POST`/`PUT`/`DELETE /api/v1/events[/{id}]` and `PUT /api/v1/events/{event_id}/setup` require `manage_events`.
+10. `POST /api/v1/events` no longer accepts `tenant_id`; the event belongs to the caller's tenant from the JWT.
+    `GET /api/v1/events` only returns the caller's tenant's events, and `tenant_id` is no longer a filter or sort
+    field.
+11. Any `/api/v1/events/{id}` or `/api/v1/events/{event_id}/...` request (steps, setup, ticket types, guests,
+    staff, scans) for an event in another tenant returns 404, never 403 and never data.
+
+*R5 — guest progress on the list*
+12. Each event in `GET /api/v1/events` carries `guest_count` (guests on the event) and `confirmed_count` (guests
+    with `rsvp_status = confirmed`), computed in one extra query per page, not one per event.
+
+**Out of scope:** concurrent-edit detection on the setup save (last write wins), a status field on the event, a
+date "between" filter on a single field, automatically issuing tickets when `rsvp_required` is switched off,
+guest counts on `GET /events/{id}`, tenant scoping for the super admin across tenants.
+
+#### Technical Design (solutions-architect)
+
+**Slice boundary:** no new slice. `events/event` becomes the aggregate root of an event's setup, the same way
+`events/category` owns its template set in B15. Steps stay in `events/workflowstep`; ticket types stay in
+`tickets/tickettype`. `events` still never imports `tickets` or `guests`: `events/event` declares two consumer-side
+interfaces, implemented by `tickettype` and `guests` and wired in `internal/app` (the B12/B15 idiom). The
+cross-tenant check for `{event_id}` routes goes in `internal/core/authz` as one middleware backed by a
+consumer-side interface, like `EventRoleResolver`.
+
+**Data model:** no migration. Existing indexes cover the new reads: `idx_guests_event_id` and
+`idx_guests_event_rsvp` for the counts, the `events` primary key for the tenant check.
+
+**Found while designing — cross-tenant access on every `{event_id}` route (fixed by AC11).** `authz.Checker`
+never looks at tenant, and a system role (e.g. Tenant Admin) passes `RequirePermission` for any `event_id`. Only
+`staffing` checks the event's tenant (`loadTenantScopedEvent`). `guests`, `tickettype`, `scans` and `workflowstep`
+only check that the child belongs to `event_id`. So today a Tenant Admin of tenant B can read and change tenant A's
+guests (decrypted email and phone), ticket types, steps and scans by knowing an event id. API-001 promises 404 here.
+Fix it once, where every route goes through, not in each service.
+
+**API surface:**
+
+- `GET /api/v1/events/{event_id}/setup` → `{workflow_steps: [{id, name, allows_multiple}], ticket_types: [{id, name,
+  rules, steps: [int]}]}`. Array order of `workflow_steps` is step order; `steps` are indexes into
+  `workflow_steps`, same convention as B15.
+- `PUT /api/v1/events/{event_id}/setup` — body `{workflow_steps: [{id?, name, allows_multiple}], ticket_types:
+  [{id?, name, rules?, steps: [int]}]}` → 200 with the GET shape. Unlike the category save this keeps ids (guests,
+  tickets and scan logs reference them), so it reconciles rather than versions.
+- **Removed:** `POST`, `PUT /`, `PUT /{id}`, `DELETE /{id}` on `/events/{event_id}/workflow-steps`, and `POST`,
+  `PUT /{id}`, `DELETE /{id}`, `PUT /{id}/workflow-steps` on `/events/{event_id}/ticket-types` (routes, handlers,
+  Swagger, and service methods left without callers). Two write paths would drift, and the frontend isn't wired
+  to them yet; a repo-wide search before deleting must confirm there are no callers (same check as B15). `GET` list
+  and `GET /{id}` on both stay, gated only by the tenant check below; ushers need the step list to scan.
+- `POST /api/v1/events/{event_id}/guests/{id}/ticket` (in the `manage_guests` group) → 200 `Guest` with `ticket`.
+- `GET /api/v1/events` items gain `guest_count` and `confirmed_count` (list response only; `Event` model
+  unchanged, use a list-item DTO).
+- `POST /api/v1/events` body loses `tenant_id`.
+
+**R1 — save algorithm, `EventService.ReplaceSetup(ctx, eventID, in)`, one `WithTransaction`:**
+
+1. Load the event with a tenant check (404) and lock it: `SELECT ... FOR UPDATE` on the `events` row through a
+   new event repository method, so two setup saves on one event run one after the other instead of interleaving
+   step reorders. (The B15 `TemplateVersionForShare` method is the model; it runs on the transaction via
+   `GetConnection(ctx)`.)
+2. Validate (service, not the boundary): ticket type names unique case-insensitively, `steps` indexes in range
+   with no duplicates, every sent `id` belongs to this event. Return `errorz.BadRequest()` with
+   `.WithMeta("fields", ...)` keyed by JSON path, as in B15.
+3. Guard removals: `GuestStats.CountByTicketType(ctx, eventID)`; any ticket type that is held and missing from the
+   payload → 400, `fields["ticket_types"] = "<name> is held by N guests; reassign them first"`.
+4. Reconcile steps by calling the existing `workflowstep` `Sync` logic with `order_index` = array index. It already
+   deletes left-out steps, handles reorders without unique-index clashes, and returns the saved steps in payload
+   order. It moves from the HTTP-facing service into what `ReplaceSetup` calls (same slice, so `event` may call
+   it); it runs on `ctx`, so it joins the transaction.
+5. `TicketTypeStore.ReplaceForEvent(ctx, eventID, drafts)`, where each draft is `{ID *uuid.UUID, Name, Rules,
+   WorkflowStepIDs}` (indexes already resolved to the step ids from step 4). The `tickets` side updates, creates
+   and soft-deletes ticket types and calls the junction repository's `SetWorkflowStepIDs`, which already runs on
+   the transaction.
+6. Return the GET shape built from what was just written.
+
+Consumer-side interfaces in `events/event`:
+
+```go
+// TicketTypeStore reads and reconciles an event's ticket types. Implemented
+// by tickets' tickettype package; wired in internal/app so events never
+// imports tickets. Runs inside the caller's transaction (ctx).
+type TicketTypeStore interface {
+    ListForEvent(ctx context.Context, eventID uuid.UUID) ([]TicketTypeView, error)
+    ReplaceForEvent(ctx context.Context, eventID uuid.UUID, in []TicketTypeDraft) error
+}
+
+// GuestStats counts guests for event screens. Implemented by guests;
+// wired in internal/app so events never imports guests.
+type GuestStats interface {
+    CountByEvents(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]GuestCounts, error)
+    CountByTicketType(ctx context.Context, eventID uuid.UUID) (map[uuid.UUID]int, error)
+}
+```
+
+Both are hand-stubbed in `event_service__test.go` for the reason `TicketTypeSeeder` documents (a generated mock
+would create an import cycle). `ReplaceForEvent` gets its own table-driven tests in `tickettype` with generated
+mocks. Add one `*_integration_test.go` that saves a setup whose ticket type step fails and asserts the steps were
+rolled back, the property this item exists for.
+
+**R2 — manual ticket:** a new `GuestService.IssueTicket(ctx, eventID, id)` = `loadScoped` +
+`issueTicketIfNeeded` + `repo.Update`, the functions `SendInvitation` and `RSVP` already use. No new rule: the
+existing function already refuses a guest with no ticket type and does nothing when a ticket exists. It does not
+touch `rsvp_status`.
+
+**R3 — date filters:** add `gt`, `gte`, `lt`, `lte` to `supportedFilterOperators` in `internal/core/query` (go-sdk
+already implements them). Add `start_date`, `end_date` to `EventListConfig.AllowedFilterFields`. This makes the
+operators valid on every list's allowed fields; `guests` must reject them on `email`/`phone` the same way it
+rejects `;like` today (blind-indexed values can't be range-compared). One filter per field is how `ListParams`
+works, and Upcoming (`start_date;gt`), Live (`start_date;lte` + `end_date;gte`) and Ended (`end_date;lt`) each
+need only one per field.
+
+**R4 — gate and tenant:**
+
+- `event_routes.go`: reads stay open to any authenticated caller; `POST`/`PUT`/`DELETE` go in a group with
+  `authz.RequirePermission(checker, PermissionManageEvents)`. Declare the code in an `events/event` constants file
+  (feature-owned; `category` already declares its own).
+- `EventService`: `Create` sets `TenantID` from `authz.TenantIDFromContext` (401 without the claim, like `users`);
+  `GetByID`/`Update`/`Delete` return 404 when `event.TenantID` differs; `List` always adds a `tenant_id = caller`
+  condition after `ToListOptions`. Remove `tenant_id` from `CreateEventInput` and from both allow-lists.
+- New `authz.RequireEventInTenant(resolver EventTenantResolver)` middleware: parse `{event_id}`, look up its tenant
+  with `EventTenantResolver.EventTenantID(ctx, eventID) (tenantID uuid.UUID, found bool, err error)` (implemented
+  by the `events/event` repository, wired in `internal/app`), and write 404 when it's missing or differs from the
+  caller's tenant. `r.Use` it first, before `RequirePermission`, in the route setup of `workflowstep`, the new
+  setup route, `tickettype`, `guests` (not the public RSVP route), `staffing` and `scans`. Order matters: another
+  tenant's event must be a 404, not a 403. One primary-key read per request. On the scan path that is acceptable
+  for now; cache it only if scan latency (PRD-001 G3) shows it matters.
+- `staffing`'s own `loadTenantScopedEvent` becomes redundant but stays (it also returns the event); no change.
+
+**R5 — counts:** `EventService.List` collects the page's ids and calls `GuestStats.CountByEvents` once. The
+`guests` implementation runs one grouped query, `SELECT event_id, count(*), count(*) FILTER (WHERE rsvp_status =
+'confirmed') FROM guests WHERE event_id = ANY($1) AND deleted_at IS NULL GROUP BY event_id`. Events with no row
+get zeros.
+
+**Touches shipped code (call out in the PR):** `events/event` (DTOs, service, handler, routes, repository lock +
+tenant lookup, new interfaces), `events/workflowstep` (write handlers/routes removed, `Sync` kept as the setup's
+step reconcile), `tickets/tickettype` (write handlers/routes removed, `ReplaceForEvent`/`ListForEvent` added),
+`guests` (`IssueTicket`, `GuestStats` implementation, range-operator rejection on PII fields), `staffing`/`scans`
+routes (tenant middleware), `internal/core/authz` (middleware + interface + generated mock),
+`internal/core/query` (operators), `internal/app` wiring, Swagger, `FEATURES.md#events`/`#tickets`/`#guests`, the
+AGENTS.md feature-map rows. AI Empire docs to follow: API-001 (setup endpoint, removed routes, ticket route,
+filters, counts, tenant table row), PRD-001 Q4 (closed for events and every `{event_id}` route), and an ADR
+amending ADR-002 (tenant check for event-scoped routes lives in one middleware).
+
+**Non-goals:**
+
+- No optimistic concurrency on setup: the row lock serialises saves, and the second save wins. Add a
+  `setup_version` like B15's only if two admins editing one event at once becomes real.
+- No automatic ticket issuing when `rsvp_required` is turned off (product owner chose the manual route, R2). The
+  trap stays: guests invited while RSVP was on who confirm after it's turned off get no ticket until someone
+  issues one. The UI should say so next to the switch.
+- No `status` column or filter: status is derived from dates, and R3's filters cover it.
+- No guard on removing a step that has scan history: step soft-delete keeps the scan logs.
+- No `between` operator or repeated filters on one field.
+- No cross-tenant access for the super admin; a separate tenant-management item handles that (Track C).
 
 ### Cross-references to go-sdk
 

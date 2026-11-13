@@ -499,3 +499,105 @@ func TestGuestService_RSVP(t *testing.T) {
 		}
 	})
 }
+
+// TestGuestService_IssueTicket covers B16 AC7: the manual ticket route issues
+// one whatever the RSVP status, is idempotent, never touches rsvp_status, and
+// still refuses a guest with no ticket type.
+func TestGuestService_IssueTicket(t *testing.T) {
+	eventID := uuid.New()
+	id := uuid.New()
+	ticketTypeID := uuid.New()
+
+	t.Run("guest of another event maps to 404", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Guest, uuid.UUID](ctrl)
+		repo.EXPECT().GetByID(gomock.Any(), id).Return(&Guest{ID: id, EventID: uuid.New()}, nil)
+		svc := newTestService(repo, nil, nil, nil, nil)
+
+		_, err := svc.IssueTicket(context.Background(), eventID, id)
+		assertErrorzCode(t, err, errorz.CodeNotFound)
+	})
+
+	t.Run("no ticket type assigned maps to 400, nothing is written", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Guest, uuid.UUID](ctrl)
+		repo.EXPECT().GetByID(gomock.Any(), id).Return(&Guest{ID: id, EventID: eventID}, nil)
+		svc := newTestService(repo, nil, nil, nil, nil)
+
+		_, err := svc.IssueTicket(context.Background(), eventID, id)
+		assertErrorzCode(t, err, errorz.CodeBadRequest)
+	})
+
+	t.Run("an already-issued ticket is returned unchanged, no second ticket", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Guest, uuid.UUID](ctrl)
+		ticketRepo := mockrepository.NewMockRepository[Ticket, uuid.UUID](ctrl)
+		ticketID := uuid.New()
+		repo.EXPECT().GetByID(gomock.Any(), id).Return(&Guest{
+			ID: id, EventID: eventID, TicketTypeID: &ticketTypeID, TicketID: &ticketID,
+		}, nil)
+		ticketRepo.EXPECT().GetByID(gomock.Any(), ticketID).Return(&Ticket{ID: ticketID}, nil)
+		// No ticketRepo.Create and no repo.Update: gomock fails the test if either runs.
+		svc := newTestService(repo, ticketRepo, nil, nil, nil)
+
+		got, err := svc.IssueTicket(context.Background(), eventID, id)
+		if err != nil {
+			t.Fatalf("IssueTicket() error = %v", err)
+		}
+		if got.TicketID == nil || *got.TicketID != ticketID {
+			t.Errorf("TicketID = %v, want the existing %v", got.TicketID, ticketID)
+		}
+	})
+
+	t.Run("issues a ticket whatever the rsvp status, without changing it", func(t *testing.T) {
+		for _, status := range []string{RsvpStatusNone, RsvpStatusInvited, RsvpStatusDeclined} {
+			ctrl := gomock.NewController(t)
+			repo := mockrepository.NewMockRepository[Guest, uuid.UUID](ctrl)
+			ticketRepo := mockrepository.NewMockRepository[Ticket, uuid.UUID](ctrl)
+			repo.EXPECT().GetByID(gomock.Any(), id).Return(&Guest{
+				ID: id, EventID: eventID, TicketTypeID: &ticketTypeID, RsvpStatus: status,
+			}, nil)
+			ticketRepo.EXPECT().Create(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, ticket *Ticket) error {
+					if ticket.Status != TicketStatusActive || ticket.QRCode == "" {
+						t.Errorf("ticket = %+v, want an active ticket with a QR code", ticket)
+					}
+					return nil
+				})
+			repo.EXPECT().Update(gomock.Any(), id, gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ uuid.UUID, g *Guest) error {
+					if g.TicketID == nil {
+						t.Error("expected the guest to carry the new ticket id")
+					}
+					if g.RsvpStatus != status {
+						t.Errorf("RsvpStatus = %q, want it left at %q", g.RsvpStatus, status)
+					}
+					return nil
+				})
+			svc := newTestService(repo, ticketRepo, nil, nil, nil)
+
+			got, err := svc.IssueTicket(context.Background(), eventID, id)
+			if err != nil {
+				t.Fatalf("IssueTicket(%s) error = %v", status, err)
+			}
+			if got.Ticket == nil {
+				t.Errorf("IssueTicket(%s) returned no ticket", status)
+			}
+		}
+	})
+
+	t.Run("a persist failure maps to 500", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Guest, uuid.UUID](ctrl)
+		ticketRepo := mockrepository.NewMockRepository[Ticket, uuid.UUID](ctrl)
+		repo.EXPECT().GetByID(gomock.Any(), id).Return(&Guest{
+			ID: id, EventID: eventID, TicketTypeID: &ticketTypeID,
+		}, nil)
+		ticketRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
+		repo.EXPECT().Update(gomock.Any(), id, gomock.Any()).Return(errors.New("boom"))
+		svc := newTestService(repo, ticketRepo, nil, nil, nil)
+
+		_, err := svc.IssueTicket(context.Background(), eventID, id)
+		assertErrorzCode(t, err, errorz.CodeInternal)
+	})
+}
