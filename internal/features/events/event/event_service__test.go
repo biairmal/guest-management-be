@@ -79,21 +79,23 @@ func TestBuildEvent(t *testing.T) {
 	falseVal := false
 
 	t.Run("rsvp_required defaults to true when omitted", func(t *testing.T) {
-		got := buildEvent(CreateEventInput{StartDate: start, EndDate: start.Add(time.Hour)})
+		got := buildEvent(callerTenantID, CreateEventInput{StartDate: start, EndDate: start.Add(time.Hour)})
 		if !got.RsvpRequired {
 			t.Errorf("RsvpRequired = %v, want true", got.RsvpRequired)
 		}
 	})
 
 	t.Run("rsvp_required false is preserved, not defaulted", func(t *testing.T) {
-		got := buildEvent(CreateEventInput{StartDate: start, EndDate: start.Add(time.Hour), RsvpRequired: &falseVal})
+		got := buildEvent(callerTenantID, CreateEventInput{
+			StartDate: start, EndDate: start.Add(time.Hour), RsvpRequired: &falseVal,
+		})
 		if got.RsvpRequired {
 			t.Errorf("RsvpRequired = %v, want false", got.RsvpRequired)
 		}
 	})
 
 	t.Run("is_multi_day derived from dates", func(t *testing.T) {
-		got := buildEvent(CreateEventInput{StartDate: start, EndDate: start.Add(24 * time.Hour)})
+		got := buildEvent(callerTenantID, CreateEventInput{StartDate: start, EndDate: start.Add(24 * time.Hour)})
 		if !got.IsMultiDay {
 			t.Error("IsMultiDay = false, want true")
 		}
@@ -108,12 +110,25 @@ func TestBuildEvent(t *testing.T) {
 // users' transferMaster split.
 func TestEventService_Create_ValidatesDates(t *testing.T) {
 	start := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
-	svc := NewService(logger.NewNoOp(), nil, nil, nil, nil, nil, nil)
+	svc := NewService(logger.NewNoOp(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	_, err := svc.Create(context.Background(), CreateEventInput{
-		TenantID: uuid.New(), CategoryID: uuid.New(), Name: "x", StartDate: start, EndDate: start.Add(-time.Hour),
+	_, err := svc.Create(tenantCtx(), CreateEventInput{
+		CategoryID: uuid.New(), Name: "x", StartDate: start, EndDate: start.Add(-time.Hour),
 	})
 	assertErrorzCode(t, err, errorz.CodeBadRequest)
+}
+
+// TestEventService_Create_RequiresTenantClaim covers B16 R4: the event's tenant
+// comes from the JWT, so a caller without the claim can't create one at all
+// (there is no tenant_id in CreateEventInput to fall back on).
+func TestEventService_Create_RequiresTenantClaim(t *testing.T) {
+	start := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
+	svc := NewService(logger.NewNoOp(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.Create(context.Background(), CreateEventInput{
+		CategoryID: uuid.New(), Name: "x", StartDate: start, EndDate: start.Add(time.Hour),
+	})
+	assertErrorzCode(t, err, errorz.CodeUnauthorized)
 }
 
 // TestEventService_createEvent exercises Create's transactional body
@@ -320,6 +335,8 @@ func TestEventService_copyWorkflowStepTemplates(t *testing.T) {
 	})
 }
 
+// TestEventService_GetByID covers the read plus the tenant scope B16 R4 adds:
+// another tenant's event must be indistinguishable from one that doesn't exist.
 func TestEventService_GetByID(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -327,9 +344,14 @@ func TestEventService_GetByID(t *testing.T) {
 		repoErr error
 		wantErr string
 	}{
-		{name: "found", repoRes: &Event{Name: "x"}},
+		{name: "found", repoRes: &Event{Name: "x", TenantID: callerTenantID}},
 		{name: "not found maps to 404", repoErr: repository.ErrNotFound, wantErr: errorz.CodeNotFound},
 		{name: "unexpected error maps to 500", repoErr: errors.New("boom"), wantErr: errorz.CodeInternal},
+		{
+			name:    "another tenant's event maps to 404, not 403",
+			repoRes: &Event{Name: "x", TenantID: otherTenantID},
+			wantErr: errorz.CodeNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -338,11 +360,20 @@ func TestEventService_GetByID(t *testing.T) {
 			repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
 			repo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(tt.repoRes, tt.repoErr)
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil)
-			_, err := svc.GetByID(context.Background(), uuid.New())
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			_, err := svc.GetByID(tenantCtx(), uuid.New())
 			assertErrorzCode(t, err, tt.wantErr)
 		})
 	}
+
+	t.Run("no tenant claim maps to 401 without touching the repository", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+		_, err := svc.GetByID(context.Background(), uuid.New())
+		assertErrorzCode(t, err, errorz.CodeUnauthorized)
+	})
 }
 
 func TestEventService_Update(t *testing.T) {
@@ -376,14 +407,14 @@ func TestEventService_Update(t *testing.T) {
 			name:       "resulting end_date before start_date rejected",
 			in:         UpdateEventInput{EndDate: &earlier},
 			expectsGet: true,
-			getRes:     &Event{Name: "x", StartDate: start, EndDate: end},
+			getRes:     &Event{Name: "x", TenantID: callerTenantID, StartDate: start, EndDate: end},
 			wantErr:    errorz.CodeBadRequest,
 		},
 		{
 			name:       "update not found maps to 404",
 			in:         UpdateEventInput{Name: ptrString("y")},
 			expectsGet: true,
-			getRes:     &Event{Name: "x", StartDate: start, EndDate: end},
+			getRes:     &Event{Name: "x", TenantID: callerTenantID, StartDate: start, EndDate: end},
 			expectsSet: true,
 			updateErr:  repository.ErrNotFound,
 			wantErr:    errorz.CodeNotFound,
@@ -392,14 +423,14 @@ func TestEventService_Update(t *testing.T) {
 			name:       "happy path partial update recomputes is_multi_day",
 			in:         UpdateEventInput{EndDate: ptrTime(start.Add(48 * time.Hour))},
 			expectsGet: true,
-			getRes:     &Event{Name: "x", StartDate: start, EndDate: end},
+			getRes:     &Event{Name: "x", TenantID: callerTenantID, StartDate: start, EndDate: end},
 			expectsSet: true,
 		},
 		{
 			name:       "rsvp_required can be toggled off",
 			in:         UpdateEventInput{RsvpRequired: ptrBool(false)},
 			expectsGet: true,
-			getRes:     &Event{Name: "x", StartDate: start, EndDate: end, RsvpRequired: true},
+			getRes:     &Event{Name: "x", TenantID: callerTenantID, StartDate: start, EndDate: end, RsvpRequired: true},
 			expectsSet: true,
 		},
 	}
@@ -415,8 +446,8 @@ func TestEventService_Update(t *testing.T) {
 				repo.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(tt.updateErr)
 			}
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil)
-			got, err := svc.Update(context.Background(), uuid.New(), tt.in)
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			got, err := svc.Update(tenantCtx(), uuid.New(), tt.in)
 			assertErrorzCode(t, err, tt.wantErr)
 			if tt.wantErr == "" && tt.name == "happy path partial update recomputes is_multi_day" && !got.IsMultiDay {
 				t.Errorf("IsMultiDay = %v, want true", got.IsMultiDay)
@@ -428,61 +459,135 @@ func TestEventService_Update(t *testing.T) {
 	}
 }
 
+// TestEventService_Delete covers the delete plus its tenant scope: another
+// tenant's event is 404 and, crucially, is never handed to repo.Delete.
 func TestEventService_Delete(t *testing.T) {
 	tests := []struct {
-		name    string
-		repoErr error
-		wantErr string
+		name         string
+		getRes       *Event
+		getErr       error
+		expectDelete bool
+		repoErr      error
+		wantErr      string
 	}{
-		{name: "not found maps to 404", repoErr: repository.ErrNotFound, wantErr: errorz.CodeNotFound},
-		{name: "unexpected error maps to 500", repoErr: errors.New("boom"), wantErr: errorz.CodeInternal},
-		{name: "happy path"},
+		{
+			name: "not found maps to 404", getErr: repository.ErrNotFound, wantErr: errorz.CodeNotFound,
+		},
+		{
+			name:   "another tenant's event maps to 404 and is not deleted",
+			getRes: &Event{TenantID: otherTenantID}, wantErr: errorz.CodeNotFound,
+		},
+		{
+			name:   "unexpected delete error maps to 500",
+			getRes: &Event{TenantID: callerTenantID}, expectDelete: true,
+			repoErr: errors.New("boom"), wantErr: errorz.CodeInternal,
+		},
+		{
+			name: "happy path", getRes: &Event{TenantID: callerTenantID}, expectDelete: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
-			repo.EXPECT().Delete(gomock.Any(), gomock.Any()).Return(tt.repoErr)
+			repo.EXPECT().GetByID(gomock.Any(), gomock.Any()).Return(tt.getRes, tt.getErr)
+			if tt.expectDelete {
+				repo.EXPECT().Delete(gomock.Any(), gomock.Any()).Return(tt.repoErr)
+			}
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil)
-			err := svc.Delete(context.Background(), uuid.New())
+			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			err := svc.Delete(tenantCtx(), uuid.New())
 			assertErrorzCode(t, err, tt.wantErr)
 		})
 	}
 }
 
+// TestEventService_List covers B16 R4's forced tenant condition and R5's guest
+// counts: the tenant scope is appended server-side whatever the query string
+// asked for, and the page's counts come from one GuestStats call.
 func TestEventService_List(t *testing.T) {
-	tests := []struct {
-		name     string
-		repoErr  error
-		wantErr  string
-		wantSize int
-	}{
-		{name: "repo error maps to 500", repoErr: errors.New("boom"), wantErr: errorz.CodeInternal},
-		{name: "happy path", wantSize: 20},
-	}
+	eventA, eventB := uuid.New(), uuid.New()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
-			repo.EXPECT().
-				List(gomock.Any(), gomock.Any()).
-				Return([]*Event{{Name: "x"}}, int64(1), tt.repoErr)
+	t.Run("repo error maps to 500", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		repo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, int64(0), errors.New("boom"))
 
-			svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil)
-			params, err := query.ParseListParams(url.Values{}, query.ListParseConfig{})
-			if err != nil {
-				t.Fatalf("ParseListParams() error = %v", err)
-			}
-			got, err := svc.List(context.Background(), params)
-			assertErrorzCode(t, err, tt.wantErr)
-			if tt.wantErr == "" && got.Size != tt.wantSize {
-				t.Errorf("Size = %d, want %d", got.Size, tt.wantSize)
-			}
-		})
+		svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil, nil, &stubGuestStats{}, nil, nil)
+		_, err := svc.List(tenantCtx(), listParams(t))
+		assertErrorzCode(t, err, errorz.CodeInternal)
+	})
+
+	t.Run("no tenant claim maps to 401", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil, nil, &stubGuestStats{}, nil, nil)
+
+		_, err := svc.List(context.Background(), listParams(t))
+		assertErrorzCode(t, err, errorz.CodeUnauthorized)
+	})
+
+	t.Run("guest count failure maps to 500", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		repo.EXPECT().List(gomock.Any(), gomock.Any()).Return([]*Event{{ID: eventA}}, int64(1), nil)
+
+		stats := &stubGuestStats{eventsErr: errors.New("boom")}
+		svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil, nil, stats, nil, nil)
+		_, err := svc.List(tenantCtx(), listParams(t))
+		assertErrorzCode(t, err, errorz.CodeInternal)
+	})
+
+	t.Run("forces the caller's tenant and attaches counts in one call", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		repo := mockrepository.NewMockRepository[Event, uuid.UUID](ctrl)
+		repo.EXPECT().List(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, opts *repository.ListOptions) ([]*Event, int64, error) {
+				found := false
+				for _, c := range opts.Filter.Conditions {
+					if c.Field == "tenant_id" {
+						found = true
+						if c.Value != callerTenantID {
+							t.Errorf("tenant_id filter = %v, want %v (the JWT's tenant, not the query's)",
+								c.Value, callerTenantID)
+						}
+					}
+				}
+				if !found {
+					t.Error("expected a tenant_id filter condition forced by the service")
+				}
+				return []*Event{{ID: eventA}, {ID: eventB}}, int64(2), nil
+			})
+
+		// eventB has no guests, so GuestStats omits it: it must read as zeros.
+		stats := &stubGuestStats{byEvent: map[uuid.UUID]GuestCounts{eventA: {Total: 5, Confirmed: 2}}}
+		svc := NewService(logger.NewNoOp(), repo, nil, nil, nil, nil, nil, nil, stats, nil, nil)
+
+		got, err := svc.List(tenantCtx(), listParams(t))
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+		if stats.countByEventsCalls != 1 {
+			t.Errorf("CountByEvents called %d times, want exactly 1 for the page", stats.countByEventsCalls)
+		}
+		if got.Items[0].GuestCount != 5 || got.Items[0].ConfirmedCount != 2 {
+			t.Errorf("event A counts = (%d, %d), want (5, 2)", got.Items[0].GuestCount, got.Items[0].ConfirmedCount)
+		}
+		if got.Items[1].GuestCount != 0 || got.Items[1].ConfirmedCount != 0 {
+			t.Errorf("event B counts = (%d, %d), want (0, 0)", got.Items[1].GuestCount, got.Items[1].ConfirmedCount)
+		}
+	})
+}
+
+// listParams builds an empty, allow-list-free set of list params.
+func listParams(t *testing.T) *query.ListParams {
+	t.Helper()
+	params, err := query.ParseListParams(url.Values{}, query.ListParseConfig{})
+	if err != nil {
+		t.Fatalf("ParseListParams() error = %v", err)
 	}
+	return params
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }

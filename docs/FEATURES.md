@@ -65,95 +65,115 @@ Base path `/api/v1/event-categories`:
 
 #### Intent
 
-Manages **events** — a tenant's scheduled occasion, classified under an event category, with a start/end date range. Events are the parent of workflow steps, ticket types, guests, and staff assignments (see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) B5–B9).
+Manages **events** — a tenant's scheduled occasion, classified under an event category, with a start/end date range. Events are the parent of workflow steps, ticket types, guests, and staff assignments (see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) B5–B9). Since B16 an event is also the **aggregate root of its setup**: its workflow steps, its ticket types, and each ticket type's step access are read and written as one unit, the same way a [category](#event-categories) owns its template set.
 
 #### Invariants
 
-- `tenant_id`, `category_id`, `name`, `start_date`, and `end_date` are required on create.
-- `tenant_id` is **immutable** after creation — an event cannot move tenants; it is not part of `UpdateEventInput`.
+- `category_id`, `name`, `start_date`, and `end_date` are required on create.
+- **`tenant_id` is never caller-supplied.** On create it comes from the caller's `tenant_id` JWT claim (401 without it) — it is not part of `CreateEventInput`, so one tenant cannot create an event under another. It is **immutable** afterwards: an event cannot move tenants.
+- **Every operation is scoped to the caller's tenant.** `GetByID`/`Update`/`Delete`/`GetSetup`/`ReplaceSetup` report another tenant's event as `errorz.NotFound` (404), never `Forbidden` — so its ids cannot be probed (the same not-found-not-forbidden convention as [categories](#event-categories) and [staffing](#staffing)). `List` appends a `tenant_id = <caller>` condition after `query.ToListOptions`, and `tenant_id` is neither a filter nor a sort field.
+- **Every `{event_id}`-scoped route of every feature enforces the same rule, once, in middleware.** `authz.RequireEventInTenant` reads the event's owning tenant (one primary-key read, straight from the database via `event.EventTenantRepository`, never the event cache) and writes 404 when it is missing or differs from the caller's. It is `r.Use`'d **before** `authz.RequirePermission` on the setup, [workflow-steps](#workflow-steps), [ticket-types](#ticket-types), [guests](#guests), [staffing](#staffing) and [scans](#scans) route groups (not the public RSVP route), so another tenant's event reads as absent rather than forbidden. Before B16 `authz.Checker` never looked at tenant and only `staffing` checked it itself, so a Tenant Admin of tenant B could read and change tenant A's guests (including decrypted email/phone), ticket types, steps and scans by knowing an event id.
 - `end_date` must not be before `start_date`, both on create and on the resulting record after a partial update.
 - `is_multi_day` is **derived**, not caller-supplied: `true` when `start_date` and `end_date` fall on different calendar days (each evaluated in its own timestamp's location), recomputed whenever either date changes.
-- `rsvp_required` defaults to `true` when omitted on create and can be toggled via a partial update; it decides whether [guests](#guests) issue a ticket only on RSVP confirm (`true`, the default) or immediately at invitation time (`false`) — see [guests](#guests) for the consuming behavior.
+- `rsvp_required` defaults to `true` when omitted on create and can be toggled via a partial update; it decides whether [guests](#guests) issue a ticket only on RSVP confirm (`true`, the default) or immediately at invitation time (`false`) — see [guests](#guests) for the consuming behavior. **Turning it off does not issue tickets retroactively**: a guest invited while it was on who confirms afterwards gets no ticket until someone issues one via [guests' manual ticket route](#guests) (a deliberate product decision, B16 R2 — a UI should say so next to the switch).
+- **Writes require the `manage_events` permission** (`authz.RequirePermission`, the same code [categories](#event-categories) gates on, declared locally in `event_constants.go` since permission codes are feature-owned): `POST`/`PUT`/`DELETE /events[/{id}]` and `PUT /events/{event_id}/setup`. Reads stay open to any authenticated caller — the tenant scope above is what protects them.
 - **Create runs inside one transaction** (`(*sqlkit.DB).WithTransaction`, the same mechanism [users](#users)' `TransferMaster` uses): the event insert, the workflow-step-template copy, and the ticket-type-template copy (below) all run against the same transaction-carrying context, so a failure in any of the three rolls back the whole event creation instead of committing a partially-seeded event.
-- **Create records the category's template version and seeds default workflow steps from it** (B15): first the category's `template_version` is read `FOR SHARE` inside the transaction (a concurrent template save waits until the event commits, so the version recorded as `events.category_template_version` is exactly the rows copied; a missing or deleted category is 422). Then `workflow_step_templates` for `category_id` at that version (ordered by `order_index`) are copied into `workflow_steps` for the new event — the customizable starting point a UI shows immediately after event creation. A category with no step templates copies nothing. A lookup or per-template copy failure **aborts event creation** (rolled back). Templates themselves are edited through [Event categories](#event-categories). The caller can always add/edit/remove the resulting steps via [Workflow steps → Sync](#workflow-steps).
-- **Create seeds default ticket types from the same template version**: right after the step copy, `EventService` calls `SeedFromCategoryTemplates(event_id, category_id, version, stepIDs)` on the `TicketTypeSeeder` interface `event` declares and `internal/app` wires to `tickets/tickettype` (`events` never imports `tickets`). `stepIDs` maps each step template to the event step just copied from it, so every seeded ticket type includes **exactly** the event steps its template included — not the full-access default a manual `POST .../ticket-types` gets. A category with no ticket-type templates leaves the event with zero ticket types. A seed failure aborts event creation (rolled back). Later template saves never change an already-created event.
+- **Create records the category's template version and seeds default workflow steps from it** (B15): first the category's `template_version` is read `FOR SHARE` inside the transaction (a concurrent template save waits until the event commits, so the version recorded as `events.category_template_version` is exactly the rows copied; a missing or deleted category is 422). Then `workflow_step_templates` for `category_id` at that version (ordered by `order_index`) are copied into `workflow_steps` for the new event — the customizable starting point a UI shows immediately after event creation. A category with no step templates copies nothing. A lookup or per-template copy failure **aborts event creation** (rolled back). Templates themselves are edited through [Event categories](#event-categories). The caller then edits the resulting steps through the **setup save** below.
+- **Create seeds default ticket types from the same template version**: right after the step copy, `EventService` calls `SeedFromCategoryTemplates(event_id, category_id, version, stepIDs)` on the `TicketTypeSeeder` interface `event` declares and `internal/app` wires to `tickets/tickettype` (`events` never imports `tickets`). `stepIDs` maps each step template to the event step just copied from it, so every seeded ticket type includes **exactly** the event steps its template included. A category with no ticket-type templates leaves the event with zero ticket types. A seed failure aborts event creation (rolled back). Later template saves never change an already-created event.
+- **The setup save (`PUT /events/{event_id}/setup`) is the only way to change an event's steps or ticket types.** It replaces the whole setup in one request and one transaction; if any part fails, nothing changes. The per-item write routes on `/workflow-steps` and `/ticket-types` were removed with it (B16 R1) — two write paths would drift.
+- **The setup save reconciles rather than versions.** Unlike a category's template set, guests, tickets and scan logs point at step and ticket type ids, so an item sent **with** its `id` is updated in place and keeps that id (everything referencing it is unaffected); an item **without** one is created; a live item left out is deleted. The array position of each entry in `workflow_steps` is its `order_index`; each ticket type's `steps` are indexes into that same array.
+- **The setup save refuses to remove a ticket type guests still hold** (400, nothing changed): the error names the type and how many guests hold it under `meta.fields["ticket_types"]`. The count comes from the `GuestStats` interface `event` declares and `internal/app` wires to `guests`, and is only queried when the payload actually removes something.
+- **The setup save locks the event row** (`SELECT tenant_id ... FOR UPDATE`, via `EventTenantRepository.TenantIDForEventUpdate`) before validating, so two concurrent saves on one event run one after the other instead of interleaving their step reorders. There is **no version compare**: the second save wins (see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) B16's non-goals).
+- **Setup validation** runs in the service, keyed by JSON path under `meta.fields` — the same shape and rules as a category's template set save, plus the id-ownership check: ticket type names unique case-insensitively (`ticket_types[i].name`), every `steps` index in range with no duplicates (`ticket_types[i].steps[j]`), and every `id` sent belonging to this event (`workflow_steps[i].id`, `ticket_types[i].id`). An empty payload is valid — it clears the setup.
 
-> Field-presence/format checks (`required`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateEventInput`/`UpdateEventInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the date-ordering rule and `is_multi_day` derivation stay in the service as business invariants.
+> Field-presence/format checks (`required`, array `max=100`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateEventInput`/`UpdateEventInput`/`SetupInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the date-ordering rule, `is_multi_day` derivation, the tenant scope and every setup rule above stay in the service as business invariants.
 
 #### Endpoints
 
-Base path `/api/v1/events`:
+Base path `/api/v1/events`. Reads need a valid access token; writes also need the `manage_events` permission:
 
 | Method | Path | Purpose | Success | Notable errors |
 |---|---|---|---|---|
-| `GET` | `/` | List (paginated, filtered, sorted) | 200 | 400 invalid query |
-| `GET` | `/{id}` | Get one by UUID | 200 | 400 bad UUID · 404 not found |
-| `POST` | `/` | Create | 201 | 400 invalid body/date order · 409 conflict · 422 invalid entity |
-| `PUT` | `/{id}` | Partial update | 200 | 400 · 404 not found |
-| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 404 not found |
+| `GET` | `/` | List the caller's tenant's events (paginated, filtered, sorted), each with `guest_count`/`confirmed_count` | 200 | 400 invalid query · 401 no tenant claim |
+| `GET` | `/{id}` | Get one by UUID, scoped to the tenant | 200 | 400 bad UUID · 401 · 404 not found / another tenant |
+| `POST` | `/` | Create under the caller's tenant | 201 | 400 invalid body/date order · 401 · 403 · 409 · 422 |
+| `PUT` | `/{id}` | Partial update | 200 | 400 · 401 · 403 · 404 |
+| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 401 · 403 · 404 |
 
-**List query:** `?page=1&size=20&sort=start_date,ASC&tenant_id=...&category_id=...&name=Gala`.
+Base path `/api/v1/events/{event_id}/setup` (behind `authz.RequireEventInTenant`):
+
+| Method | Path | Purpose | Success | Notable errors |
+|---|---|---|---|---|
+| `GET` | `/` | The event's ordered workflow steps and its ticket types with their step access | 200 | 400 bad UUID · 401 · 404 not found / another tenant |
+| `PUT` | `/` | **Replace** the whole setup in one transaction | 200 | 400 validation/`id` not on this event/held ticket type removed · 401 · 403 · 404 · 409 name or order clash with a removed item |
+
+**List query:** `?page=1&size=20&sort=start_date,ASC&category_id=...&name=Gala&start_date=2026-09-22T10:00:00Z;gt`.
 - `page` 1-based; `size` default 20, clamped to 100.
-- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, tenant_id, category_id, name, start_date, end_date, is_multi_day, created_at, updated_at`); unknown field → 400.
-- Filters: `tenant_id`, `category_id`, `name` (exact match); unknown keys ignored.
+- `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, category_id, name, start_date, end_date, is_multi_day, created_at, updated_at`); unknown field → 400.
+- Filters: `category_id`, `name` (exact match), `start_date`, `end_date`. The date fields accept a range operator suffix — `;gt`, `;gte`, `;lt`, `;lte` (see [PATTERNS.md](PATTERNS.md#list-query--allow-list-parsing-and-enforcement) for the general `value;operator` syntax) — so a UI's status tabs are each one request: **Upcoming** `start_date=<now>;gt`, **Live** `start_date=<now>;lte&end_date=<now>;gte`, **Ended** `end_date=<now>;lt`. One filter per field, so there is no "between" on a single field.
+- `tenant_id` is **not** a filter or sort field: the scope is forced from the JWT.
+- **Implementation note:** a hand-built raw query string must percent-encode a literal `;` (`%3B`) in a filter value — any real HTTP client library does this automatically.
+
+**Setup body and response:**
+```json
+{
+  "workflow_steps": [
+    { "id": "11111111-...", "name": "Check-in", "allows_multiple": false },
+    { "name": "Dinner", "allows_multiple": true }
+  ],
+  "ticket_types": [
+    { "id": "22222222-...", "name": "VIP", "rules": {}, "steps": [0, 1] },
+    { "name": "Crew", "steps": [1] }
+  ]
+}
+```
+Array order of `workflow_steps` is step order; `steps` are indexes into it (ascending in the response). Omitting an existing item deletes it; both arrays are capped at 100 entries, matching the limit the setup read pages with.
 
 #### States & lifecycle
 
-- **Create** — service generates the `id` (UUID) and derives `is_multi_day`; `created_at`/`updated_at` are stamped by the audit repository decorator.
+- **Create** — service generates the `id` (UUID), takes `tenant_id` from the JWT and derives `is_multi_day`; `created_at`/`updated_at` are stamped by the audit repository decorator.
 - **Update** — partial; `is_multi_day` is re-derived whenever a date changes; `tenant_id` cannot change; `updated_at` re-stamped by the decorator.
 - **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
-- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); unexpected errors become 500 and are logged with context.
+- **Get setup** — one step list (ordered by `order_index`) plus `TicketTypeStore.ListForEvent`; each ticket type's step ids are mapped back to ascending indexes into the step array.
+- **Replace setup** — one `WithTransaction`: lock the event row and check its tenant → read the current steps and ticket types → validate → guard held ticket types → reconcile steps via `workflowstep.Service.Sync` (which already survives a reorder without tripping the `(event_id, order_index)` unique constraint) → `TicketTypeStore.ReplaceForEvent` with the step indexes resolved to the ids `Sync` just saved → build the response from what was written. Steps are written before ticket types because the ticket type drafts reference the saved step ids; both run on the transaction-carrying context, so a ticket-type failure rolls the step changes back (covered by `internal/app/event_setup_integration_test.go`).
+- **Guest counts** — `List` collects the page's event ids and calls `GuestStats.CountByEvents` **once** (one grouped query over `guests`, covered by `idx_guests_event_rsvp`), not one query per event. An event with no guests reads as zeros. `GET /{id}` does not report counts.
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); another tenant's event is also 404; a missing `manage_events` permission on a write →403; unexpected errors become 500 and are logged with context.
 
 ### Workflow steps
 
 #### Intent
 
-Manages an event's **workflow steps** — the lifecycle stages a ticket moves through at an event (e.g. Check-in, Photo booth). Always scoped to a parent event via the URL; there is no top-level workflow-step listing. New events start with steps copied from their category's `workflow_step_templates` (see [Events](#events)); from there, a UI reconciles the whole list — add, rename, reorder, remove — in one call via `PUT` (**Sync**) rather than issuing separate create/update/delete requests per step.
+Manages an event's **workflow steps** — the lifecycle stages a ticket moves through at an event (e.g. Check-in, Photo booth). Always scoped to a parent event via the URL; there is no top-level workflow-step listing. New events start with steps copied from their category's `workflow_step_templates` (see [Events](#events)); from there they are edited **only** through the event's [setup save](#events), which reconciles the whole list — add, rename, reorder, remove — in one transaction.
+
+Since B16 this slice is **read-only over HTTP**. Its write path is `Service.Sync`, called by `events/event`'s `ReplaceSetup` (a sibling package of the same feature slice), and the per-step `POST`/`PUT`/`DELETE` routes, handlers and service methods are gone with the `PUT /` sync route. The reads stay because the guest ticket-type picker and the scan step picker need the step list, and ushers need it without `manage_events`.
 
 #### Invariants
 
-- `name` and `order_index` are required on create; `order_index` must be `>= 0`.
-- `(event_id, order_index)` is unique — DB-enforced; a conflicting `order_index` on create or update surfaces as `errorz.Conflict` (409).
-- `event_id` is **immutable** and always taken from the URL, never the body — it is not part of `CreateWorkflowStepInput`/`UpdateWorkflowStepInput`/`SyncWorkflowStepInput`.
-- Every read/update/delete is scoped to the `{event_id}` in the URL: a step that exists but belongs to a different event resolves as `errorz.NotFound` (404), not a cross-event leak.
-- **Sync** (`PUT /workflow-steps`) treats the request body as the *entire* desired list for the event: entries with an `id` are updated, entries without one are created, and any existing step **not** present in the list is deleted. Two entries sharing an `order_index` are rejected up front (400) rather than left to race against the DB constraint. An `id` that doesn't belong to this event is rejected (404).
-
-> Field-presence/format checks (`required`, `gte=0`) are enforced at the HTTP boundary via `validate:"..."` tags (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the event-scope check and Sync's reconciliation rules are business invariants enforced in the service since no struct tag or DB constraint can express them.
+- `(event_id, order_index)` is unique — DB-enforced. The setup save assigns `order_index` from array position, so a payload can't collide with itself.
+- `event_id` is **immutable** and always taken from the URL, never the body.
+- Every read is scoped to the `{event_id}` in the URL: a step that exists but belongs to a different event resolves as `errorz.NotFound` (404), not a cross-event leak. A step of **another tenant's** event is 404 before the handler runs, via `authz.RequireEventInTenant` (see [Events](#events)).
+- **Sync** treats its argument as the *entire* desired list for the event: entries with an `id` are updated, entries without one are created, and any existing step **not** present is deleted. Two entries sharing an `order_index` are rejected up front (400) rather than left to race against the DB constraint. An `id` that doesn't belong to this event is rejected (404 from `Sync`; the setup save catches it first as a 400 keyed by JSON path).
 
 #### Endpoints
 
-Base path `/api/v1/events/{event_id}/workflow-steps`:
+Base path `/api/v1/events/{event_id}/workflow-steps`, all behind `authz.RequireEventInTenant`:
 
 | Method | Path | Purpose | Success | Notable errors |
 |---|---|---|---|---|
-| `GET` | `/` | List for the event (paginated, filtered, sorted) | 200 | 400 invalid event id/query |
-| `PUT` | `/` | **Sync** — replace the entire list (add/update/delete/reorder in one call) | 200 | 400 duplicate order_index/unknown id · 422 invalid entity |
-| `GET` | `/{id}` | Get one by UUID, scoped to the event | 200 | 400 bad UUID · 404 not found |
-| `POST` | `/` | Create a single step under the event | 201 | 400 invalid body · 409 order_index conflict · 422 invalid entity |
-| `PUT` | `/{id}` | Partial update of a single step | 200 | 400 · 404 not found · 409 order_index conflict |
-| `DELETE` | `/{id}` | Soft delete a single step | 204 | 400 · 404 not found |
+| `GET` | `/` | List for the event (paginated, filtered, sorted) | 200 | 400 invalid event id/query · 401 · 404 another tenant's event |
+| `GET` | `/{id}` | Get one by UUID, scoped to the event | 200 | 400 bad UUID · 401 · 404 not found |
 
-The single-step `POST`/`PUT {id}`/`DELETE {id}` endpoints remain available (e.g. for scripts or a future mobile client that reorders one step at a time); a "one screen, one save button" UI is expected to call **Sync** exclusively.
+Writes go through [`PUT /api/v1/events/{event_id}/setup`](#events).
 
 **List query:** `?page=1&size=20&sort=order_index,ASC&name=Check-in`.
 - `page` 1-based; `size` default 20, clamped to 100.
 - `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, name, order_index, allows_multiple, created_at, updated_at`); unknown field → 400.
 - Filters: `name` (exact match); `event_id` is always forced from the URL and is not a query filter.
 
-**Sync body:** a JSON array of `{ id?, name, order_index, allows_multiple? }`. Example — update step `A`, add a new step, and (implicitly) delete every other existing step:
-```json
-[
-  { "id": "11111111-...", "name": "Check-in", "order_index": 0 },
-  { "name": "Photo booth", "order_index": 1, "allows_multiple": true }
-]
-```
-
 #### States & lifecycle
 
-- **Create** (single-step) — service generates the `id` (UUID) and sets `event_id` from the URL; `created_at`/`updated_at` are stamped by the audit repository decorator.
-- **Update** (single-step) — partial; `event_id` cannot change; `updated_at` re-stamped by the decorator.
-- **Delete** (single-step) — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
-- **Sync** — reconciles in three passes: (1) delete every existing step not referenced by the payload, (2) move every referenced step to a unique negative `order_index` and apply its new `name`/`allows_multiple`, (3) create new entries and move the referenced steps to their final `order_index`. The two-phase reorder (negative, then final) exists so that swapping two steps' `order_index` — the common drag-reorder case — never trips the `(event_id, order_index)` unique constraint on an intermediate state. Sync is **not wrapped in a database transaction** (no feature in this codebase uses one yet); a failure partway through can leave a partial result, in which case re-submitting the same Sync call is the recovery path.
+- **Sync** — reconciles in three passes: (1) delete every existing step not referenced by the payload, (2) move every referenced step to a unique negative `order_index` and apply its new `name`/`allows_multiple`, (3) create new entries and move the referenced steps to their final `order_index`. The two-phase reorder (negative, then final) exists so that swapping two steps' `order_index` — the common drag-reorder case — never trips the `(event_id, order_index)` unique constraint on an intermediate state. Since B16 its only caller is the setup save, so it always runs **inside that transaction**: a later failure rolls every pass back.
+- **Delete** — **soft**: `deleted_at` is set; the row remains, so scan history pointing at the step survives. All reads/lists exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator). A soft-deleted row still holds its `order_index`, so it counts against the unique constraint; the setup save's negative-then-final reorder keeps that out of the way for the ordinary cases, and a fresh step landing on a removed step's exact index surfaces as 409.
 - **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a step belonging to a different event is also reported as 404; unexpected errors become 500 and are logged with context.
 
 ### Workflow step templates
@@ -409,8 +429,9 @@ Assigns tenant users to events with an **event-scoped role** (e.g. Usher, Photob
 
 ### Invariants
 
-- **Tenant scoping comes from the JWT, not the request body** — every endpoint resolves the caller's tenant via `authz.TenantIDFromContext` (the `tenant_id` claim), and `CreateAssignmentInput`/`UpdateAssignmentInput` carry **no `tenant_id` field**. This is a deliberate, narrow divergence from the [`users`](#users)/[`events`](#events) precedent (which still take `tenant_id` explicitly in the body — a known, separately-tracked gap): permission enforcement is meaningless if a caller can simply name a different tenant's `event_id`/`user_id` in the body while the permission check passes on their own role.
+- **Tenant scoping comes from the JWT, not the request body** — every endpoint resolves the caller's tenant via `authz.TenantIDFromContext` (the `tenant_id` claim), and `CreateAssignmentInput`/`UpdateAssignmentInput` carry **no `tenant_id` field**. This was a deliberate, narrow divergence when staffing shipped; [`events`](#events) followed it in B16 (its create no longer takes `tenant_id`), and [`users`](#users) remains the last slice that takes one explicitly — a known, separately-tracked gap. Permission enforcement is meaningless if a caller can simply name a different tenant's `event_id`/`user_id` in the body while the permission check passes on their own role.
 - Every request is authorized against the `manage_staff` permission, checked by `authz.RequirePermission` middleware before the handler runs — the caller's **system-level role** first, falling back to an event-scoped assignment on this route's `{event_id}` (see [roles' event-scoped permission fallback](#roles)) — see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §6.
+- Another tenant's event is 404 before the handler runs, via `authz.RequireEventInTenant` (`r.Use`'d ahead of the permission check — see [Events](#events)). The service's own `loadTenantScopedEvent` keeps checking the tenant as well: it also returns the event, and the service must stay correct for any transport. The middleware is what makes the rule uniform across every `{event_id}` route rather than something each feature could forget.
 - `event_id` is always taken from the URL, and every operation first loads the event and verifies `event.tenant_id` matches the caller's tenant claim. A mismatch (or a nonexistent event) resolves as `errorz.NotFound` (404), **never** `errorz.Forbidden` — the same not-found-not-forbidden convention as `WorkflowStepService`, so a caller can't distinguish "doesn't exist" from "belongs to someone else."
 - **Create** validates, in order: the event belongs to the caller's tenant (404 otherwise); the target user exists and belongs to the *same* tenant as the event (404 otherwise — same not-found convention); the role exists (404) and is **event-scope** (`errorz.BadRequest`/400 if it's `system`-scope instead); and no other **active** assignment already exists for this `(event_id, user_id)` pair (`errorz.Conflict`/409).
 - A user can hold **at most one active assignment per event** at a time — enforced by a partial unique index `(event_id, user_id) WHERE deleted_at IS NULL` (migration 000015, replacing the original plain `UNIQUE (event_id, user_id)` from migration 000007, which would have permanently blocked re-assignment after a removal). **Removing and later re-assigning the same user to the same event is allowed** and creates a brand-new row — never a reactivation of the deleted one — so an event's staffing history stays an accurate log of who was ever staffed (see [docs/STAFFING_RBAC.md](STAFFING_RBAC.md) §5).
@@ -453,46 +474,42 @@ Source: `internal/features/tickets`. Tables: `ticket_types`, `ticket_type_workfl
 
 Manages an event's **ticket types** (e.g. Regular, VIP) and which of that event's workflow steps each type applies to, so guests receive the right ticket and check-in later enforces only the steps that type is entitled to (REQUIREMENT.md §3.8, §4.4). Always scoped to a parent event via the URL; there is no top-level ticket-type listing.
 
+Since B16 this entity is **read-only over HTTP**. Its writes are the event's [setup save](#events) (via `SetupStore`, which implements `events/event`'s `TicketTypeStore`) and the copy-on-create seed from the category's templates; the per-ticket-type `POST`/`PUT`/`DELETE` routes and the `PUT /{id}/workflow-steps` route are gone with them, so one event's ticket types have a single write path.
+
 #### Invariants
 
-- `name` is required on create; `(event_id, name)` is unique — DB-enforced; a conflicting name on create or update surfaces as `errorz.Conflict` (409).
-- `event_id` is **immutable** and always taken from the URL, never the body — it is not part of `CreateTicketTypeInput`/`UpdateTicketTypeInput`.
-- Every read/update/delete/workflow-step-replace is scoped to the `{event_id}` in the URL: a ticket type that exists but belongs to a different event resolves as `errorz.NotFound` (404), not a cross-event leak — the same convention as [workflow steps](#workflow-steps).
+- `name` is required; `(event_id, name)` is unique — DB-enforced; a conflicting name surfaces as `errorz.Conflict` (409).
+- `event_id` is **immutable** and always taken from the URL, never the body.
+- Every read is scoped to the `{event_id}` in the URL: a ticket type that exists but belongs to a different event resolves as `errorz.NotFound` (404), not a cross-event leak — the same convention as [workflow steps](#workflow-steps). A ticket type of **another tenant's** event is 404 before the handler runs, via `authz.RequireEventInTenant` (see [Events](#events)).
 - `rules` is an opaque, optional JSON document (default `{}`), passed through unvalidated — same treatment as `ticket_type_templates.rules`.
-- **Every route requires the `manage_events` permission** (`authz.RequirePermission`, same mechanism [staffing](#staffing) uses for `manage_staff`) — a deliberate divergence from `events`/`workflow-steps`, which stay auth-only/ungated in this phase. Since every route carries `{event_id}`, the check falls back to an event-scoped assignment on this event when the caller's system role doesn't grant it (see [roles' event-scoped permission fallback](#roles)).
-- `workflow_step_ids` (the set of the event's workflow steps this ticket type currently applies to) is populated only on `GetByID` (one extra lookup) and on the workflow-step-replace response; it is left empty on `List`/`Update` to avoid an N+1 join across every row of a list.
-- **`PUT .../workflow-steps`** replaces the *entire* set of workflow steps a ticket type applies to (full-replace, no incremental add/remove — mirroring [workflow steps](#workflow-steps)' Sync design). Every submitted ID is validated to belong to the ticket type's own event; an ID that doesn't exist or belongs to a different event is rejected as `errorz.BadRequest` (400) before anything is written.
+- **The reads need only a valid access token** (plus the tenant check above) — they lost the `manage_events` gate in B16: a caller who may register guests must be able to see the ticket types to pick from, and an usher needs the list to scan. Writes are gated where they now live, on the event's setup save.
+- `workflow_step_ids` (the set of the event's workflow steps this ticket type currently applies to) is populated only on `GetByID` (one extra lookup); it is left empty on `List` to avoid an N+1 join across every row of a list. The [setup read](#events) reports the same information for every type at once, as indexes into its step array.
+- **`SetupStore.ReplaceForEvent` reconciles, it does not recreate**: a draft carrying an `id` updates that row in place, so the tickets already issued against it stay valid; a draft without one is created; any live type not in the payload is soft-deleted. Deletes run before the writes, so a name freed by a removal is available to a draft in the same save. The step access of each written type is set through `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs`, which runs on the caller's transaction.
 
-> Field-presence/format checks (`required`) are enforced at the HTTP boundary via `validate:"..."` tags on `CreateTicketTypeInput`/`UpdateTicketTypeInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the event-scope check and workflow-step cross-event validation are business invariants enforced in the service since no struct tag or DB constraint can express them.
+> Field-presence/format checks (`required`) are enforced at the HTTP boundary on the event's `SetupInput` (see [PATTERNS.md](PATTERNS.md#request-validation-boundary)); the event-scope check and the step-index/name/id rules are business invariants enforced in `events/event`'s `ReplaceSetup` since no struct tag or DB constraint can express them.
 
 #### Endpoints
 
-Base path `/api/v1/events/{event_id}/ticket-types`. Every route requires a valid access token **and** the `manage_events` permission (`authz.RequirePermission`):
+Base path `/api/v1/events/{event_id}/ticket-types`, all behind `authz.RequireEventInTenant` and requiring a valid access token:
 
 | Method | Path | Purpose | Success | Notable errors |
 |---|---|---|---|---|
-| `GET` | `/` | List for the event (paginated, filtered, sorted) | 200 | 400 invalid event id/query · 401 · 403 |
-| `POST` | `/` | Create a ticket type under the event | 201 | 400 invalid body · 401 · 403 · 409 name conflict · 422 invalid entity |
-| `GET` | `/{id}` | Get one, scoped to the event — response includes `workflow_step_ids` | 200 | 400 bad UUID · 401 · 403 · 404 not found |
-| `PUT` | `/{id}` | Partial update (`name`, `rules`) | 200 | 400 · 401 · 403 · 404 not found · 409 name conflict |
-| `DELETE` | `/{id}` | Soft delete | 204 | 400 · 401 · 403 · 404 not found |
-| `PUT` | `/{id}/workflow-steps` | **Replace** the full set of workflow steps this ticket type applies to | 200 | 400 a step id not on this event · 401 · 403 · 404 ticket type not found |
+| `GET` | `/` | List for the event (paginated, filtered, sorted) | 200 | 400 invalid event id/query · 401 · 404 another tenant's event |
+| `GET` | `/{id}` | Get one, scoped to the event — response includes `workflow_step_ids` | 200 | 400 bad UUID · 401 · 404 not found |
+
+Writes go through [`PUT /api/v1/events/{event_id}/setup`](#events).
 
 **List query:** `?page=1&size=20&sort=name,ASC&name=VIP`.
 - `page` 1-based; `size` default 20, clamped to 100.
 - `sort` repeatable, `field,DIR` — only fields in the allow-list (`id, name, created_at, updated_at`); unknown field → 400.
 - Filters: `name` (exact match); `event_id` is always forced from the URL and is not a query filter.
 
-**Workflow-step replace body:** `{ "workflow_step_ids": ["11111111-...", "22222222-..."] }` — an empty array clears applicability entirely.
-
 #### States & lifecycle
 
-- **Create** — service generates the `id` (UUID) and sets `event_id` from the URL; `rules` defaults to `{}` when omitted; `created_at`/`updated_at` are stamped by the audit repository decorator. Right after the row insert, the new ticket type's workflow-step applicability is seeded to **ALL** of the event's current workflow steps (fail open — an organizer forgetting to configure a new type should default to full admission, not silently block guests at every check-in step) via `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs`. This step is **best-effort**: a workflow-step lookup or assign failure is logged but does not fail ticket type creation (unlike the ticket-type-template copy below, this isn't inside a transaction — see [Non-goals](DEVELOPMENT_PLAN.md) B12).
-- **SeedFromCategoryTemplates** — implements `events/event`'s `TicketTypeSeeder` (wired in `internal/app`); called by `EventService.Create` inside its transaction with the category template version and the step-template → event-step map. Lists `ticket_type_templates` for the category at that version plus their step links (`ticket_type_template_workflow_steps`, one query), then for each template inserts a matching `TicketType` (same name/rules) and sets its steps to the mapped event step ids. Unlike `Create`, there is no fail-open default: any failure returns immediately and rolls back the whole event creation. The junction repository runs on the transaction in `ctx` (go-sdk `BaseRepository.GetConnection`); before B15 it always used the leader/follower directly, so these inserts ran outside the event transaction and failed their FKs. There is no FK from `ticket_types` back to the templates; it is a one-time copy.
-- **Update** — partial (`name`/`rules` only); `event_id` cannot change; `workflow_step_ids` is left unpopulated on the response; `updated_at` re-stamped by the decorator.
-- **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
-- **Replace workflow steps** — full-replace via `TicketTypeWorkflowStepRepository.SetWorkflowStepIDs` (delete-then-reinsert every association for the ticket type); **not wrapped in a database transaction** (no feature in this codebase uses one yet for this specific junction path, same as [workflow steps](#workflow-steps)' Sync) — a failure partway through is recovered by resubmitting the same call.
-- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a ticket type or workflow step belonging to a different event is also reported as 404/400 respectively (see Invariants); a missing `manage_events` permission →403; unexpected errors become 500 and are logged with context.
+- **SeedFromCategoryTemplates** — implements `events/event`'s `TicketTypeSeeder` (wired in `internal/app`); called by `EventService.Create` inside its transaction with the category template version and the step-template → event-step map. Lists `ticket_type_templates` for the category at that version plus their step links (`ticket_type_template_workflow_steps`, one query), then for each template inserts a matching `TicketType` (same name/rules) and sets its steps to the mapped event step ids. Any failure returns immediately and rolls back the whole event creation. The junction repository runs on the transaction in `ctx` (go-sdk `BaseRepository.GetConnection`); before B15 it always used the leader/follower directly, so these inserts ran outside the event transaction and failed their FKs. There is no FK from `ticket_types` back to the templates; it is a one-time copy.
+- **ReplaceForEvent** (the setup save's tickets half) — reads the event's live types once, soft-deletes the ones the payload drops, then per draft either updates the named row or inserts a new one, and sets its step access. `rules` defaults to `{}` on a create that omits it, matching the column default. Runs entirely on the setup save's transaction, so a failure anywhere rolls back the step changes that preceded it too.
+- **Delete** — **soft**: `deleted_at` is set; the row remains, so tickets and scan logs pointing at the type survive. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator). Because a soft-deleted row keeps its `name` and `UNIQUE (event_id, name)` counts it, removing a type and adding a *different* type with the same name in one save surfaces as 409 (marked as a deliberate ceiling in `event_setup_store.go`; the fix is a partial unique index).
+- **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrAlreadyExists`→409, `ErrInvalidEntity`→422); a ticket type belonging to a different event is also reported as 404; unexpected errors become 500 and are logged with context.
 
 ### Ticket type templates
 
@@ -519,9 +536,14 @@ immediately at invitation time (REQUIREMENT.md §3.10, §4.1, §4.2). Always sco
   `none`.
 - `event_id` is **immutable** and always taken from the URL, never the body — it is not part of
   `CreateGuestInput`/`UpdateGuestInput`.
-- Every read/update/delete/invitation-send is scoped to the `{event_id}` in the URL: a guest that exists but
-  belongs to a different event resolves as `errorz.NotFound` (404), not a cross-event leak — the same convention
-  as [ticket-types](#tickets)/[workflow-steps](#workflow-steps).
+- Every read/update/delete/invitation-send/ticket-issue is scoped to the `{event_id}` in the URL: a guest that
+  exists but belongs to a different event resolves as `errorz.NotFound` (404), not a cross-event leak — the same
+  convention as [ticket-types](#tickets)/[workflow-steps](#workflow-steps).
+- **A guest of another tenant's event is 404 before any handler runs**, via `authz.RequireEventInTenant`, which is
+  `r.Use`'d ahead of the `manage_guests` check (see [Events](#events)). This matters most here: before B16 a
+  Tenant Admin of one tenant could read another tenant's guest list — decrypted `email` and `phone` included —
+  by knowing an event id, because their system role satisfied `manage_guests` for *any* `{event_id}`. Ordering is
+  load-bearing: the tenant check must answer 404 before the permission check could answer 403.
 - A provided `ticket_type_id` (on create or update) must belong to the guest's own event — validated the same way
   `tickets` validates a workflow-step ID (400 otherwise).
 - **`email`/`phone` are encrypted at rest; `name` is not.** `name` stays plaintext specifically so it supports
@@ -541,6 +563,12 @@ immediately at invitation time (REQUIREMENT.md §3.10, §4.1, §4.2). Always sco
   unguessable `invitation_token` (returned only in this response — there's no real email/SMS channel yet) and
   sets `rsvp_status` to `invited`. If the event's `rsvp_required` is `false`, it also issues the guest's `Ticket`
   immediately; otherwise the ticket waits for RSVP confirm.
+- **`POST .../ticket` issues a guest's `Ticket` manually, whatever their `rsvp_status`** (B16 R2) — the escape
+  hatch for a guest the RSVP flow never produced one for: invited while the event's `rsvp_required` was on, then
+  confirming after it was turned off (turning the switch off is not retroactive — see [Events](#events)), or never
+  invited at all. It is **idempotent**: a guest who already holds a ticket is returned unchanged, with no second
+  ticket issued. It requires a `ticket_type_id` (400 otherwise, the same rule `SendInvitation`/`RSVP` enforce) and
+  it **never changes `rsvp_status`** — issuing a ticket is not a claim about whether the guest replied.
 - **The public RSVP endpoint is looked up by token alone, with no event/auth scoping** — the caller is an
   unauthenticated guest with no session. An unknown token is `errorz.NotFound` (404). Confirming issues the
   guest's `Ticket` if one hasn't already been issued (idempotent — a no-op if `rsvp_required` was `false` and one
@@ -563,8 +591,8 @@ immediately at invitation time (REQUIREMENT.md §3.10, §4.1, §4.2). Always sco
 
 ### Endpoints
 
-Base path `/api/v1/events/{event_id}/guests`. Every route requires a valid access token **and** the
-`manage_guests` permission (`authz.RequirePermission`, seeded in B6's catalog, previously unused by any slice) —
+Base path `/api/v1/events/{event_id}/guests`. Every route sits behind `authz.RequireEventInTenant` and requires a
+valid access token **and** the `manage_guests` permission (`authz.RequirePermission`, seeded in B6's catalog) —
 since every route carries `{event_id}`, this falls back to an event-scoped assignment on this event when the
 caller's system role doesn't grant it (see [roles' event-scoped permission fallback](#roles)):
 
@@ -576,6 +604,7 @@ caller's system role doesn't grant it (see [roles' event-scoped permission fallb
 | `PUT` | `/{id}` | Partial update (`name`, `email`, `phone`, `ticket_type_id`) | 200 | 400 · 401 · 403 · 404 |
 | `DELETE` | `/{id}` | Soft delete | 204 | 400 · 401 · 403 · 404 |
 | `POST` | `/{id}/invitation` | Send invitation — requires `ticket_type_id` already set | 200 | 400 no ticket type assigned · 401 · 403 · 404 |
+| `POST` | `/{id}/ticket` | Issue the ticket manually, whatever the RSVP status — idempotent | 200 | 400 no ticket type assigned · 401 · 403 · 404 |
 
 Public, unauthenticated (route-policy `public: true`, same mechanism as `auth`'s `/login`/`/refresh`):
 
@@ -596,6 +625,8 @@ Public, unauthenticated (route-policy `public: true`, same mechanism as `auth`'s
 - **Delete** — **soft**: `deleted_at` is set; the row remains. All reads/lists automatically exclude soft-deleted rows (`deleted_at IS NULL`, injected by the decorator).
 - **Send invitation** — sets `rsvp_status=invited`, generates `invitation_token`, calls `InvitationPublisher` (best-effort); issues the `Ticket` immediately only when the event's `rsvp_required` is `false`.
 - **RSVP** — looked up by `invitation_token`; confirming sets `rsvp_status=confirmed` and issues the `Ticket` if one doesn't already exist; declining sets `rsvp_status=declined` and never touches an existing ticket.
+- **Issue ticket** — `loadScoped` (with its ticket, if any) → return unchanged when one exists → otherwise the same `issueTicketIfNeeded` `SendInvitation`/`RSVP` use, then one `repo.Update`. `rsvp_status` is left exactly as it was.
+- **Guest counts for event screens** — `guests.GuestStats` implements `events/event`'s `GuestStats` with two direct grouped queries over live rows: `CountByEvents` (one call per page of events, `count(*)` plus `count(*) FILTER (WHERE rsvp_status = 'confirmed')` grouped by `event_id`, covered by `idx_guests_event_rsvp`) and `CountByTicketType` (per event, used by the event's setup save to refuse removing a held ticket type). Wired in `internal/app` so `events` never imports `guests`; direct SQL because `repository.Repository` has no aggregate read, which also means each query spells out `deleted_at IS NULL` itself rather than relying on the audit decorator.
 - **Errors** — repository sentinels are translated to `errorz` codes (`ErrNotFound`→404, `ErrInvalidEntity`→422); a ticket type belonging to a different event is `errorz.BadRequest` (400); a guest belonging to a different event is `errorz.NotFound` (404); a missing `manage_guests` permission →403; unexpected errors become 500 and are logged with context.
 
 ---
@@ -638,6 +669,10 @@ claimed twice while a repeatable step (e.g. photo booth) accumulates an accurate
   reusing the existing seeded permission (migration `000014`) every relevant role (Usher, Photobooth Staff,
   Tenant Staff, Tenant Admin, Super Admin) already holds. Both recording a scan and reading scan history share the
   same gate; no acceptance criterion asks for a narrower read-only tier.
+- **A scan against another tenant's event is 404 before the handler runs**, via `authz.RequireEventInTenant`,
+  `r.Use`'d ahead of the permission check (see [Events](#events)). That costs one primary-key read per scan, which
+  is accepted for now; caching the event→tenant mapping is deferred until scan latency (PRD-001 G3) shows it
+  matters.
 - **A caller with only an event-scoped assignment on this event (e.g. Usher, no elevated system-level role) can
   still pass this gate** — `authz.RequirePermission` falls back from the system-role check to that assignment's
   `role_id` on this `{event_id}` (see [roles' event-scoped permission fallback](#roles), [docs/DEVELOPMENT_PLAN.md

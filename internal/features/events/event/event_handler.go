@@ -33,18 +33,20 @@ func NewHandler(service Service, validator validation.Validator) *Handler {
 // List godoc
 //
 //	@Summary		List events
-//	@Description	Returns a paginated list of events. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (tenant_id, category_id, name).
+//	@Description	Returns a paginated list of the caller's tenant's events, each with its guest_count and confirmed_count. Query: page, size, sort=field,dir (repeatable), filter by allowed fields (category_id, name, start_date, end_date). start_date/end_date accept a range operator suffix, e.g. start_date=2026-09-22T10:00:00Z;gt (also gte, lt, lte).
 //	@Tags			events
 //	@Accept			json
 //	@Produce		json
 //	@Param			page		query		int		false	"Page number (1-based)"
 //	@Param			size		query		int		false	"Page size (default 20, max 100)"
 //	@Param			sort		query		string	false	"Sort: field,dir (e.g. sort=start_date,ASC&sort=id,DESC)"
-//	@Param			tenant_id	query		string	false	"Filter by tenant ID (exact match)"
 //	@Param			category_id	query		string	false	"Filter by category ID (exact match)"
 //	@Param			name		query		string	false	"Filter by name (exact match)"
-//	@Success		200			{object}	common.PageResponse[event.Event]
+//	@Param			start_date	query		string	false	"Filter by start date, RFC3339, optional ;gt/;gte/;lt/;lte suffix"
+//	@Param			end_date	query		string	false	"Filter by end date, RFC3339, optional ;gt/;gte/;lt/;lte suffix"
+//	@Success		200			{object}	common.PageResponse[event.ListItem]
 //	@Failure		400			{object}	object	"Invalid query (e.g. invalid sort field)"
+//	@Failure		401			{object}	object	"Unauthenticated (no tenant claim)"
 //	@Failure		500			{object}	object	"Internal server error"
 //	@Security		BearerAuth
 //	@Router			/api/v1/events [get]
@@ -55,7 +57,7 @@ func (h *Handler) List(r *http.Request) (any, error) {
 	}
 	// Explicitly typed (rather than :=) so this file imports common/dto — swag
 	// resolves the generic @Success type below against this file's imports.
-	var result *common.PageResponse[Event]
+	var result *common.PageResponse[ListItem]
 	result, err = h.service.List(r.Context(), params)
 	if err != nil {
 		return nil, err
@@ -96,13 +98,15 @@ func (h *Handler) GetByID(r *http.Request) (any, error) {
 // Create godoc
 //
 //	@Summary		Create event
-//	@Description	Creates a new event scoped to a tenant and category. is_multi_day is derived from start_date/end_date.
+//	@Description	Creates a new event under the caller's tenant (from the JWT — not caller-supplied) and the given category. is_multi_day is derived from start_date/end_date. Requires the manage_events permission.
 //	@Tags			events
 //	@Accept			json
 //	@Produce		json
 //	@Param			body	body		event.CreateEventInput	true	"Event payload"
 //	@Success		201		{object}	event.Event
 //	@Failure		400		{object}	object	"Invalid request body or validation error"
+//	@Failure		401		{object}	object	"Unauthenticated (no tenant claim)"
+//	@Failure		403		{object}	object	"Missing manage_events permission"
 //	@Failure		409		{object}	object	"Conflict"
 //	@Failure		422		{object}	object	"Unprocessable entity"
 //	@Failure		500		{object}	object	"Internal server error"
@@ -184,4 +188,81 @@ func (h *Handler) Delete(r *http.Request) (any, error) {
 		return nil, err
 	}
 	return response.NoContent(), nil
+}
+
+// eventIDFromPath parses the {event_id} path parameter of the setup routes.
+func eventIDFromPath(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "event_id"))
+	if err != nil {
+		return uuid.Nil, errorz.BadRequest().WithMessage("invalid event id")
+	}
+	return id, nil
+}
+
+// GetSetup handles GET /events/{event_id}/setup.
+//
+// GetSetup godoc
+//
+//	@Summary		Get event setup
+//	@Description	Returns the event's ordered workflow steps and its ticket types, each listing the steps it includes as ascending indexes into workflow_steps. Open to any authenticated caller of the event's tenant.
+//	@Tags			events
+//	@Accept			json
+//	@Produce		json
+//	@Param			event_id	path		string	true	"Event UUID"
+//	@Success		200			{object}	event.Setup
+//	@Failure		400			{object}	object	"Invalid event id"
+//	@Failure		401			{object}	object	"Unauthenticated (no tenant claim)"
+//	@Failure		404			{object}	object	"Event not found or in another tenant"
+//	@Failure		500			{object}	object	"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/api/v1/events/{event_id}/setup [get]
+func (h *Handler) GetSetup(r *http.Request) (any, error) {
+	eventID, err := eventIDFromPath(r)
+	if err != nil {
+		return nil, err
+	}
+	setup, err := h.service.GetSetup(r.Context(), eventID)
+	if err != nil {
+		return nil, err
+	}
+	return response.OK(setup), nil
+}
+
+// ReplaceSetup handles PUT /events/{event_id}/setup.
+//
+// ReplaceSetup godoc
+//
+//	@Summary		Replace event setup
+//	@Description	Replaces the event's whole setup — workflow steps, their order, ticket types, and each ticket type's step access — in one request and one transaction. Items sent with an id are updated in place and keep that id (guests, tickets and scan history that point at them are unaffected); items without one are created; existing items left out are deleted. Removing a ticket type that guests still hold is rejected and changes nothing. Requires the manage_events permission.
+//	@Tags			events
+//	@Accept			json
+//	@Produce		json
+//	@Param			event_id	path		string				true	"Event UUID"
+//	@Param			body		body		event.SetupInput	true	"The event's whole setup"
+//	@Success		200			{object}	event.Setup
+//	@Failure		400			{object}	object	"Invalid body, an id not belonging to this event, or a held ticket type removed — per-field detail under meta.fields"
+//	@Failure		401			{object}	object	"Unauthenticated (no tenant claim)"
+//	@Failure		403			{object}	object	"Missing manage_events permission"
+//	@Failure		404			{object}	object	"Event not found or in another tenant"
+//	@Failure		409			{object}	object	"Name or order conflict with a previously removed item"
+//	@Failure		500			{object}	object	"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/api/v1/events/{event_id}/setup [put]
+func (h *Handler) ReplaceSetup(r *http.Request) (any, error) {
+	eventID, err := eventIDFromPath(r)
+	if err != nil {
+		return nil, err
+	}
+	var body SetupInput
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, errorz.BadRequest().WithMessage("invalid request body")
+	}
+	if err := h.validator.Struct(body); err != nil {
+		return nil, err
+	}
+	setup, err := h.service.ReplaceSetup(r.Context(), eventID, body)
+	if err != nil {
+		return nil, err
+	}
+	return response.OK(setup), nil
 }

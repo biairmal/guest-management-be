@@ -12,6 +12,7 @@ import (
 	"github.com/biairmal/go-sdk/lib/sqlkit"
 	"github.com/google/uuid"
 
+	"github.com/biairmal/guest-management-be/internal/core/authz"
 	"github.com/biairmal/guest-management-be/internal/core/query"
 	"github.com/biairmal/guest-management-be/internal/features/events/category"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
@@ -20,51 +21,82 @@ import (
 
 //go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=../../../../mocks/events/event/mock_service.go -package=mockevent github.com/biairmal/guest-management-be/internal/features/events/event Service
 
-// Service defines the application-level operations for events.
+// Service defines the application-level operations for events. An event is the
+// aggregate root of its setup: GetSetup/ReplaceSetup read and write the event's
+// workflow steps, its ticket types, and each ticket type's step access as one
+// unit, the same way a category owns its template set.
+//
+// Every operation is scoped to the caller's tenant from the JWT: another
+// tenant's event reads as not found, never forbidden, so its ids can't be
+// probed (B16 R4).
 type Service interface {
 	Create(ctx context.Context, in CreateEventInput) (*Event, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Event, error)
 	Update(ctx context.Context, id uuid.UUID, in UpdateEventInput) (*Event, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	List(ctx context.Context, params *query.ListParams) (*common.PageResponse[Event], error)
+	List(ctx context.Context, params *query.ListParams) (*common.PageResponse[ListItem], error)
+	// GetSetup returns eventID's ordered workflow steps and its ticket types,
+	// each listing the steps it includes as indexes into the step array.
+	GetSetup(ctx context.Context, eventID uuid.UUID) (*Setup, error)
+	// ReplaceSetup replaces eventID's whole setup in one transaction: items
+	// with an id are updated in place and keep it, items without one are
+	// created, and existing items left out are deleted. If any part fails,
+	// nothing changes.
+	ReplaceSetup(ctx context.Context, eventID uuid.UUID, in SetupInput) (*Setup, error)
 }
 
 // eventServiceImpl is the concrete implementation of Service.
 type eventServiceImpl struct {
 	repo             repository.Repository[Event, uuid.UUID]
+	tenantRepo       EventTenantRepository
 	templateRepo     repository.Repository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID]
 	workflowStepRepo repository.Repository[workflowstep.WorkflowStep, uuid.UUID]
+	steps            workflowstep.Service
 	ticketTypeSeeder TicketTypeSeeder
+	ticketTypes      TicketTypeStore
+	guestStats       GuestStats
 	versionRepo      category.TemplateVersionRepository
 	db               *sqlkit.DB
 	logger           logger.Logger
 }
 
-// NewService returns an Service with the given dependencies.
-// templateRepo/workflowStepRepo back Create's default-workflow-step copy
-// (see copyWorkflowStepTemplates); ticketTypeSeeder backs Create's
-// default-ticket-type copy (B12); versionRepo reads the category's current
-// template version (B15). db backs Create's transactional wrap of all of
-// it (go-sdk's (*sqlkit.DB).WithTransaction), following NewUserService's
-// precedent (db last).
+// NewService returns a Service with the given dependencies.
+// tenantRepo reads (and, for the setup save, locks) the event's tenant without
+// going through the event cache; templateRepo/workflowStepRepo back Create's
+// default-workflow-step copy (see copyWorkflowStepTemplates); steps is the
+// sibling workflowstep service whose Sync reconciles the setup's steps (same
+// feature slice, so a direct dependency rather than a published interface);
+// ticketTypeSeeder backs Create's default-ticket-type copy (B12);
+// ticketTypes and guestStats are the tickets- and guests-side implementations
+// wired in internal/app (see ticket_type_store.go); versionRepo reads the
+// category's current template version (B15). db backs the transactional wrap of
+// Create and ReplaceSetup (go-sdk's (*sqlkit.DB).WithTransaction), following
+// NewUserService's precedent (db last).
 func NewService(
 	logger logger.Logger,
 	repo repository.Repository[Event, uuid.UUID],
+	tenantRepo EventTenantRepository,
 	templateRepo repository.Repository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID],
 	workflowStepRepo repository.Repository[workflowstep.WorkflowStep, uuid.UUID],
+	steps workflowstep.Service,
 	ticketTypeSeeder TicketTypeSeeder,
+	ticketTypes TicketTypeStore,
+	guestStats GuestStats,
 	versionRepo category.TemplateVersionRepository,
 	db *sqlkit.DB,
 ) Service {
 	return &eventServiceImpl{
-		logger: logger, repo: repo, templateRepo: templateRepo, workflowStepRepo: workflowStepRepo,
-		ticketTypeSeeder: ticketTypeSeeder, versionRepo: versionRepo, db: db,
+		logger: logger, repo: repo, tenantRepo: tenantRepo, templateRepo: templateRepo,
+		workflowStepRepo: workflowStepRepo, steps: steps, ticketTypeSeeder: ticketTypeSeeder,
+		ticketTypes: ticketTypes, guestStats: guestStats, versionRepo: versionRepo, db: db,
 	}
 }
 
-// Create creates a new event. ID is generated by the service; is_multi_day
-// is derived from start_date/end_date, not caller-supplied. Audit fields
-// (created_at, updated_at) are set by the AuditableRepository.
+// Create creates a new event under the caller's tenant (from the "tenant_id"
+// JWT claim — 401 without it; the caller cannot name another tenant). ID is
+// generated by the service; is_multi_day is derived from start_date/end_date,
+// not caller-supplied. Audit fields (created_at, updated_at) are set by the
+// AuditableRepository.
 //
 // The event insert, the workflow-step-template copy, and the
 // ticket-type-template seed (B12) all run inside a single transaction
@@ -77,8 +109,12 @@ func (s *eventServiceImpl) Create(ctx context.Context, in CreateEventInput) (*Ev
 	if in.EndDate.Before(in.StartDate) {
 		return nil, errorz.BadRequest().WithMessage("end_date must not be before start_date")
 	}
+	tenantID, ok := authz.TenantIDFromContext(ctx)
+	if !ok {
+		return nil, errorz.Unauthorized().WithMessage("no tenant claim present")
+	}
 
-	entity := buildEvent(in)
+	entity := buildEvent(tenantID, in)
 
 	err := s.db.WithTransaction(ctx, func(txCtx context.Context) error {
 		return s.createEvent(txCtx, entity)
@@ -91,13 +127,13 @@ func (s *eventServiceImpl) Create(ctx context.Context, in CreateEventInput) (*Ev
 	return entity, nil
 }
 
-// buildEvent constructs a new Event from in: ID is generated, is_multi_day
-// is derived from start_date/end_date, and rsvp_required defaults to true
-// when omitted. Pure aside from uuid.New(), so it's unit-tested directly
-// without a service/repo/db.
+// buildEvent constructs a new Event from in under tenantID: ID is generated,
+// is_multi_day is derived from start_date/end_date, and rsvp_required defaults
+// to true when omitted. Pure aside from uuid.New(), so it's unit-tested
+// directly without a service/repo/db.
 //
 //nolint:gocritic // DTO passed by value to match the by-value CreateInput convention across feature services
-func buildEvent(in CreateEventInput) *Event {
+func buildEvent(tenantID uuid.UUID, in CreateEventInput) *Event {
 	rsvpRequired := true
 	if in.RsvpRequired != nil {
 		rsvpRequired = *in.RsvpRequired
@@ -105,7 +141,7 @@ func buildEvent(in CreateEventInput) *Event {
 
 	return &Event{
 		ID:           uuid.New(),
-		TenantID:     in.TenantID,
+		TenantID:     tenantID,
 		CategoryID:   in.CategoryID,
 		Name:         in.Name,
 		Description:  in.Description,
@@ -199,8 +235,21 @@ func (s *eventServiceImpl) copyWorkflowStepTemplates(
 	return stepIDs, nil
 }
 
-// GetByID returns an event by ID, or errorz.NotFound if not found or soft-deleted.
+// GetByID returns an event by ID, or errorz.NotFound if not found,
+// soft-deleted, or owned by another tenant.
 func (s *eventServiceImpl) GetByID(ctx context.Context, id uuid.UUID) (*Event, error) {
+	return s.loadScoped(ctx, id)
+}
+
+// loadScoped loads id and applies the tenant scope: an event belonging to
+// another tenant is not found (not forbidden, so ids can't be probed) — the
+// same convention as category's loadScoped and staffing's
+// loadTenantScopedEvent. Shared by GetByID/Update/Delete/GetSetup.
+func (s *eventServiceImpl) loadScoped(ctx context.Context, id uuid.UUID) (*Event, error) {
+	callerTenant, ok := authz.TenantIDFromContext(ctx)
+	if !ok {
+		return nil, errorz.Unauthorized().WithMessage("no tenant claim present")
+	}
 	entity, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -209,20 +258,19 @@ func (s *eventServiceImpl) GetByID(ctx context.Context, id uuid.UUID) (*Event, e
 		s.logger.ErrorWithContext(ctx, "event get failed", logger.F("id", id), logger.F("error", err))
 		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to get event")
 	}
+	if entity.TenantID != callerTenant {
+		return nil, errorz.NotFound().WithMessage("event not found")
+	}
 	return entity, nil
 }
 
-// Update updates an event. Only non-nil fields in UpdateEventInput are
-// applied; is_multi_day is re-derived whenever either date changes. The
-// updated_at field is set by the AuditableRepository.
+// Update updates an event of the caller's tenant. Only non-nil fields in
+// UpdateEventInput are applied; is_multi_day is re-derived whenever either date
+// changes. The updated_at field is set by the AuditableRepository.
 func (s *eventServiceImpl) Update(ctx context.Context, id uuid.UUID, in UpdateEventInput) (*Event, error) {
-	entity, err := s.repo.GetByID(ctx, id)
+	entity, err := s.loadScoped(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, errorz.NotFound().WithMessage("event not found")
-		}
-		s.logger.ErrorWithContext(ctx, "event get for update failed", logger.F("id", id), logger.F("error", err))
-		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to get event")
+		return nil, err
 	}
 
 	if in.CategoryID != nil {
@@ -260,9 +308,12 @@ func (s *eventServiceImpl) Update(ctx context.Context, id uuid.UUID, in UpdateEv
 	return entity, nil
 }
 
-// Delete soft-deletes an event. The AuditableRepository handles setting
-// deleted_at and updated_at.
+// Delete soft-deletes an event of the caller's tenant. The AuditableRepository
+// handles setting deleted_at and updated_at.
 func (s *eventServiceImpl) Delete(ctx context.Context, id uuid.UUID) error {
+	if _, err := s.loadScoped(ctx, id); err != nil {
+		return err
+	}
 	if err := s.repo.Delete(ctx, id); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return errorz.NotFound().WithMessage("event not found")
@@ -277,24 +328,76 @@ func (s *eventServiceImpl) Delete(ctx context.Context, id uuid.UUID) error {
 // EventListConfig declares the allow-listed sort/filter fields for event
 // list queries, enforced here in the service via query.ValidateListParams
 // and reused by Handler.List for query.ParseListParams.
+//
+// tenant_id is deliberately absent from both lists: the tenant scope is forced
+// from the JWT (see List), never chosen by the caller. start_date/end_date are
+// filterable with the range operators (e.g. start_date=<ts>;gt), so a UI's
+// Upcoming/Live/Ended tabs are each one request (B16 R3).
 var EventListConfig = query.ListParseConfig{
 	AllowedSortFields: []string{
-		"id", "tenant_id", "category_id", "name", "start_date", "end_date", "is_multi_day", "created_at", "updated_at",
+		"id", "category_id", "name", "start_date", "end_date", "is_multi_day", "created_at", "updated_at",
 	},
-	AllowedFilterFields: []string{"tenant_id", "category_id", "name"},
+	AllowedFilterFields: []string{"category_id", "name", "start_date", "end_date"},
 }
 
-// List returns events with filter, sort, and pagination from query.ListParams.
-func (s *eventServiceImpl) List(ctx context.Context, params *query.ListParams) (*common.PageResponse[Event], error) {
+// List returns the caller's tenant's events with filter, sort, and pagination
+// from query.ListParams, each carrying its guest progress. The tenant scope is
+// applied server-side from the JWT and is not a caller-supplied filter.
+func (s *eventServiceImpl) List(
+	ctx context.Context, params *query.ListParams,
+) (*common.PageResponse[ListItem], error) {
 	if err := query.ValidateListParams(params, EventListConfig); err != nil {
 		return nil, errorz.BadRequest().WithMessage(err.Error())
 	}
-	items, total, err := s.repo.List(ctx, query.ToListOptions(params))
+	callerTenant, ok := authz.TenantIDFromContext(ctx)
+	if !ok {
+		return nil, errorz.Unauthorized().WithMessage("no tenant claim present")
+	}
+
+	opts := query.ToListOptions(params)
+	opts.Filter.Conditions = append(opts.Filter.Conditions, repository.FilterCondition{
+		Field:    "tenant_id",
+		Operator: repository.FilterOperatorEq,
+		Value:    callerTenant,
+	})
+
+	items, total, err := s.repo.List(ctx, opts)
 	if err != nil {
 		s.logger.ErrorWithContext(ctx, "event list failed", logger.F("error", err))
 		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to list events")
 	}
-	return common.NewPageResponse(items, total, params.Page, params.Size), nil
+
+	listItems, err := s.withGuestCounts(ctx, items)
+	if err != nil {
+		return nil, err
+	}
+	return common.NewPageResponse(listItems, total, params.Page, params.Size), nil
+}
+
+// withGuestCounts decorates a page of events with their guest progress in one
+// extra query for the whole page, not one per event. An event with no guests
+// reads as zeros.
+func (s *eventServiceImpl) withGuestCounts(ctx context.Context, items []*Event) ([]*ListItem, error) {
+	listItems := make([]*ListItem, len(items))
+	ids := make([]uuid.UUID, len(items))
+	for i, item := range items {
+		listItems[i] = &ListItem{Event: *item}
+		ids[i] = item.ID
+	}
+	if len(ids) == 0 {
+		return listItems, nil
+	}
+
+	counts, err := s.guestStats.CountByEvents(ctx, ids)
+	if err != nil {
+		s.logger.ErrorWithContext(ctx, "event list guest counts failed", logger.F("error", err))
+		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to count event guests")
+	}
+	for _, item := range listItems {
+		c := counts[item.ID]
+		item.GuestCount, item.ConfirmedCount = c.Total, c.Confirmed
+	}
+	return listItems, nil
 }
 
 // isMultiDay reports whether start and end fall on different calendar days,

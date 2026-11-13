@@ -24,5 +24,3 @@ func assertErrorzCode(t *testing.T, err error, want string) {
 		t.Errorf("code = %q, want %q", e.Code, want)
 	}
 }
-
-func ptrString(s string) *string { return &s }

@@ -56,6 +56,11 @@ type GuestService interface {
 	// scoping — the token alone identifies the guest) and records status.
 	// Confirming issues the guest's Ticket if one hasn't been issued yet.
 	RSVP(ctx context.Context, token, status string) (*Guest, error)
+	// IssueTicket issues the guest's Ticket if none has been issued,
+	// whatever their rsvp_status, and returns the guest with its ticket —
+	// the manual route for a guest whose ticket RSVP never produced (B16 R2).
+	// Idempotent: a guest who already has one is returned unchanged.
+	IssueTicket(ctx context.Context, eventID, id uuid.UUID) (*Guest, error)
 }
 
 // guestServiceImpl is the concrete implementation of GuestService.
@@ -380,6 +385,36 @@ func (s *guestServiceImpl) RSVP(ctx context.Context, token, status string) (*Gue
 	}
 
 	s.logger.InfoWithContext(ctx, "guest rsvp recorded", logger.F("id", guest.ID), logger.F("status", status))
+	return guest, nil
+}
+
+// IssueTicket issues eventID/id's guest their Ticket if none has been issued
+// yet and returns the guest with it. Deliberately indifferent to rsvp_status —
+// it is the manual escape hatch for a guest whose ticket the RSVP flow never
+// produced (invited while rsvp_required was on, confirmed after it was turned
+// off; or never invited at all). It never changes rsvp_status.
+//
+// Idempotent: a guest who already holds a ticket is returned unchanged, with no
+// second ticket issued. A guest with no ticket type assigned is a 400, the same
+// rule SendInvitation and RSVP already enforce via issueTicketIfNeeded.
+func (s *guestServiceImpl) IssueTicket(ctx context.Context, eventID, id uuid.UUID) (*Guest, error) {
+	guest, err := s.GetByID(ctx, eventID, id)
+	if err != nil {
+		return nil, err
+	}
+	if guest.TicketID != nil {
+		return guest, nil
+	}
+
+	if err := s.issueTicketIfNeeded(ctx, guest); err != nil {
+		return nil, err
+	}
+	if err := s.repo.Update(ctx, id, guest); err != nil {
+		s.logger.ErrorWithContext(ctx, "guest ticket issue update failed", logger.F("id", id), logger.F("error", err))
+		return nil, errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("failed to issue ticket")
+	}
+
+	s.logger.InfoWithContext(ctx, "guest ticket issued manually", logger.F("id", id))
 	return guest, nil
 }
 

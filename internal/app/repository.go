@@ -27,6 +27,7 @@ type repositories struct {
 	categoryRepository               sdkrepository.Repository[category.EventCategory, uuid.UUID]
 	categoryVersionRepository        category.TemplateVersionRepository
 	eventRepository                  sdkrepository.Repository[event.Event, uuid.UUID]
+	eventTenantRepository            event.EventTenantRepository
 	workflowStepRepository           sdkrepository.Repository[workflowstep.WorkflowStep, uuid.UUID]
 	workflowStepTemplateRepository   sdkrepository.Repository[workflowsteptemplate.WorkflowStepTemplate, uuid.UUID]
 	tenantRepository                 sdkrepository.Repository[tenants.Tenant, uuid.UUID]
@@ -117,6 +118,7 @@ func (a *App) initializeRepository(
 		categoryRepository:        category.NewCategoryRepository(log, db, categoryCacheOpts),
 		categoryVersionRepository: category.NewTemplateVersionRepository(log, db),
 		eventRepository:           event.NewEventRepository(log, db, eventCacheOpts),
+		eventTenantRepository:     event.NewEventTenantRepository(log, db),
 		workflowStepRepository:    workflowstep.NewWorkflowStepRepository(log, db, workflowStepCacheOpts),
 		workflowStepTemplateRepository: workflowsteptemplate.NewWorkflowStepTemplateRepository(
 			log, db, workflowStepTemplateCacheOpts,

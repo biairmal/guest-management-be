@@ -46,10 +46,15 @@ func (a *App) initializeService(
 	// ticketTypeService is constructed before eventService: eventService.Create
 	// needs it as its TicketTypeSeeder (B12) — see event.NewService below.
 	ticketTypeService := tickettype.NewTicketTypeService(
-		logger, repositories.ticketTypeRepository,
-		repositories.ticketTypeWorkflowStepRepository, repositories.workflowStepRepository,
+		logger, repositories.ticketTypeRepository, repositories.ticketTypeWorkflowStepRepository,
 		repositories.ticketTypeTemplateRepository, repositories.ticketTypeTemplateStepRepository,
 	)
+	// The events side of an event's setup save (B16): the tickets-side store is
+	// event's TicketTypeStore and the guests-side aggregate reader is its
+	// GuestStats, both wired here so events never imports tickets or guests.
+	// workflowStepService is a same-slice collaborator (its Sync reconciles the
+	// setup's steps), so it is constructed before eventService too.
+	workflowStepService := workflowstep.NewService(logger, repositories.workflowStepRepository)
 
 	return &service{
 		// The tickets-side Store is the category's TicketTypeTemplateStore
@@ -63,11 +68,16 @@ func (a *App) initializeService(
 			a.db,
 		),
 		eventService: event.NewService(
-			logger, repositories.eventRepository,
+			logger, repositories.eventRepository, repositories.eventTenantRepository,
 			repositories.workflowStepTemplateRepository, repositories.workflowStepRepository,
-			ticketTypeService, repositories.categoryVersionRepository, a.db,
+			workflowStepService, ticketTypeService,
+			tickettype.NewSetupStore(
+				logger, repositories.ticketTypeRepository, repositories.ticketTypeWorkflowStepRepository,
+			),
+			guests.NewGuestStats(logger, a.db),
+			repositories.categoryVersionRepository, a.db,
 		),
-		workflowStepService: workflowstep.NewService(logger, repositories.workflowStepRepository),
+		workflowStepService: workflowStepService,
 		tenantService:       tenants.NewTenantService(logger, repositories.tenantRepository),
 		userService: users.NewUserService(
 			logger, repositories.userRepository, repositories.roleRepository, a.db,

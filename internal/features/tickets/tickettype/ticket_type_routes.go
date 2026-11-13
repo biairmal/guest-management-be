@@ -1,26 +1,26 @@
 package tickettype
 
 import (
+	"net/http"
+
 	"github.com/biairmal/go-sdk/lib/httpkit/handler"
 	"github.com/go-chi/chi/v5"
-
-	"github.com/biairmal/guest-management-be/internal/core/authz"
-	"github.com/biairmal/guest-management-be/internal/features/tickets"
 )
 
-// InitTicketTypeRoutes registers event-scoped ticket type routes on the
-// given router. Every route requires the manage_events permission (see
-// tickets_constants.go, declared at the tickets feature root) — the first
-// phase of ticket-type management, unlike events/workflow-steps, gates on a
-// permission code from creation.
-func InitTicketTypeRoutes(r *chi.Mux, h *TicketTypeHandler, checker *authz.Checker) {
+// InitTicketTypeRoutes registers event-scoped ticket type routes on the given
+// router. Reads only: since B16 the event's setup save
+// (PUT /api/v1/events/{event_id}/setup) is the single way to change an event's
+// ticket types, so two write paths can't drift. These reads stay because the
+// guest ticket-type picker needs the list, and they no longer require
+// manage_events — a caller who may register guests must be able to see the
+// ticket types to pick from.
+//
+// inTenant is authz.RequireEventInTenant, built in internal/app: a ticket type
+// of another tenant's event reads as 404, not as data.
+func InitTicketTypeRoutes(r *chi.Mux, h *TicketTypeHandler, inTenant func(http.Handler) http.Handler) {
 	r.Route("/api/v1/events/{event_id}/ticket-types", func(r chi.Router) {
-		r.Use(authz.RequirePermission(checker, tickets.PermissionManageEvents))
+		r.Use(inTenant)
 		r.Get("/", handler.Handle(h.List))
-		r.Post("/", handler.Handle(h.Create))
 		r.Get("/{id}", handler.Handle(h.GetByID))
-		r.Put("/{id}", handler.Handle(h.Update))
-		r.Delete("/{id}", handler.Handle(h.Delete))
-		r.Put("/{id}/workflow-steps", handler.Handle(h.ReplaceWorkflowSteps))
 	})
 }

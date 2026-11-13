@@ -44,35 +44,6 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
 }
 
-// Create mocks base method.
-func (m *MockService) Create(ctx context.Context, eventID uuid.UUID, in workflowstep.CreateWorkflowStepInput) (*workflowstep.WorkflowStep, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Create", ctx, eventID, in)
-	ret0, _ := ret[0].(*workflowstep.WorkflowStep)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Create indicates an expected call of Create.
-func (mr *MockServiceMockRecorder) Create(ctx, eventID, in any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockService)(nil).Create), ctx, eventID, in)
-}
-
-// Delete mocks base method.
-func (m *MockService) Delete(ctx context.Context, eventID, id uuid.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", ctx, eventID, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Delete indicates an expected call of Delete.
-func (mr *MockServiceMockRecorder) Delete(ctx, eventID, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockService)(nil).Delete), ctx, eventID, id)
-}
-
 // GetByID mocks base method.
 func (m *MockService) GetByID(ctx context.Context, eventID, id uuid.UUID) (*workflowstep.WorkflowStep, error) {
 	m.ctrl.T.Helper()
@@ -116,19 +87,4 @@ func (m *MockService) Sync(ctx context.Context, eventID uuid.UUID, in []workflow
 func (mr *MockServiceMockRecorder) Sync(ctx, eventID, in any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sync", reflect.TypeOf((*MockService)(nil).Sync), ctx, eventID, in)
-}
-
-// Update mocks base method.
-func (m *MockService) Update(ctx context.Context, eventID, id uuid.UUID, in workflowstep.UpdateWorkflowStepInput) (*workflowstep.WorkflowStep, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Update", ctx, eventID, id, in)
-	ret0, _ := ret[0].(*workflowstep.WorkflowStep)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Update indicates an expected call of Update.
-func (mr *MockServiceMockRecorder) Update(ctx, eventID, id, in any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockService)(nil).Update), ctx, eventID, id, in)
 }

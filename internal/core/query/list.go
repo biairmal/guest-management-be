@@ -23,12 +23,21 @@ const (
 
 // supportedFilterOperators whitelists which repository.FilterOperator values
 // a filter value's ";operator" suffix (see FilterValue) may select. Kept
-// intentionally short — eq (the default) and like are all any feature needs
-// today; add another go-sdk FilterOperator here (gt, in, ...) when a feature
-// actually needs it, not speculatively.
+// intentionally short — add another go-sdk FilterOperator here (in, ne, ...)
+// when a feature actually needs it, not speculatively. The range operators
+// were added for the event list's start_date/end_date filters (B16 R3).
+//
+// An operator here is valid on every allow-listed filter field of every
+// feature, so a feature whose column can't honestly be range-compared must
+// reject them in its own service — see guests' rewriteEncryptedFilters,
+// which refuses any non-eq operator on the blind-indexed email/phone.
 var supportedFilterOperators = map[repository.FilterOperator]bool{
 	repository.FilterOperatorEq:   true,
 	repository.FilterOperatorLike: true,
+	repository.FilterOperatorGt:   true,
+	repository.FilterOperatorGte:  true,
+	repository.FilterOperatorLt:   true,
+	repository.FilterOperatorLte:  true,
 }
 
 // ListParseConfig configures allow-listed sort/filter fields and pagination

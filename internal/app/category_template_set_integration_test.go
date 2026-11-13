@@ -19,6 +19,7 @@ import (
 	"github.com/biairmal/guest-management-be/internal/features/events/event"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowstep"
 	"github.com/biairmal/guest-management-be/internal/features/events/workflowsteptemplate"
+	"github.com/biairmal/guest-management-be/internal/features/guests"
 	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettype"
 	"github.com/biairmal/guest-management-be/internal/features/tickets/tickettypetemplate"
 )
@@ -51,10 +52,14 @@ func TestCategoryTemplateSet_EventSeeding(t *testing.T) {
 
 	categories := category.NewService(log, category.NewCategoryRepository(log, db, noCache), versionRepo,
 		stepTemplateRepo, tickettypetemplate.NewStore(log, ticketTemplateRepo, ticketTemplateStepRepo), db)
-	ticketTypes := tickettype.NewTicketTypeService(log, tickettype.NewTicketTypeRepository(log, db, noCache),
-		junctionRepo, workflowStepRepo, ticketTemplateRepo, ticketTemplateStepRepo)
+	ticketTypeRepo := tickettype.NewTicketTypeRepository(log, db, noCache)
+	ticketTypes := tickettype.NewTicketTypeService(log, ticketTypeRepo,
+		junctionRepo, ticketTemplateRepo, ticketTemplateStepRepo)
 	events := event.NewService(log, event.NewEventRepository(log, db, noCache),
-		stepTemplateRepo, workflowStepRepo, ticketTypes, versionRepo, db)
+		event.NewEventTenantRepository(log, db), stepTemplateRepo, workflowStepRepo,
+		workflowstep.NewService(log, workflowStepRepo), ticketTypes,
+		tickettype.NewSetupStore(log, ticketTypeRepo, junctionRepo), guests.NewGuestStats(log, db),
+		versionRepo, db)
 
 	created, err := categories.Create(ctx, category.CreateInput{
 		Source: category.SourceTenant, Name: "B15 integration " + uuid.NewString(),
@@ -93,7 +98,7 @@ func TestCategoryTemplateSet_EventSeeding(t *testing.T) {
 
 	start := time.Now().Add(24 * time.Hour)
 	ev, err := events.Create(ctx, event.CreateEventInput{
-		TenantID: category.PlatformTenantID, CategoryID: created.ID, Name: "B15 integration event",
+		CategoryID: created.ID, Name: "B15 integration event",
 		StartDate: start, EndDate: start.Add(time.Hour),
 	})
 	if err != nil {
